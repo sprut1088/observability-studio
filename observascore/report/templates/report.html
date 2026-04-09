@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{{ title }} — {{ client_name }}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; background: #f5f7fa; color: #1a202c; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+  header { background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); color: white; padding: 3rem 2rem; }
+  header .inner { max-width: 1200px; margin: 0 auto; }
+  header h1 { margin: 0 0 0.5rem 0; font-size: 2rem; }
+  header .meta { opacity: 0.9; font-size: 0.95rem; }
+  .card { background: white; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  h2 { color: #1e3a8a; border-bottom: 2px solid #e5e7eb; padding-bottom: 0.5rem; margin-top: 0; }
+  h3 { color: #374151; margin-top: 1.5rem; }
+  .score-hero { display: flex; align-items: center; gap: 2rem; flex-wrap: wrap; }
+  .score-circle {
+    width: 140px; height: 140px; border-radius: 50%; flex-shrink: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: white; font-weight: bold;
+  }
+  .level-1 { background: #dc2626; }
+  .level-2 { background: #f59e0b; }
+  .level-3 { background: #eab308; color: #1a202c; }
+  .level-4 { background: #10b981; }
+  .level-5 { background: #059669; }
+  .score-circle .num { font-size: 2.5rem; line-height: 1; }
+  .score-circle .lbl { font-size: 0.75rem; text-transform: uppercase; margin-top: 0.3rem; }
+  .dimensions { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+  .dim-card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 1rem; }
+  .dim-card h4 { margin: 0 0 0.5rem 0; color: #374151; font-size: 0.95rem; }
+  .bar { background: #e5e7eb; border-radius: 4px; height: 10px; overflow: hidden; margin: 0.5rem 0; }
+  .bar-fill { height: 100%; transition: width 0.3s; }
+  .dim-meta { font-size: 0.8rem; color: #6b7280; display: flex; justify-content: space-between; }
+  .findings-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  .findings-table th, .findings-table td { text-align: left; padding: 0.75rem; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+  .findings-table th { background: #f9fafb; font-weight: 600; color: #374151; }
+  .severity-badge { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 12px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
+  .sev-critical { background: #fee2e2; color: #991b1b; }
+  .sev-high { background: #fed7aa; color: #9a3412; }
+  .sev-medium { background: #fef3c7; color: #854d0e; }
+  .sev-low { background: #dbeafe; color: #1e40af; }
+  .sev-info { background: #e5e7eb; color: #374151; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
+  .stat { background: #f9fafb; padding: 1rem; border-radius: 6px; border-left: 4px solid #3b82f6; }
+  .stat-value { font-size: 1.8rem; font-weight: bold; color: #1e3a8a; }
+  .stat-label { font-size: 0.8rem; color: #6b7280; margin-top: 0.2rem; }
+  .evidence { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 0.75rem; color: #4b5563; background: #f9fafb; padding: 0.4rem; border-radius: 3px; margin-top: 0.3rem; word-break: break-all; }
+  details { margin: 0.5rem 0; }
+  summary { cursor: pointer; font-weight: 500; color: #1e3a8a; padding: 0.3rem 0; }
+  summary:hover { color: #3b82f6; }
+  .footer { text-align: center; color: #6b7280; font-size: 0.8rem; padding: 1rem; }
+  .err-list li { color: #991b1b; font-family: monospace; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<header>
+  <div class="inner">
+    <h1>{{ title }}</h1>
+    <div class="meta">
+      <strong>Client:</strong> {{ client_name }} &nbsp;|&nbsp;
+      <strong>Environment:</strong> {{ environment }} &nbsp;|&nbsp;
+      <strong>Generated:</strong> {{ generated_at }}
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="card">
+    <h2>Executive Summary</h2>
+    <div class="score-hero">
+      <div class="score-circle level-{{ result.overall_level }}">
+        <div class="num">{{ result.overall_level }}</div>
+        <div class="lbl">{{ result.overall_level_name }}</div>
+      </div>
+      <div style="flex:1; min-width: 300px;">
+        <h3 style="margin-top:0;">Overall Maturity Score: {{ "%.1f"|format(result.overall_score) }} / 100</h3>
+        <p>The observability estate operates at <strong>Level {{ result.overall_level }} — {{ result.overall_level_name }}</strong>.
+        {{ result.findings|length }} finding(s) identified across {{ result.dimension_scores|length }} maturity dimensions.</p>
+        <p style="color:#6b7280; font-size: 0.9rem;">
+          Strategic items (critical + high): <strong>{{ strategic|length }}</strong> &nbsp;|&nbsp;
+          Quick wins (low + medium): <strong>{{ quick_wins|length }}</strong>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>What Was Inspected</h2>
+    <div class="stat-grid">
+      <div class="stat"><div class="stat-value">{{ summary.prometheus_targets_up }}/{{ summary.prometheus_targets }}</div><div class="stat-label">Prometheus targets (up/total)</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.prometheus_alert_rules }}</div><div class="stat-label">Alert rules</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.prometheus_recording_rules }}</div><div class="stat-label">Recording rules</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.prometheus_metrics_sampled }}</div><div class="stat-label">Metric names sampled</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.grafana_dashboards }}</div><div class="stat-label">Grafana dashboards</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.grafana_folders }}</div><div class="stat-label">Grafana folders</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.grafana_datasources }}</div><div class="stat-label">Datasources</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.loki_labels }}</div><div class="stat-label">Loki labels</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.jaeger_services }}</div><div class="stat-label">Jaeger services</div></div>
+    </div>
+    {% if summary.extraction_errors %}
+    <h3>Extraction issues</h3>
+    <ul class="err-list">{% for e in summary.extraction_errors %}<li>{{ e }}</li>{% endfor %}</ul>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Maturity Heatmap</h2>
+    <div class="dimensions">
+      {% for d in result.dimension_scores %}
+      <div class="dim-card">
+        <h4>{{ d.label }}</h4>
+        <div class="bar"><div class="bar-fill level-{{ d.level }}" style="width: {{ d.score }}%;"></div></div>
+        <div class="dim-meta">
+          <span>Level {{ d.level }} — {{ d.level_name }}</span>
+          <span>{{ "%.0f"|format(d.score) }}/100 · {{ d.findings_count }} findings</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if strategic %}
+  <div class="card">
+    <h2>Strategic Improvements — Critical &amp; High</h2>
+    <table class="findings-table">
+      <tr><th style="width:90px;">Severity</th><th>Finding</th><th>Recommended Action</th></tr>
+      {% for f in strategic %}
+      <tr>
+        <td><span class="severity-badge sev-{{ f.severity }}">{{ f.severity }}</span></td>
+        <td><strong>{{ f.title }}</strong><br>{{ f.description }}
+          {% if f.evidence %}<details><summary>Evidence ({{ f.evidence|length }})</summary>
+          {% for e in f.evidence %}<div class="evidence">{{ e }}</div>{% endfor %}
+          </details>{% endif %}
+        </td>
+        <td>{{ f.remediation }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  {% if quick_wins %}
+  <div class="card">
+    <h2>Quick Wins — Low &amp; Medium</h2>
+    <table class="findings-table">
+      <tr><th style="width:90px;">Severity</th><th>Finding</th><th>Recommended Action</th></tr>
+      {% for f in quick_wins %}
+      <tr>
+        <td><span class="severity-badge sev-{{ f.severity }}">{{ f.severity }}</span></td>
+        <td><strong>{{ f.title }}</strong><br>{{ f.description }}
+          {% if f.evidence %}<details><summary>Evidence ({{ f.evidence|length }})</summary>
+          {% for e in f.evidence %}<div class="evidence">{{ e }}</div>{% endfor %}
+          </details>{% endif %}
+        </td>
+        <td>{{ f.remediation }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2>Technical Annex</h2>
+
+    <details open>
+      <summary><strong>All findings ({{ result.findings|length }})</strong></summary>
+      <table class="findings-table" style="margin-top:0.5rem;">
+        <tr><th>Rule ID</th><th>Dimension</th><th>Severity</th><th>Title</th><th>Description</th></tr>
+        {% for f in result.findings %}
+        <tr>
+          <td>{{ f.rule_id }}</td>
+          <td>{{ f.dimension }}</td>
+          <td><span class="severity-badge sev-{{ f.severity }}">{{ f.severity }}</span></td>
+          <td>{{ f.title }}</td>
+          <td>{{ f.description }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </details>
+
+    <details>
+      <summary><strong>Datasources ({{ datasources|length }})</strong></summary>
+      <ul>{% for d in datasources %}<li>{{ d.name }} — {{ d.ds_type }}{% if d.url %} — {{ d.url }}{% endif %}</li>{% endfor %}</ul>
+    </details>
+
+    <details>
+      <summary><strong>Dashboards (first 50)</strong></summary>
+      <ul>{% for d in dashboards %}<li>[{{ d.folder or "General" }}] {{ d.title }} — {{ d.panels|length }} panels</li>{% endfor %}</ul>
+    </details>
+
+    <details>
+      <summary><strong>Alert rules (first 50)</strong></summary>
+      <ul>{% for a in alert_rules %}<li>[{{ a.source_tool }}] {{ a.name }} — severity: {{ a.severity or "none" }}, runbook: {{ "yes" if a.runbook_url else "no" }}</li>{% endfor %}</ul>
+    </details>
+  </div>
+
+  <div class="footer">
+    Generated by ObservaScore v0.1.0 — reference implementation for demo purposes
+  </div>
+</div>
+</body>
+</html>

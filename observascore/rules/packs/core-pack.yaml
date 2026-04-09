@@ -1,0 +1,208 @@
+# ObservaScore Core Rule Pack v1.0
+#
+# Each rule declares metadata only. The actual check logic lives in
+# observascore/rules/checks.py keyed by rule id.
+
+name: core-pack
+version: "1.0"
+description: "Core observability & SRE maturity heuristics"
+
+rules:
+  # --- Signal Coverage ---
+  - id: SIG-001
+    dimension: signal_coverage
+    severity: critical
+    weight: 10
+    title: "Metrics collection absent"
+    description: "No metrics collected from Prometheus"
+    remediation: "Ensure Prometheus is scraping targets and metrics are being ingested. Check /api/v1/targets."
+
+  - id: SIG-002
+    dimension: signal_coverage
+    severity: high
+    weight: 6
+    title: "Log collection absent or unreachable"
+    description: "No log signals detected"
+    remediation: "Deploy Loki and configure log shipping (Promtail/Fluent Bit/Grafana Alloy) for all tier-1 services."
+
+  - id: SIG-003
+    dimension: signal_coverage
+    severity: high
+    weight: 6
+    title: "Trace collection absent or unreachable"
+    description: "No trace signals detected"
+    remediation: "Instrument services with OpenTelemetry SDKs or auto-instrumentation and ship traces to Jaeger/Tempo."
+
+  - id: SIG-004
+    dimension: signal_coverage
+    severity: high
+    weight: 5
+    title: "Unhealthy scrape targets"
+    description: "One or more Prometheus scrape targets are down"
+    remediation: "Investigate failed targets. Add alerting on the `up` metric to catch scrape failures proactively."
+
+  # --- Golden Signals ---
+  - id: GOLD-001
+    dimension: golden_signals
+    severity: high
+    weight: 5
+    title: "Latency signals missing"
+    description: "No latency metrics found"
+    remediation: "Instrument services with RED method (Request rate, Errors, Duration) using histogram metrics."
+
+  - id: GOLD-002
+    dimension: golden_signals
+    severity: high
+    weight: 5
+    title: "Error signals missing"
+    description: "No error-rate metrics found"
+    remediation: "Emit per-service error-count metrics with labels for status code and operation."
+
+  - id: GOLD-003
+    dimension: golden_signals
+    severity: medium
+    weight: 4
+    title: "Traffic signals missing"
+    description: "No traffic/throughput metrics found"
+    remediation: "Emit request-count metrics for all ingress points (HTTP, gRPC, queue consumers)."
+
+  - id: GOLD-004
+    dimension: golden_signals
+    severity: medium
+    weight: 4
+    title: "Saturation signals missing"
+    description: "No saturation metrics found"
+    remediation: "Collect resource saturation via node_exporter, cAdvisor, or process-level metrics (CPU, memory, pools)."
+
+  # --- SLO Maturity ---
+  - id: SLO-001
+    dimension: slo_maturity
+    severity: high
+    weight: 8
+    title: "No SLO burn-rate alerting"
+    description: "No multi-window burn-rate alerts detected"
+    remediation: "Introduce SLO burn-rate alerting for tier-1 services using the Google SRE multi-window pattern (1h/5m, 6h/30m)."
+
+  - id: SLO-002
+    dimension: slo_maturity
+    severity: medium
+    weight: 5
+    title: "No SLO recording rules"
+    description: "No SLO/SLI recording rules detected"
+    remediation: "Adopt SLO-as-code (Sloth, Pyrra, or OpenSLO) to generate recording rules and burn-rate alerts from YAML definitions."
+
+  # --- Alert Quality ---
+  - id: ALERT-001
+    dimension: alert_quality
+    severity: high
+    weight: 7
+    title: "Alerts without runbooks"
+    description: "Alerts lack a runbook annotation"
+    remediation: "Mandate a `runbook_url` annotation for every alert. Use RunbookForge-style automation to bootstrap first drafts."
+
+  - id: ALERT-002
+    dimension: alert_quality
+    severity: medium
+    weight: 5
+    title: "Alerts without severity labels"
+    description: "Alerts lack a severity label"
+    remediation: "Standardize severity labels (critical/warning/info) for routing in Alertmanager."
+
+  - id: ALERT-003
+    dimension: alert_quality
+    severity: medium
+    weight: 4
+    title: "Alerts without 'for:' clause"
+    description: "Alerts fire immediately without a for duration"
+    remediation: "Add 'for:' duration (typically 2-5m) to avoid flap on transient spikes."
+
+  - id: ALERT-004
+    dimension: alert_quality
+    severity: medium
+    weight: 5
+    title: "Cause-heavy alerting"
+    description: "Alert portfolio is dominated by cause-based rather than symptom-based alerts"
+    remediation: "Shift paging alerts to user-facing symptoms (latency/errors/availability). Keep cause-based alerts as diagnostic context, not pages."
+
+  - id: ALERT-005
+    dimension: alert_quality
+    severity: low
+    weight: 3
+    title: "Alerts without descriptions"
+    description: "Alerts lack description/summary annotations"
+    remediation: "Add summary and description annotations to every alert so on-call has immediate context."
+
+  # --- Incident Response ---
+  - id: INC-001
+    dimension: incident_response
+    severity: critical
+    weight: 8
+    title: "No dashboards present"
+    description: "No Grafana dashboards exist"
+    remediation: "Deploy a baseline dashboard pack per service type (API, batch, database, messaging)."
+
+  - id: INC-002
+    dimension: incident_response
+    severity: medium
+    weight: 4
+    title: "Flat dashboard folder structure"
+    description: "Dashboards live in 'General' folder"
+    remediation: "Organize dashboards by domain/service/team folders. Apply RBAC per folder."
+
+  - id: INC-003
+    dimension: incident_response
+    severity: medium
+    weight: 4
+    title: "Dashboards lack templating"
+    description: "Dashboards lack template variables"
+    remediation: "Use Grafana variables ($env, $service, $instance) to eliminate dashboard duplication."
+
+  - id: INC-004
+    dimension: incident_response
+    severity: low
+    weight: 3
+    title: "Panels missing units"
+    description: "Many panels have no units configured"
+    remediation: "Set panel units (seconds, bytes, req/s) for correct display during incidents."
+
+  # --- Automation ---
+  - id: AUTO-001
+    dimension: automation
+    severity: medium
+    weight: 4
+    title: "No Prometheus recording rules"
+    description: "No recording rules defined"
+    remediation: "Introduce recording rules for expensive or frequently-run queries to reduce dashboard load."
+
+  - id: AUTO-002
+    dimension: automation
+    severity: high
+    weight: 6
+    title: "Weak signal correlation"
+    description: "No shared service identifier across metrics/logs/traces"
+    remediation: "Standardize on OpenTelemetry semantic conventions ('service.name', 'deployment.environment') across all signals to enable correlation."
+
+  # --- Governance ---
+  - id: GOV-001
+    dimension: governance
+    severity: low
+    weight: 3
+    title: "Datasource sprawl"
+    description: "Many Grafana datasources configured"
+    remediation: "Audit and consolidate datasources. Remove unused ones. Name them by purpose, not by infrastructure."
+
+  - id: GOV-002
+    dimension: governance
+    severity: medium
+    weight: 4
+    title: "Dashboards lack ownership tags"
+    description: "Majority of dashboards have no tags"
+    remediation: "Mandate ownership and service tags on all dashboards. Use tags for search and RBAC."
+
+  - id: GOV-003
+    dimension: governance
+    severity: low
+    weight: 3
+    title: "Ad-hoc alert grouping"
+    description: "Alerts are not organized into logical groups"
+    remediation: "Group Prometheus alerts by domain/service in rule files. Helps with ownership and maintenance."

@@ -1,0 +1,55 @@
+# ObservaScore configuration
+# Copy this to config.yaml and edit for your environment
+
+client:
+  name: "Demo Bank"
+  environment: "lab"
+  assessor: "SRE Team"
+
+sources:
+  prometheus:
+    enabled: true
+    url: http://localhost:9090
+    # Optional basic auth
+    # username: ""
+    # password: ""
+    timeout: 30
+
+  grafana:
+    enabled: true
+    url: http://localhost:3000
+    # Create a Service Account (Viewer role) and paste the token here
+    api_key: ""
+    timeout: 30
+    # Skip TLS verify for lab environments with self-signed certs
+    verify_tls: true
+
+  loki:
+    enabled: true
+    url: http://localhost:3100
+    timeout: 30
+
+  jaeger:
+    enabled: true
+    url: http://localhost:16686
+    timeout: 30
+
+# Scoring configuration
+scoring:
+  # Rules with severity below this are informational (don't reduce score)
+  min_severity: low
+  # Dimensions to include (all by default)
+  dimensions:
+    - signal_coverage
+    - golden_signals
+    - slo_maturity
+    - alert_quality
+    - incident_response
+    - automation
+    - governance
+
+# Report configuration
+report:
+  title: "Observability & SRE Maturity Assessment"
+  include_technical_annex: true
+  include_backlog: true
