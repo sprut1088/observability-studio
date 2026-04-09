@@ -143,8 +143,8 @@ observascore/
 
 ## License
 
-MIT — use it, fork it, rebrand it for client engagements.
+MIT — use it, fork it, rebrand it
 
 ## Disclaimer
 
-This is a reference implementation. Rule weights and thresholds reflect general best practices and should be tuned for your environment. Always validate findings with domain experts before presenting to clients.
+This is a reference implementation. Rule weights and thresholds reflect general best practices and should be tuned for your environment.
