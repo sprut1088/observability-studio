@@ -1,0 +1,147 @@
+# ObservaScore Trends Rule Pack v1.0
+#
+# Evaluates the observability estate against 2024-2025 industry trends
+# and modern best practices. These rules identify gaps that go beyond
+# core signal coverage and alert quality.
+
+name: trends-pack
+version: "1.0"
+description: "Modern observability trends & best practices heuristics (2024-2025)"
+
+rules:
+  # --- OpenTelemetry Adoption ---
+  - id: OTEL-001
+    dimension: otel_adoption
+    severity: high
+    weight: 7
+    title: "No OpenTelemetry Collector in pipeline"
+    description: "OpenTelemetry Collector absent — telemetry pipeline is vendor-coupled"
+    remediation: >
+      Deploy the OpenTelemetry Collector as the central telemetry pipeline.
+      Configure receivers (OTLP, Prometheus, Fluent Forward) and exporters
+      (Prometheus remote write, Loki, Tempo). Use the collector for sampling,
+      filtering, and routing to avoid vendor lock-in.
+
+  - id: OTEL-002
+    dimension: otel_adoption
+    severity: medium
+    weight: 5
+    title: "Jaeger without Tempo (non-OTel-native tracing)"
+    description: "Using Jaeger without Grafana Tempo — missing OTel-native tracing capabilities"
+    remediation: >
+      Migrate to Grafana Tempo alongside or replacing Jaeger. Tempo supports OTLP natively,
+      integrates with Grafana exemplars for metrics-to-trace navigation, offers TraceQL for
+      powerful trace queries, and scales better with object storage backends.
+
+  - id: OTEL-003
+    dimension: otel_adoption
+    severity: medium
+    weight: 5
+    title: "No OTel semantic conventions detected"
+    description: "Instrumentation does not use OpenTelemetry semantic conventions"
+    remediation: >
+      Adopt OpenTelemetry semantic conventions across services:
+      - Use 'service.name', 'deployment.environment', 'service.version' resource attributes
+      - Instrument HTTP with 'http.method', 'http.status_code', 'http.route'
+      - Instrument DB with 'db.system', 'db.name', 'db.operation'
+      This enables auto-discovery, out-of-the-box Grafana dashboards, and cross-signal correlation.
+
+  # --- Modern Tooling ---
+  - id: MODERN-001
+    dimension: modern_tooling
+    severity: medium
+    weight: 5
+    title: "Continuous profiling absent"
+    description: "No always-on profiling tool (Pyroscope, Parca) detected"
+    remediation: >
+      Deploy Grafana Pyroscope (or Parca) for continuous profiling.
+      Add the Pyroscope SDK or use auto-instrumentation (Java agent, eBPF-based profiling).
+      Profiling adds the fourth pillar of observability: CPU hotspots, memory leaks,
+      and goroutine/thread issues that metrics and traces cannot pinpoint.
+
+  - id: MODERN-002
+    dimension: modern_tooling
+    severity: high
+    weight: 6
+    title: "Synthetic monitoring absent"
+    description: "No synthetic/active external monitoring probes detected"
+    remediation: >
+      Deploy Prometheus Blackbox Exporter for HTTP/TCP/ICMP probes or use
+      Grafana Synthetic Monitoring (cloud) / k6 for scripted user journey tests.
+      Synthetic monitoring catches: CDN failures, DNS issues, TLS expiry,
+      and geographic availability gaps that internal health checks miss entirely.
+
+  - id: MODERN-003
+    dimension: modern_tooling
+    severity: medium
+    weight: 4
+    title: "No service mesh or eBPF network telemetry"
+    description: "East-west service network traffic is unobserved"
+    remediation: >
+      Consider adding a service mesh (Istio, Linkerd) or eBPF-based network observability
+      (Cilium with Hubble, Pixie, Odigos). These provide automatic mutual-TLS, L7 traffic
+      visibility, and service topology maps without code changes — critical for microservices.
+
+  - id: MODERN-004
+    dimension: modern_tooling
+    severity: high
+    weight: 7
+    title: "No AlertManager or no incident escalation integration"
+    description: "Alert routing to on-call incident management tools is absent"
+    remediation: >
+      Deploy AlertManager with integrations to PagerDuty or OpsGenie.
+      Configure: receiver routing by severity/team, inhibition rules to suppress
+      cascading alerts during incidents, time-based routing for on-call schedules,
+      and deduplication windows to prevent alert storms.
+
+  # --- Security Observability ---
+  - id: SEC-001
+    dimension: security_observability
+    severity: high
+    weight: 6
+    title: "No runtime security observability"
+    description: "Runtime security signals (Falco, Tetragon, audit events) are absent"
+    remediation: >
+      Deploy Falco for kernel-level syscall monitoring and ship alerts to Loki/Elasticsearch.
+      Enable Kubernetes audit log collection to your log platform.
+      Consider Tetragon (Cilium) for eBPF-based security observability with process-level
+      network policy enforcement and cryptographic identity. Required for SOC2/PCI compliance.
+
+  - id: SEC-002
+    dimension: security_observability
+    severity: high
+    weight: 6
+    title: "No audit log collection"
+    description: "Kubernetes API server or cloud provider audit logs not collected"
+    remediation: >
+      Configure Kubernetes API server audit logging and ship to your log platform.
+      For cloud: enable AWS CloudTrail / GCP Cloud Audit Logs / Azure Monitor.
+      Audit logs are mandatory for compliance and forensic investigation.
+      Add alerts for: privilege escalation, secret access, RBAC changes.
+
+  # --- Business Observability ---
+  - id: BIZ-001
+    dimension: governance
+    severity: high
+    weight: 6
+    title: "No business KPI metrics"
+    description: "Business-level metrics (revenue, conversion, orders) absent from estate"
+    remediation: >
+      Instrument key business flows with custom Prometheus metrics or OTel gauges/counters:
+      - Orders per minute, payment success/failure rate, checkout funnel drop-off
+      - Feature adoption rates, user session health
+      Tie these to SLIs so the team knows when incidents impact the business in real-time.
+
+  - id: BIZ-002
+    dimension: governance
+    severity: medium
+    weight: 4
+    title: "No DORA metrics instrumentation"
+    description: "Engineering delivery performance (DORA metrics) not measured"
+    remediation: >
+      Instrument DORA metrics:
+      - Deployment frequency: emit a metric on each deploy (CI/CD webhook to Pushgateway)
+      - Lead time: timestamp from commit to production
+      - Change failure rate: track rollbacks and hotfixes
+      - MTTR: track time from alert to resolution in incident tooling (PagerDuty/OpsGenie API)
+      Tools: Four Keys (DORA open source), Sleuth, LinearB, or custom Prometheus gauges.

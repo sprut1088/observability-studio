@@ -74,8 +74,12 @@ class RulesEngine:
         self.pack_dir = pack_dir
         self.rules: dict[str, RuleDefinition] = {}
         self._load_packs()
-        # Import checks module to populate registry
+        # Import check modules to populate registry
         from observascore.rules import checks  # noqa: F401
+        from observascore.rules import trend_checks  # noqa: F401
+        from observascore.rules import appdynamics_checks  # noqa: F401
+        from observascore.rules import datadog_checks  # noqa: F401
+        from observascore.rules import dynatrace_checks  # noqa: F401
 
     def _load_packs(self) -> None:
         """Load all YAML rule packs from pack_dir."""

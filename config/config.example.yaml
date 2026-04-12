@@ -1,19 +1,24 @@
-# ObservaScore configuration
-# Copy this to config.yaml and edit for your environment
+# ObservaScore v0.2.0 — Configuration
+# Copy to config.yaml and edit for your environment.
 
 client:
   name: "Demo Bank"
   environment: "lab"
   assessor: "SRE Team"
 
+# ---------------------------------------------------------------------------
+# Observability Sources
+# ---------------------------------------------------------------------------
 sources:
+
+  # --- Core stack ---
   prometheus:
     enabled: true
     url: http://localhost:9090
-    # Optional basic auth
     # username: ""
     # password: ""
     timeout: 30
+    verify_tls: true
 
   grafana:
     enabled: true
@@ -21,7 +26,6 @@ sources:
     # Create a Service Account (Viewer role) and paste the token here
     api_key: ""
     timeout: 30
-    # Skip TLS verify for lab environments with self-signed certs
     verify_tls: true
 
   loki:
@@ -34,11 +38,110 @@ sources:
     url: http://localhost:16686
     timeout: 30
 
-# Scoring configuration
+  # --- Extended stack (enable as appropriate) ---
+
+  # AlertManager — alert routing, silences, receiver integrations
+  alertmanager:
+    enabled: false
+    url: http://localhost:9093
+    timeout: 30
+
+  # Grafana Tempo — OTel-native distributed tracing backend
+  tempo:
+    enabled: false
+    url: http://localhost:3200
+    timeout: 30
+
+  # Elasticsearch / OpenSearch — log management and APM
+  elasticsearch:
+    enabled: false
+    url: http://localhost:9200
+    # username: ""
+    # password: ""
+    # api_key: ""  # alternative to username/password
+    timeout: 30
+    verify_tls: true
+
+  # OpenTelemetry Collector — vendor-neutral telemetry pipeline
+  otel_collector:
+    enabled: false
+    url: http://localhost:13133    # health check extension default port
+    metrics_port: 8888             # internal prometheus metrics port
+    health_port: 13133             # health check extension port
+    zpages_port: 55679             # zpages extension port (optional)
+    timeout: 10
+
+  # ---------------------------------------------------------------------------
+  # Commercial APM / Observability Platforms
+  # Enable the one(s) your environment uses. These are mutually independent —
+  # you can assess a mixed estate (e.g. Prometheus + Datadog).
+  # ---------------------------------------------------------------------------
+
+  # AppDynamics — enterprise APM with BT-based tracing, SIM, and EUM
+  appdynamics:
+    enabled: false
+    url: https://your-controller.saas.appdynamics.com  # or https://controller:8090 on-prem
+    # Option A — Basic auth (username@account format is handled automatically)
+    username: "admin"
+    password: ""
+    account: "your-account-name"
+    # Option B — OAuth2 client credentials (takes precedence if set)
+    # client_id: ""
+    # client_secret: ""
+    timeout: 30
+    verify_tls: true
+
+  # Datadog — cloud-native observability with APM, logs, synthetics, security
+  datadog:
+    enabled: false
+    # Site: datadoghq.com (US1, default) | datadoghq.eu | us3.datadoghq.com
+    #       us5.datadoghq.com | ap1.datadoghq.com
+    site: "datadoghq.com"
+    # API key (from Organization Settings → API Keys)
+    api_key: ""
+    # Application key (from Organization Settings → Application Keys)
+    # Requires scopes: monitors_read, dashboards_read, synthetics_read,
+    #                  slos_read, apm_service_catalog_read, logs_read_config,
+    #                  security_monitoring_rules_read
+    app_key: ""
+    timeout: 30
+
+  # Dynatrace — AI-powered full-stack observability with Davis AI
+  dynatrace:
+    enabled: false
+    # SaaS: https://<env-id>.live.dynatrace.com
+    # Managed: https://<managed-host>/e/<env-id>
+    url: "https://your-env-id.live.dynatrace.com"
+    # API token — create in Settings → Access Tokens with scopes:
+    #   entities.read, problems.read, slo.read, settings.read,
+    #   dashboards.read, syntheticLocations.read, metrics.read, logs.read,
+    #   DataExport, ReadConfig
+    api_token: ""
+    timeout: 30
+    verify_tls: true
+
+# ---------------------------------------------------------------------------
+# AI Analysis (Claude via Anthropic API)
+# ---------------------------------------------------------------------------
+ai:
+  enabled: true
+
+  # Anthropic API key — get yours at https://console.anthropic.com
+  # Can also be set via ANTHROPIC_API_KEY environment variable
+  api_key: ""
+
+  # Model to use. Recommended: claude-sonnet-4-6 (best balance of speed/quality)
+  # Options: claude-opus-4-6 (most thorough), claude-haiku-4-5-20251001 (fastest)
+  model: "claude-sonnet-4-6"
+
+  # Max tokens for the AI response (4096 is sufficient for most estates)
+  max_tokens: 4096
+
+# ---------------------------------------------------------------------------
+# Scoring Configuration
+# ---------------------------------------------------------------------------
 scoring:
-  # Rules with severity below this are informational (don't reduce score)
   min_severity: low
-  # Dimensions to include (all by default)
   dimensions:
     - signal_coverage
     - golden_signals
@@ -47,8 +150,13 @@ scoring:
     - incident_response
     - automation
     - governance
+    - otel_adoption
+    - modern_tooling
+    - security_observability
 
-# Report configuration
+# ---------------------------------------------------------------------------
+# Report Configuration
+# ---------------------------------------------------------------------------
 report:
   title: "Observability & SRE Maturity Assessment"
   include_technical_annex: true

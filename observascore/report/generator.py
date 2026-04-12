@@ -32,14 +32,17 @@ class ReportGenerator:
     ) -> dict[str, Path]:
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        ai = estate.ai_analysis
+
         # JSON report
         json_path = output_dir / "observascore-report.json"
-        report_data = {
+        report_data: dict[str, Any] = {
             "metadata": {
                 "client": estate.client_name,
                 "environment": estate.environment,
                 "generated_at": estate.timestamp,
-                "tool_version": "0.1.0",
+                "tool_version": "0.2.0",
+                "configured_tools": estate.configured_tools,
             },
             "summary": {
                 "prometheus_targets": estate.summary.prometheus_targets,
@@ -52,9 +55,49 @@ class ReportGenerator:
                 "grafana_datasources": estate.summary.grafana_datasources,
                 "loki_labels": estate.summary.loki_labels,
                 "jaeger_services": estate.summary.jaeger_services,
+                "alertmanager_receivers": estate.summary.alertmanager_receivers,
+                "alertmanager_silences": estate.summary.alertmanager_silences,
+                "alertmanager_integrations": estate.summary.alertmanager_integrations,
+                "tempo_services": estate.summary.tempo_services,
+                "elasticsearch_indices": estate.summary.elasticsearch_indices,
+                "otel_receivers": estate.summary.otel_receivers,
+                "otel_exporters": estate.summary.otel_exporters,
+                "otel_pipelines": estate.summary.otel_pipelines,
+                # AppDynamics
+                "appdynamics_applications": estate.summary.appdynamics_applications,
+                "appdynamics_tiers": estate.summary.appdynamics_tiers,
+                "appdynamics_health_rules": estate.summary.appdynamics_health_rules,
+                "appdynamics_business_transactions": estate.summary.appdynamics_business_transactions,
+                "appdynamics_has_eum": estate.summary.appdynamics_has_eum,
+                "appdynamics_has_sim": estate.summary.appdynamics_has_sim,
+                "appdynamics_has_db_monitoring": estate.summary.appdynamics_has_db_monitoring,
+                "appdynamics_apps_with_baselines": estate.summary.appdynamics_apps_with_baselines,
+                # Datadog
+                "datadog_monitors": estate.summary.datadog_monitors,
+                "datadog_monitors_with_notifications": estate.summary.datadog_monitors_with_notifications,
+                "datadog_dashboards": estate.summary.datadog_dashboards,
+                "datadog_hosts": estate.summary.datadog_hosts,
+                "datadog_slos": estate.summary.datadog_slos,
+                "datadog_synthetics": estate.summary.datadog_synthetics,
+                "datadog_has_apm": estate.summary.datadog_has_apm,
+                "datadog_has_log_management": estate.summary.datadog_has_log_management,
+                "datadog_has_security_monitoring": estate.summary.datadog_has_security_monitoring,
+                "datadog_has_service_catalog": estate.summary.datadog_has_service_catalog,
+                # Dynatrace
+                "dynatrace_services": estate.summary.dynatrace_services,
+                "dynatrace_hosts": estate.summary.dynatrace_hosts,
+                "dynatrace_applications": estate.summary.dynatrace_applications,
+                "dynatrace_problems_open": estate.summary.dynatrace_problems_open,
+                "dynatrace_slos": estate.summary.dynatrace_slos,
+                "dynatrace_synthetics": estate.summary.dynatrace_synthetics,
+                "dynatrace_alerting_profiles": estate.summary.dynatrace_alerting_profiles,
+                "dynatrace_notification_integrations": estate.summary.dynatrace_notification_integrations,
+                "dynatrace_has_log_management": estate.summary.dynatrace_has_log_management,
+                "dynatrace_has_rum": estate.summary.dynatrace_has_rum,
                 "extraction_errors": estate.summary.extraction_errors,
             },
             "result": result.to_dict(),
+            "ai_analysis": ai.to_dict() if ai else None,
         }
         with open(json_path, "w") as f:
             json.dump(report_data, f, indent=2, default=str)
@@ -92,8 +135,10 @@ class ReportGenerator:
             dashboards=estate.dashboards[:50],
             alert_rules=estate.alert_rules[:50],
             datasources=estate.datasources,
+            alert_receivers=estate.alert_receivers,
+            ai_analysis=ai,
         )
-        with open(html_path, "w") as f:
+        with open(html_path, "w", encoding="utf-8") as f:
             f.write(html)
         logger.info("HTML report: %s", html_path)
 

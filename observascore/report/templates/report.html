@@ -6,11 +6,12 @@
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; background: #f5f7fa; color: #1a202c; }
-  .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+  .container { max-width: 1280px; margin: 0 auto; padding: 2rem; }
   header { background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); color: white; padding: 3rem 2rem; }
-  header .inner { max-width: 1200px; margin: 0 auto; }
+  header .inner { max-width: 1280px; margin: 0 auto; }
   header h1 { margin: 0 0 0.5rem 0; font-size: 2rem; }
   header .meta { opacity: 0.9; font-size: 0.95rem; }
+  header .badge { display: inline-block; background: rgba(255,255,255,0.2); border-radius: 20px; padding: 0.2rem 0.8rem; font-size: 0.8rem; margin-left: 0.5rem; }
   .card { background: white; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   h2 { color: #1e3a8a; border-bottom: 2px solid #e5e7eb; padding-bottom: 0.5rem; margin-top: 0; }
   h3 { color: #374151; margin-top: 1.5rem; }
@@ -27,7 +28,7 @@
   .level-5 { background: #059669; }
   .score-circle .num { font-size: 2.5rem; line-height: 1; }
   .score-circle .lbl { font-size: 0.75rem; text-transform: uppercase; margin-top: 0.3rem; }
-  .dimensions { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+  .dimensions { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
   .dim-card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 1rem; }
   .dim-card h4 { margin: 0 0 0.5rem 0; color: #374151; font-size: 0.95rem; }
   .bar { background: #e5e7eb; border-radius: 4px; height: 10px; overflow: hidden; margin: 0.5rem 0; }
@@ -42,7 +43,7 @@
   .sev-medium { background: #fef3c7; color: #854d0e; }
   .sev-low { background: #dbeafe; color: #1e40af; }
   .sev-info { background: #e5e7eb; color: #374151; }
-  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; }
   .stat { background: #f9fafb; padding: 1rem; border-radius: 6px; border-left: 4px solid #3b82f6; }
   .stat-value { font-size: 1.8rem; font-weight: bold; color: #1e3a8a; }
   .stat-label { font-size: 0.8rem; color: #6b7280; margin-top: 0.2rem; }
@@ -52,6 +53,43 @@
   summary:hover { color: #3b82f6; }
   .footer { text-align: center; color: #6b7280; font-size: 0.8rem; padding: 1rem; }
   .err-list li { color: #991b1b; font-family: monospace; font-size: 0.85rem; }
+
+  /* AI Analysis styles */
+  .ai-section { border: 2px solid #7c3aed; border-radius: 8px; }
+  .ai-section h2 { color: #7c3aed; border-bottom-color: #7c3aed; }
+  .ai-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .ai-model-badge { background: #ede9fe; color: #7c3aed; border-radius: 20px; padding: 0.25rem 0.75rem; font-size: 0.8rem; font-weight: 600; }
+  .trend-score-ring { width: 100px; height: 100px; border-radius: 50%; background: conic-gradient(#7c3aed calc(var(--ts) * 1%), #e5e7eb 0); display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative; }
+  .trend-score-ring::before { content: ''; position: absolute; width: 74px; height: 74px; border-radius: 50%; background: white; }
+  .trend-score-inner { position: relative; z-index: 1; text-align: center; }
+  .trend-score-inner .ts-num { font-size: 1.4rem; font-weight: bold; color: #7c3aed; line-height: 1; }
+  .trend-score-inner .ts-lbl { font-size: 0.65rem; color: #6b7280; text-transform: uppercase; }
+  .narrative { line-height: 1.7; color: #374151; background: #faf5ff; border-left: 4px solid #7c3aed; padding: 1rem 1.25rem; border-radius: 0 6px 6px 0; margin-bottom: 1.5rem; }
+  .narrative p { margin: 0 0 0.75rem 0; }
+  .narrative p:last-child { margin: 0; }
+  .trend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0.75rem; margin-top: 1rem; }
+  .trend-item { border: 1px solid #e5e7eb; border-radius: 6px; padding: 0.75rem; }
+  .trend-item.adopted { border-left: 4px solid #10b981; }
+  .trend-item.partial { border-left: 4px solid #f59e0b; }
+  .trend-item.absent { border-left: 4px solid #e5e7eb; }
+  .trend-name { font-weight: 600; font-size: 0.9rem; color: #1f2937; }
+  .trend-status { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 10px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; margin-left: 0.4rem; }
+  .status-adopted { background: #d1fae5; color: #065f46; }
+  .status-partial { background: #fef3c7; color: #854d0e; }
+  .status-absent { background: #f3f4f6; color: #6b7280; }
+  .impact-badge { font-size: 0.7rem; color: #9ca3af; }
+  .trend-desc { font-size: 0.82rem; color: #6b7280; margin-top: 0.3rem; line-height: 1.5; }
+  .strengths-list { list-style: none; padding: 0; margin: 0; }
+  .strengths-list li { padding: 0.4rem 0 0.4rem 1.5rem; position: relative; font-size: 0.9rem; color: #374151; border-bottom: 1px solid #f3f4f6; }
+  .strengths-list li::before { content: '✓'; position: absolute; left: 0; color: #10b981; font-weight: bold; }
+  .recs-list { list-style: none; padding: 0; margin: 0; counter-reset: rec-counter; }
+  .recs-list li { padding: 0.5rem 0 0.5rem 2.5rem; position: relative; font-size: 0.9rem; color: #374151; border-bottom: 1px solid #f3f4f6; counter-increment: rec-counter; }
+  .recs-list li::before { content: counter(rec-counter); position: absolute; left: 0; width: 1.8rem; height: 1.8rem; background: #7c3aed; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: bold; }
+  .ai-error { background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 1rem; color: #854d0e; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
+  .tool-chip { display: inline-block; background: #eff6ff; color: #1e40af; border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.78rem; margin: 0.15rem; font-family: monospace; }
+  .tool-chip.active { background: #d1fae5; color: #065f46; }
 </style>
 </head>
 <body>
@@ -62,12 +100,14 @@
       <strong>Client:</strong> {{ client_name }} &nbsp;|&nbsp;
       <strong>Environment:</strong> {{ environment }} &nbsp;|&nbsp;
       <strong>Generated:</strong> {{ generated_at }}
+      {% if ai_analysis and not ai_analysis.error %}<span class="badge">✦ AI-Enhanced</span>{% endif %}
     </div>
   </div>
 </header>
 
 <div class="container">
 
+  <!-- Executive Summary -->
   <div class="card">
     <h2>Executive Summary</h2>
     <div class="score-hero">
@@ -84,9 +124,147 @@
           Quick wins (low + medium): <strong>{{ quick_wins|length }}</strong>
         </p>
       </div>
+      {% if ai_analysis and not ai_analysis.error %}
+      <div style="text-align:center; flex-shrink:0;">
+        <div class="trend-score-ring" style="--ts: {{ ai_analysis.trend_score }}">
+          <div class="trend-score-inner">
+            <div class="ts-num">{{ ai_analysis.trend_score|int }}</div>
+            <div class="ts-lbl">Trend</div>
+          </div>
+        </div>
+        <div style="font-size:0.75rem; color:#6b7280; margin-top:0.3rem;">Modern Stack Score</div>
+      </div>
+      {% endif %}
     </div>
   </div>
 
+  <!-- AI Narrative (if available) -->
+  {% if ai_analysis %}
+  <div class="card ai-section">
+    <h2>✦ AI Analysis — Observability Gap Assessment</h2>
+    {% if ai_analysis.error %}
+    <div class="ai-error">
+      <strong>AI analysis could not be completed:</strong> {{ ai_analysis.error }}<br>
+      <small>The rest of this report uses deterministic rule findings only. Check your api_key configuration and retry.</small>
+    </div>
+    {% else %}
+    <div class="ai-header">
+      <span class="ai-model-badge">{{ ai_analysis.model_used }}</span>
+      <span style="font-size:0.85rem; color:#6b7280;">Generated {{ ai_analysis.generated_at }}</span>
+    </div>
+
+    <!-- Narrative -->
+    <div class="narrative">
+      {% for para in ai_analysis.narrative.split('\n\n') %}
+      <p>{{ para }}</p>
+      {% endfor %}
+    </div>
+
+    <div class="two-col">
+      <!-- Technical Gaps -->
+      <div>
+        <h3 style="color:#7c3aed; margin-top:0;">Technical Gaps</h3>
+        {% if ai_analysis.technical_gaps %}
+        <table class="findings-table">
+          <tr><th style="width:80px;">Severity</th><th>Gap</th></tr>
+          {% for gap in ai_analysis.technical_gaps %}
+          <tr>
+            <td><span class="severity-badge sev-{{ gap.severity }}">{{ gap.severity }}</span></td>
+            <td>
+              <strong>{{ gap.title }}</strong><br>
+              <span style="font-size:0.85rem; color:#6b7280;">{{ gap.description }}</span>
+              {% if gap.evidence %}
+              <details><summary>Evidence</summary>
+              {% for e in gap.evidence %}<div class="evidence">{{ e }}</div>{% endfor %}
+              </details>{% endif %}
+              <div style="margin-top:0.4rem; font-size:0.82rem; color:#1e40af;">
+                ➜ {{ gap.recommendation }}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </table>
+        {% else %}
+        <p style="color:#6b7280; font-style:italic;">No technical gaps identified.</p>
+        {% endif %}
+      </div>
+
+      <!-- Functional Gaps -->
+      <div>
+        <h3 style="color:#7c3aed; margin-top:0;">Functional Gaps</h3>
+        {% if ai_analysis.functional_gaps %}
+        <table class="findings-table">
+          <tr><th style="width:80px;">Severity</th><th>Gap</th></tr>
+          {% for gap in ai_analysis.functional_gaps %}
+          <tr>
+            <td><span class="severity-badge sev-{{ gap.severity }}">{{ gap.severity }}</span></td>
+            <td>
+              <strong>{{ gap.title }}</strong><br>
+              <span style="font-size:0.85rem; color:#6b7280;">{{ gap.description }}</span>
+              {% if gap.evidence %}
+              <details><summary>Evidence</summary>
+              {% for e in gap.evidence %}<div class="evidence">{{ e }}</div>{% endfor %}
+              </details>{% endif %}
+              <div style="margin-top:0.4rem; font-size:0.82rem; color:#1e40af;">
+                ➜ {{ gap.recommendation }}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </table>
+        {% else %}
+        <p style="color:#6b7280; font-style:italic;">No functional gaps identified.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Trend Alignments -->
+    {% if ai_analysis.trend_alignments %}
+    <h3 style="color:#7c3aed;">2024–2025 Trend Alignment</h3>
+    <div class="trend-grid">
+      {% for trend in ai_analysis.trend_alignments %}
+      <div class="trend-item {{ trend.status }}">
+        <div>
+          <span class="trend-name">{{ trend.trend }}</span>
+          <span class="trend-status status-{{ trend.status }}">{{ trend.status }}</span>
+          <span class="impact-badge">· {{ trend.impact }} impact</span>
+        </div>
+        <div class="trend-desc">{{ trend.description }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Strengths + Recommendations -->
+    <div class="two-col" style="margin-top:1.5rem;">
+      <div>
+        <h3 style="color:#065f46; margin-top:0;">Strengths</h3>
+        {% if ai_analysis.strengths %}
+        <ul class="strengths-list">
+          {% for s in ai_analysis.strengths %}
+          <li>{{ s }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p style="color:#6b7280; font-style:italic;">No notable strengths identified.</p>
+        {% endif %}
+      </div>
+      <div>
+        <h3 style="color:#7c3aed; margin-top:0;">Prioritized Recommendations</h3>
+        {% if ai_analysis.prioritized_recommendations %}
+        <ol class="recs-list">
+          {% for rec in ai_analysis.prioritized_recommendations %}
+          <li>{{ rec }}</li>
+          {% endfor %}
+        </ol>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- What Was Inspected -->
   <div class="card">
     <h2>What Was Inspected</h2>
     <div class="stat-grid">
@@ -95,17 +273,92 @@
       <div class="stat"><div class="stat-value">{{ summary.prometheus_recording_rules }}</div><div class="stat-label">Recording rules</div></div>
       <div class="stat"><div class="stat-value">{{ summary.prometheus_metrics_sampled }}</div><div class="stat-label">Metric names sampled</div></div>
       <div class="stat"><div class="stat-value">{{ summary.grafana_dashboards }}</div><div class="stat-label">Grafana dashboards</div></div>
-      <div class="stat"><div class="stat-value">{{ summary.grafana_folders }}</div><div class="stat-label">Grafana folders</div></div>
       <div class="stat"><div class="stat-value">{{ summary.grafana_datasources }}</div><div class="stat-label">Datasources</div></div>
       <div class="stat"><div class="stat-value">{{ summary.loki_labels }}</div><div class="stat-label">Loki labels</div></div>
       <div class="stat"><div class="stat-value">{{ summary.jaeger_services }}</div><div class="stat-label">Jaeger services</div></div>
+      {% if summary.alertmanager_receivers > 0 %}
+      <div class="stat"><div class="stat-value">{{ summary.alertmanager_receivers }}</div><div class="stat-label">AM receivers</div></div>
+      {% endif %}
+      {% if summary.tempo_services > 0 %}
+      <div class="stat"><div class="stat-value">{{ summary.tempo_services }}</div><div class="stat-label">Tempo services</div></div>
+      {% endif %}
+      {% if summary.elasticsearch_indices > 0 %}
+      <div class="stat"><div class="stat-value">{{ summary.elasticsearch_indices }}</div><div class="stat-label">ES indices</div></div>
+      {% endif %}
+      {% if summary.otel_pipelines > 0 %}
+      <div class="stat"><div class="stat-value">{{ summary.otel_pipelines }}</div><div class="stat-label">OTel pipelines</div></div>
+      {% endif %}
+      {% if summary.appdynamics_applications > 0 %}
+      <div class="stat"><div class="stat-value">{{ summary.appdynamics_applications }}</div><div class="stat-label">AppD applications</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.appdynamics_tiers }}</div><div class="stat-label">AppD tiers (agents)</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.appdynamics_business_transactions }}</div><div class="stat-label">Business transactions</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.appdynamics_health_rules }}</div><div class="stat-label">AppD health rules</div></div>
+      {% endif %}
+      {% if summary.datadog_monitors > 0 or summary.datadog_hosts > 0 %}
+      <div class="stat"><div class="stat-value">{{ summary.datadog_hosts }}</div><div class="stat-label">Datadog hosts</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.datadog_monitors }}</div><div class="stat-label">Datadog monitors</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.datadog_slos }}</div><div class="stat-label">Datadog SLOs</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.datadog_synthetics }}</div><div class="stat-label">Datadog synthetics</div></div>
+      {% endif %}
+      {% if summary.dynatrace_services > 0 or summary.dynatrace_hosts > 0 %}
+      <div class="stat"><div class="stat-value">{{ summary.dynatrace_services }}</div><div class="stat-label">Dynatrace services</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.dynatrace_hosts }}</div><div class="stat-label">Dynatrace hosts</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.dynatrace_slos }}</div><div class="stat-label">Dynatrace SLOs</div></div>
+      <div class="stat"><div class="stat-value">{{ summary.dynatrace_problems_open }}</div><div class="stat-label">Open DT problems</div></div>
+      {% endif %}
     </div>
+
+    {% if summary.alertmanager_integrations %}
+    <p style="margin-top:1rem; font-size:0.9rem;">
+      <strong>AlertManager integrations:</strong>
+      {% for i in summary.alertmanager_integrations %}<span class="tool-chip active">{{ i }}</span>{% endfor %}
+    </p>
+    {% endif %}
+    {% if summary.appdynamics_applications > 0 %}
+    <p style="font-size:0.9rem;">
+      <strong>AppDynamics capabilities:</strong>
+      <span class="tool-chip {% if summary.appdynamics_has_eum %}active{% endif %}">EUM/Browser RUM</span>
+      <span class="tool-chip {% if summary.appdynamics_has_sim %}active{% endif %}">SIM (infra)</span>
+      <span class="tool-chip {% if summary.appdynamics_has_db_monitoring %}active{% endif %}">DB Monitoring</span>
+      <span class="tool-chip {% if summary.appdynamics_apps_with_baselines > 0 %}active{% endif %}">Dynamic Baselines</span>
+    </p>
+    {% endif %}
+    {% if summary.datadog_monitors > 0 or summary.datadog_hosts > 0 %}
+    <p style="font-size:0.9rem;">
+      <strong>Datadog capabilities:</strong>
+      <span class="tool-chip {% if summary.datadog_has_apm %}active{% endif %}">APM / Tracing</span>
+      <span class="tool-chip {% if summary.datadog_has_log_management %}active{% endif %}">Log Management</span>
+      <span class="tool-chip {% if summary.datadog_synthetics > 0 %}active{% endif %}">Synthetics</span>
+      <span class="tool-chip {% if summary.datadog_has_security_monitoring %}active{% endif %}">Security Monitoring</span>
+      <span class="tool-chip {% if summary.datadog_has_service_catalog %}active{% endif %}">Service Catalog</span>
+    </p>
+    {% endif %}
+    {% if summary.dynatrace_services > 0 or summary.dynatrace_hosts > 0 %}
+    <p style="font-size:0.9rem;">
+      <strong>Dynatrace capabilities:</strong>
+      <span class="tool-chip {% if summary.dynatrace_has_rum %}active{% endif %}">RUM / DEM</span>
+      <span class="tool-chip {% if summary.dynatrace_has_log_management %}active{% endif %}">Log Management</span>
+      <span class="tool-chip {% if summary.dynatrace_synthetics > 0 %}active{% endif %}">Synthetics</span>
+      <span class="tool-chip {% if summary.dynatrace_slos > 0 %}active{% endif %}">SLOs</span>
+      <span class="tool-chip {% if summary.dynatrace_notification_integrations > 0 %}active{% endif %}">Notification Integrations</span>
+    </p>
+    {% endif %}
+    {% if summary.otel_receivers %}
+    <p style="font-size:0.9rem;">
+      <strong>OTel receivers:</strong>
+      {% for r in summary.otel_receivers %}<span class="tool-chip">{{ r }}</span>{% endfor %}
+      &nbsp; <strong>Exporters:</strong>
+      {% for e in summary.otel_exporters %}<span class="tool-chip">{{ e }}</span>{% endfor %}
+    </p>
+    {% endif %}
+
     {% if summary.extraction_errors %}
     <h3>Extraction issues</h3>
     <ul class="err-list">{% for e in summary.extraction_errors %}<li>{{ e }}</li>{% endfor %}</ul>
     {% endif %}
   </div>
 
+  <!-- Maturity Heatmap -->
   <div class="card">
     <h2>Maturity Heatmap</h2>
     <div class="dimensions">
@@ -122,6 +375,7 @@
     </div>
   </div>
 
+  <!-- Strategic Improvements -->
   {% if strategic %}
   <div class="card">
     <h2>Strategic Improvements — Critical &amp; High</h2>
@@ -142,6 +396,7 @@
   </div>
   {% endif %}
 
+  <!-- Quick Wins -->
   {% if quick_wins %}
   <div class="card">
     <h2>Quick Wins — Low &amp; Medium</h2>
@@ -162,11 +417,12 @@
   </div>
   {% endif %}
 
+  <!-- Technical Annex -->
   <div class="card">
     <h2>Technical Annex</h2>
 
     <details open>
-      <summary><strong>All findings ({{ result.findings|length }})</strong></summary>
+      <summary><strong>All deterministic findings ({{ result.findings|length }})</strong></summary>
       <table class="findings-table" style="margin-top:0.5rem;">
         <tr><th>Rule ID</th><th>Dimension</th><th>Severity</th><th>Title</th><th>Description</th></tr>
         {% for f in result.findings %}
@@ -186,6 +442,13 @@
       <ul>{% for d in datasources %}<li>{{ d.name }} — {{ d.ds_type }}{% if d.url %} — {{ d.url }}{% endif %}</li>{% endfor %}</ul>
     </details>
 
+    {% if alert_receivers %}
+    <details>
+      <summary><strong>AlertManager receivers ({{ alert_receivers|length }})</strong></summary>
+      <ul>{% for r in alert_receivers %}<li>{{ r.name }}{% if r.receiver_types %} — {{ r.receiver_types|join(', ') }}{% endif %}</li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+
     <details>
       <summary><strong>Dashboards (first 50)</strong></summary>
       <ul>{% for d in dashboards %}<li>[{{ d.folder or "General" }}] {{ d.title }} — {{ d.panels|length }} panels</li>{% endfor %}</ul>
@@ -198,7 +461,8 @@
   </div>
 
   <div class="footer">
-    Generated by ObservaScore v0.1.0 — reference implementation for demo purposes
+    Generated by ObservaScore v0.2.0 — Deterministic rules + AI-powered gap analysis
+    {% if ai_analysis and not ai_analysis.error %}· AI analysis by {{ ai_analysis.model_used }}{% endif %}
   </div>
 </div>
 </body>

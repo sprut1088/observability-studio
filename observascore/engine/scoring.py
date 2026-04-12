@@ -28,6 +28,9 @@ DIMENSIONS = [
     "incident_response",
     "automation",
     "governance",
+    "otel_adoption",
+    "modern_tooling",
+    "security_observability",
 ]
 
 DIMENSION_LABELS = {
@@ -38,6 +41,9 @@ DIMENSION_LABELS = {
     "incident_response": "Incident Response",
     "automation": "Automation",
     "governance": "Governance & Resilience",
+    "otel_adoption": "OpenTelemetry Adoption",
+    "modern_tooling": "Modern Tooling",
+    "security_observability": "Security Observability",
 }
 
 

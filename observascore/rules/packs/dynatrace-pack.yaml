@@ -1,0 +1,142 @@
+# ObservaScore Dynatrace Rule Pack v1.0
+#
+# Evaluates Dynatrace platform setup maturity — entity monitoring coverage,
+# SLO adoption, alerting profile customisation, notification integrations,
+# Synthetic monitors, RUM (Digital Experience Monitoring), Log Management,
+# and Davis AI problem hygiene.
+
+name: dynatrace-pack
+version: "1.0"
+description: "Dynatrace platform observability setup quality and maturity assessment"
+
+rules:
+  - id: DT-001
+    dimension: signal_coverage
+    severity: critical
+    weight: 10
+    title: "Dynatrace entity coverage gaps"
+    description: "Services or hosts are unmonitored — OneAgent deployment is incomplete"
+    remediation: >
+      Ensure OneAgent is deployed on all hosts:
+      - Kubernetes: deploy via the Dynatrace Operator (dynakube CRD)
+      - VMs: OneAgent installer (MSI/RPM/DEB) deployed via configuration management
+      - Containers: OneAgent injected via init container or Operator
+      Verify entity discovery in Settings → Infrastructure → OneAgent.
+      Use Dynatrace Management Zones to scope monitoring by team/environment.
+      Enable deep monitoring for all process groups to ensure APM trace collection.
+
+  - id: DT-002
+    dimension: slo_maturity
+    severity: high
+    weight: 8
+    title: "No Dynatrace SLOs defined"
+    description: "Dynatrace native SLOs are absent — no error budget or burn-rate alerting"
+    remediation: >
+      Create SLOs in Dynatrace under Service-Level Objectives:
+      - Availability SLO: based on error rate or synthetic monitor success rate
+      - Performance SLO: based on response time histogram (e.g., 95% of requests < 500ms)
+      Link SLOs to Alerting Profiles so burn-rate violations trigger Davis problems.
+      Use Dynatrace SLO metric expressions for custom SLI formulas.
+      Add SLO status tiles to incident response dashboards.
+
+  - id: DT-003
+    dimension: alert_quality
+    severity: high
+    weight: 7
+    title: "Only default Dynatrace alerting profile in use"
+    description: "No custom alerting profiles — all problems route identically"
+    remediation: >
+      Create custom Alerting Profiles for each team/service group:
+      - Filter by Management Zone (team scope)
+      - Filter by problem severity (Availability, Error, Performance, Resource)
+      - Apply problem delay to avoid transient spikes
+      - Tag-based filtering to scope by service/environment labels
+      The default profile notifies on everything — it must be scoped or disabled
+      once team-specific profiles are configured to prevent alert storms.
+
+  - id: DT-004
+    dimension: alert_quality
+    severity: high
+    weight: 7
+    title: "No Dynatrace notification integrations"
+    description: "Davis AI problems detected but no on-call escalation path configured"
+    remediation: >
+      Configure Notification Integrations under Settings → Integrations → Problem Notifications:
+      - PagerDuty: Davis-to-PagerDuty incident bridge (recommended for on-call)
+      - OpsGenie: alerts with auto-routing to team schedules
+      - Slack: channel notifications for context (not paging)
+      - ServiceNow: automatic incident ticket creation for ITSM workflows
+      Map each Notification Integration to a specific Alerting Profile
+      so routing is deterministic (critical problems → PagerDuty, warnings → Slack).
+
+  - id: DT-005
+    dimension: modern_tooling
+    severity: high
+    weight: 6
+    title: "No Dynatrace Synthetic monitors"
+    description: "No outside-in health or user journey validation configured"
+    remediation: >
+      Create Dynatrace Synthetic monitors:
+      - HTTP monitors: probe each external endpoint and health check URL from 3+ locations
+      - Browser clickpath monitors: validate critical user journeys (login, purchase, API flow)
+      - Multi-step API monitors: chain REST calls to validate end-to-end transactions
+      Synthetic monitors integrate with Davis AI — failures automatically become Problems
+      and are correlated with backend service degradation for root-cause analysis.
+
+  - id: DT-006
+    dimension: modern_tooling
+    severity: medium
+    weight: 5
+    title: "No Dynatrace Real User Monitoring (RUM)"
+    description: "Digital Experience Monitoring (DEM) not configured — browser/mobile unmonitored"
+    remediation: >
+      Enable Dynatrace RUM:
+      - Web: inject the Dynatrace JavaScript agent (via tag manager, CDN, or OneAgent auto-injection)
+      - Mobile: integrate the Dynatrace iOS/Android SDK
+      RUM provides: Apdex scores per application, user session replay, waterfall analysis,
+      conversion funnel visibility, crash analysis, and browser-to-backend trace correlation.
+      Configure Application Detection Rules to scope monitoring by URL patterns.
+
+  - id: DT-007
+    dimension: signal_coverage
+    severity: medium
+    weight: 5
+    title: "Dynatrace Log Management not configured"
+    description: "Log ingestion into Dynatrace is absent — log-problem correlation unavailable"
+    remediation: >
+      Enable Dynatrace Log Management v2:
+      - OneAgent: automatic log file discovery and ingestion (set log monitoring to Optimized)
+      - Fluent Bit / Logstash: generic log ingest API (e.g. /api/v2/logs/ingest)
+      - Kubernetes: enable log monitoring in Dynatrace Operator DynaKube spec
+      Configure Log Processing Rules to parse structured logs (JSON, key-value).
+      Create Log Events to surface critical log patterns as Davis AI problems.
+      Use DQL (Dynatrace Query Language) for log analytics and correlate with traces.
+
+  - id: DT-008
+    dimension: incident_response
+    severity: medium
+    weight: 4
+    title: "No custom Dynatrace dashboards"
+    description: "No custom dashboards for on-call investigation or executive reporting"
+    remediation: >
+      Build custom Dynatrace dashboards using the Dashboard API or UI:
+      - Golden Signals overview: service error rate, response time, throughput, saturation
+      - Infrastructure overview: host CPU, memory, disk grouped by Management Zone
+      - SLO status dashboard: all SLO tiles with burn-rate indicators
+      - Incident command dashboard: open problems, affected entities, alert routing status
+      Export dashboard JSON to Git for version control and IaC deployment.
+
+  - id: DT-009
+    dimension: governance
+    severity: medium
+    weight: 4
+    title: "High number of open Davis AI problems"
+    description: "More than 10 open problems suggests alert fatigue or incidents not being resolved"
+    remediation: >
+      Investigate open problems in Dynatrace → Problems:
+      1. Acknowledge and assign problems to owning teams
+      2. If many are false positives: tighten Alerting Profile filters and thresholds
+      3. If legitimate: ensure problems are mapped to incident tickets (ServiceNow/PagerDuty)
+      4. Review Anomaly Detection settings per entity type to reduce noise
+      Use Dynatrace Maintenance Windows during planned maintenance to suppress problem creation.
+      Target: <5 open problems at any given time outside active incidents.

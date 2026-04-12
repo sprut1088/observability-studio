@@ -1,0 +1,136 @@
+# ObservaScore Datadog Rule Pack v1.0
+#
+# Evaluates Datadog observability setup quality — monitors, SLOs,
+# Synthetics, APM, Log Management, Security Monitoring, Service Catalog,
+# and tag/ownership governance.
+
+name: datadog-pack
+version: "1.0"
+description: "Datadog platform observability setup quality and maturity assessment"
+
+rules:
+  - id: DD-001
+    dimension: slo_maturity
+    severity: high
+    weight: 8
+    title: "No Datadog SLOs configured"
+    description: "Datadog SLO definitions are absent — no error budgets or burn-rate alerting"
+    remediation: >
+      Create SLOs in Datadog under Service Mgmt → SLOs:
+      - Monitor-based SLOs: derived from existing monitors (simplest to start)
+      - Metric-based SLOs: compute on raw metrics (most flexible, supports burn-rate)
+      Define target SLIs for each tier-1 service: availability (error rate), latency (p99).
+      Once SLOs exist, create SLO-based burn-rate monitors for fast/slow burn detection
+      using the Google SRE multi-window pattern (1h/5min and 6h/30min windows).
+
+  - id: DD-002
+    dimension: alert_quality
+    severity: high
+    weight: 7
+    title: "Monitors without notification handles"
+    description: "Many Datadog monitors fire silently — no @-notification handles in message body"
+    remediation: >
+      Add notification handles to every paging-class monitor message:
+      - @pagerduty-[service] for critical/high severity
+      - @slack-[channel] for warning/medium severity
+      - @[team-email] as a fallback
+      Consider migrating to Notification Policies (Datadog Teams) for centralised routing
+      so individual monitor messages don't need to hardcode handles.
+
+  - id: DD-003
+    dimension: modern_tooling
+    severity: high
+    weight: 6
+    title: "No Datadog Synthetic tests configured"
+    description: "Synthetics absent — outside-in user journey and endpoint health unmonitored"
+    remediation: >
+      Create Datadog Synthetic tests:
+      - API tests: HTTP/TCP/SSL checks for every external endpoint and health probe URL
+      - Browser tests: Scripted clickpath tests for critical user journeys (login, checkout)
+      - Multi-step API tests: Chain API calls to validate end-to-end business flows
+      Run tests from multiple locations to catch geo-specific outages.
+      Create monitors on Synthetic test results and add to Service Catalog runbook links.
+
+  - id: DD-004
+    dimension: signal_coverage
+    severity: high
+    weight: 7
+    title: "Datadog APM not enabled"
+    description: "Distributed tracing (APM) appears absent — no trace data detected"
+    remediation: >
+      Enable Datadog APM by adding the Datadog tracing library (dd-trace-*) to each service.
+      For Kubernetes, use the Datadog Admission Controller for auto-injection.
+      Enable Continuous Profiler alongside APM for production flame graphs.
+      Configure service-to-service dependency maps via Distributed Tracing.
+      Link APM traces to logs via injection of trace_id / span_id in log output.
+
+  - id: DD-005
+    dimension: signal_coverage
+    severity: high
+    weight: 7
+    title: "Datadog Log Management not configured"
+    description: "No log indexes found — log management is absent or unconfigured"
+    remediation: >
+      Configure log collection via:
+      - Datadog Agent log file tailing (kubernetes / docker auto-discovery)
+      - Forwarding from existing log shippers (Fluentd, Logstash, Vector)
+      Create log indexes with appropriate retention tiers (hot/warm).
+      Set up log pipelines and processors to parse, enrich, and redact logs.
+      Configure log-based monitors for error pattern detection.
+      Enable log correlation with APM traces via unified tagging (env, service, version).
+
+  - id: DD-006
+    dimension: security_observability
+    severity: high
+    weight: 6
+    title: "Datadog Security Monitoring not enabled"
+    description: "Datadog SIEM / Cloud Security Posture Management not active"
+    remediation: >
+      Enable Datadog Security Monitoring for:
+      - Cloud SIEM: correlate security signals from logs using OOTB detection rules
+      - Cloud Security Posture Management (CSPM): continuously scan cloud configs
+      - Cloud Workload Security (CWS): eBPF-based runtime security via Agent
+      Start with OOTB detection rules for AWS CloudTrail, Kubernetes audit logs,
+      and authentication events. Tune false-positive rules before enabling pages.
+
+  - id: DD-007
+    dimension: governance
+    severity: medium
+    weight: 5
+    title: "Datadog Service Catalog not populated"
+    description: "Service Catalog is empty — no service ownership or runbook metadata"
+    remediation: >
+      Populate the Datadog Service Catalog via:
+      - service.datadog.yaml files in each repo (GitOps approach)
+      - Terraform provider for programmatic catalog management
+      - Datadog API for bulk import from existing CMDB
+      Each entry should include: team, on-call, tier, lifecycle, runbook links, SLO references.
+      Service Catalog integrates with Incident Management to auto-populate responder context.
+
+  - id: DD-008
+    dimension: governance
+    severity: medium
+    weight: 4
+    title: "Datadog dashboards lack ownership tags"
+    description: "Majority of dashboards have no tags — ownership and discoverability absent"
+    remediation: >
+      Apply Datadog Unified Service Tagging to all dashboards:
+      - team:[team-name] — for ownership and RBAC
+      - service:[service-name] — for service context filtering
+      - env:[environment] — for environment scoping
+      - tier:[1/2/3] — for criticality classification
+      Use Datadog Monitors to alert when dashboards are created without required tags.
+
+  - id: DD-009
+    dimension: incident_response
+    severity: medium
+    weight: 5
+    title: "Monitors exist but no dashboards for incident response"
+    description: "Monitors fire alerts but no dashboards exist for incident investigation"
+    remediation: >
+      Create investigation dashboards for each on-call service:
+      - Golden Signals dashboard: latency p50/p95/p99, error rate, request rate, saturation
+      - Infrastructure dashboard: host CPU, memory, disk, network
+      - Dependency map dashboard: upstream/downstream service health
+      Link dashboards from monitor messages and Service Catalog runbook fields
+      so on-call can navigate directly during incidents.

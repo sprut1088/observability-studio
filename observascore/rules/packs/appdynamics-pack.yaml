@@ -1,0 +1,121 @@
+# ObservaScore AppDynamics Rule Pack v1.0
+#
+# Evaluates AppDynamics Controller setup maturity — agent deployment,
+# health rule quality, business transaction coverage, dynamic baselines,
+# End User Monitoring, and infrastructure monitoring.
+
+name: appdynamics-pack
+version: "1.0"
+description: "AppDynamics APM setup quality and maturity assessment"
+
+rules:
+  - id: APM-001
+    dimension: signal_coverage
+    severity: critical
+    weight: 10
+    title: "No AppDynamics applications monitored"
+    description: "No APM applications registered in the AppDynamics Controller"
+    remediation: >
+      Deploy AppDynamics agents (Java/.NET/Node/Python/PHP) on all application tiers.
+      Verify that applications appear in the Controller under Applications tab.
+      Ensure the Controller URL, account name, and access key are correctly configured
+      in each agent's controller-info.xml / environment variables.
+
+  - id: APM-002
+    dimension: signal_coverage
+    severity: high
+    weight: 8
+    title: "Application tiers have no active agents"
+    description: "Applications registered but no tiers with instrumented nodes detected"
+    remediation: >
+      Check agent health in Controller → Applications → [App] → Tiers & Nodes.
+      Common causes: agent version mismatch, firewall blocking Controller port 443/8090,
+      incorrect account/access key, or app restart required after agent injection.
+
+  - id: APM-003
+    dimension: golden_signals
+    severity: high
+    weight: 8
+    title: "No Business Transactions configured"
+    description: "Application tiers present but no Business Transactions (BTs) are tracked"
+    remediation: >
+      Business Transactions auto-detect by default for common frameworks (Spring, Jersey,
+      Rails, Express). If auto-detection is off, configure BT detection rules under
+      Applications → [App] → Business Transactions → Transaction Detection.
+      Ensure the OVERFLOW BT group is not consuming all transactions — tune BT limits.
+
+  - id: APM-004
+    dimension: alert_quality
+    severity: high
+    weight: 7
+    title: "No AppDynamics Health Rules defined"
+    description: "Applications monitored but no Health Rules configured for alerting"
+    remediation: >
+      Create Health Rules for each application covering:
+      - Business Transaction response time (Warning: >2s, Critical: >5s baseline)
+      - Business Transaction error rate (Warning: >1%, Critical: >5%)
+      - Application availability (any BT error-rate exceeding threshold)
+      Use AppDynamics Health Rule templates for common patterns. Link each rule
+      to an Action (email, PagerDuty, OpsGenie webhook).
+
+  - id: APM-005
+    dimension: alert_quality
+    severity: high
+    weight: 6
+    title: "Health Rules have no escalation actions"
+    description: "Health Rules exist but no notification Actions or integrations detected"
+    remediation: >
+      Configure Actions under Alert & Respond → Actions:
+      - HTTP Request Action for PagerDuty / OpsGenie webhooks
+      - Email Action for team distribution lists
+      Link Actions to Health Rules via Policies (Alert & Respond → Policies).
+      Ensure Critical violations page on-call immediately; Warning violations notify async.
+
+  - id: APM-006
+    dimension: automation
+    severity: medium
+    weight: 5
+    title: "No dynamic baselines configured"
+    description: "Static Health Rule thresholds — dynamic baselines absent"
+    remediation: >
+      Enable Dyamic Baselines under Applications → [App] → Baselines.
+      Configure baselines for Business Transaction response time (default 7-day rolling).
+      Switch Health Rules from static thresholds to standard deviation-based baselines.
+      Baselines self-tune to seasonal traffic patterns, dramatically reducing false positives.
+
+  - id: APM-007
+    dimension: modern_tooling
+    severity: medium
+    weight: 5
+    title: "No End User Monitoring (EUM / Browser RUM)"
+    description: "AppDynamics EUM not configured — real-user browser/mobile performance unmonitored"
+    remediation: >
+      Enable AppDynamics Browser Real User Monitoring (BrowserAgent JS injection) for
+      web applications. For mobile apps, integrate the AppDynamics iOS/Android SDK.
+      EUM provides page-load waterfalls, AJAX performance, JavaScript errors, user sessions,
+      and Apdex scores — completing the full user journey from browser to backend to database.
+
+  - id: APM-008
+    dimension: signal_coverage
+    severity: medium
+    weight: 5
+    title: "Server Infrastructure Monitoring (SIM) not enabled"
+    description: "Host-level infrastructure metrics not collected alongside APM"
+    remediation: >
+      Enable Server Infrastructure Monitoring (SIM) via the AppDynamics Machine Agent.
+      Deploy the Machine Agent on all hosts running instrumented applications.
+      SIM provides CPU, memory, disk I/O, network, and process metrics correlated
+      with APM call graphs — enabling infrastructure root-cause analysis from within AppDynamics.
+
+  - id: APM-009
+    dimension: incident_response
+    severity: medium
+    weight: 4
+    title: "No custom AppDynamics dashboards"
+    description: "No custom dashboards for on-call context and executive reporting"
+    remediation: >
+      Build custom AppDynamics dashboards for:
+      - Service health overview (BT error rate, response time, call volume per app)
+      - Infrastructure health (SIM CPU/memory across hosts)
+      - Business KPI dashboard (combine BT metrics with custom analytics events)
+      - Incident response dashboard combining health rule status, open events, and anomalies
