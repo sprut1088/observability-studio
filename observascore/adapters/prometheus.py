@@ -47,15 +47,15 @@ class PrometheusAdapter(BaseAdapter):
 
     def health_check(self) -> bool:
         try:
-            data = self._get("/-/healthy")
-            return True
+            resp = self.session.get(f"{self.url}/-/healthy", timeout=self.timeout, verify=self.verify_tls)
+            return resp.status_code == 200
         except Exception:
             try:
                 self._get("/api/v1/status/buildinfo")
                 return True
-            except Exception as e:
-                logger.error("Prometheus health check failed: %s", e)
-                return False
+        except Exception as e:
+            logger.error("Prometheus health check failed: %s", e)
+            return False
 
     def extract(self) -> dict[str, Any]:
         """Pull targets, rules, and sample metrics."""
