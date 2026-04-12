@@ -25,6 +25,7 @@ from observascore.adapters import (
 )
 from observascore.engine import ScoringEngine
 from observascore.model import ExtractionSummary, ObservabilityEstate
+from observascore.export import ExcelExporter
 from observascore.report import ReportGenerator
 from observascore.rules import RulesEngine
 
@@ -339,6 +340,92 @@ def list_rules() -> None:
             f"  [{sev_color}]{rule_id:<12}[/{sev_color}] "
             f"[{rd.dimension:<24}] {rd.title}"
         )
+
+
+@cli.command(name="export")
+@click.option("--config", "-c", type=click.Path(exists=True), required=True,
+              help="Path to config YAML file")
+@click.option("--output", "-o", type=click.Path(), default="./exports",
+              help="Output directory for the Excel export (default: ./exports)")
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
+def export_cmd(config: str, output: str, verbose: bool) -> None:
+    """Extract all observability data and export to a multi-sheet Excel workbook.
+
+    Connects to every enabled source in the config, pulls the full estate
+    (metrics, services, dashboards, alerts, tracing, etc.) and writes a
+    structured .xlsx file — one worksheet per observability concern.
+    The file is suitable for sharing with a client as a current-state snapshot.
+    """
+    setup_logging(verbose)
+    console.rule("[bold blue]ObservaScore v0.2.0 — Estate Export")
+
+    with open(config) as f:
+        cfg = yaml.safe_load(f)
+
+    client_name = cfg.get("client", {}).get("name", "Unknown")
+    environment = cfg.get("client", {}).get("environment", "unknown")
+
+    estate  = ObservabilityEstate(
+        client_name=client_name,
+        environment=environment,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+    summary = ExtractionSummary()
+    sources = cfg.get("sources", {})
+
+    adapter_map = [
+        ("prometheus",    PrometheusAdapter),
+        ("grafana",       GrafanaAdapter),
+        ("loki",          LokiAdapter),
+        ("jaeger",        JaegerAdapter),
+        ("alertmanager",  AlertManagerAdapter),
+        ("tempo",         TempoAdapter),
+        ("elasticsearch", ElasticsearchAdapter),
+        ("otel_collector", OtelCollectorAdapter),
+        ("appdynamics",   AppDynamicsAdapter),
+        ("datadog",       DatadogAdapter),
+        ("dynatrace",     DynatraceAdapter),
+    ]
+
+    console.rule("[bold blue]Extracting from sources")
+    for src_key, adapter_cls in adapter_map:
+        src_cfg = sources.get(src_key, {})
+        if not src_cfg.get("enabled"):
+            console.print(f"[dim]  {src_key:<16} disabled[/dim]")
+            continue
+        estate.configured_tools.append(src_key)
+        _run_adapter(src_key, adapter_cls, src_cfg, estate, summary)
+
+    estate.summary = summary
+
+    # ── Signals / alerts / services counts ──
+    console.print(
+        f"[bold]Estate snapshot:[/bold] "
+        f"{len(estate.signals)} signals · "
+        f"{len(estate.alert_rules)} alert rules · "
+        f"{len(estate.dashboards)} dashboards · "
+        f"{len(estate.services)} services · "
+        f"{len(estate.scrape_targets)} scrape targets"
+    )
+
+    console.rule("[bold blue]Generating Excel export")
+    exporter = ExcelExporter()
+    try:
+        path = exporter.export(estate, Path(output))
+    except ImportError:
+        console.print("[red]✘ openpyxl is required for Excel export.[/red]")
+        console.print("  Install it with:  pip install openpyxl>=3.1")
+        raise SystemExit(1)
+
+    console.print(f"[green]✔ Excel export: {path}[/green]")
+    console.print()
+    console.print("[bold]Open the .xlsx file in Excel or Google Sheets.[/bold]")
+    console.print(
+        f"  Sheets: Summary · Signals & Metrics · Services & Apps · "
+        f"Scrape Targets · Alert Rules · Recording Rules & SLOs · "
+        f"Dashboards · Dashboard Panels · Datasources · Alert Receivers · "
+        f"Tracing · Tool Topology · OTel Pipelines · Label Inventory · Extraction Log"
+    )
 
 
 if __name__ == "__main__":
