@@ -121,6 +121,10 @@ class ReportGenerator:
         quick_wins = [b for b in backlog if b["severity"] in ("low", "medium")][:10]
         strategic = [b for b in backlog if b["severity"] in ("critical", "high")][:10]
 
+        footer_tagline = "Deterministic rules"
+        if ai:
+            footer_tagline = "Deterministic rules + AI-powered gap analysis"
+
         html = template.render(
             client_name=estate.client_name,
             environment=estate.environment,
@@ -137,6 +141,7 @@ class ReportGenerator:
             datasources=estate.datasources,
             alert_receivers=estate.alert_receivers,
             ai_analysis=ai,
+            footer_tagline=footer_tagline,
         )
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(html)
