@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-from openai import AzureOpenAI
 from datetime import datetime, timezone
 from typing import Any
 
@@ -356,27 +355,27 @@ class ObservabilityAIAnalyst:
 
         elif self.provider in ("azure", "azure_openai", "openai_azure"):
             try:
-                import openai  # type: ignore
+                from openai import AzureOpenAI  # type: ignore
             except ImportError as e:
                 raise AIAnalystError(
-                    "openai package not installed. Run: pip install openai"
+                    "openai package not installed. Run: pip install openai>=1.0"
                 ) from e
 
             api_key = config.get("api_key") or config.get("azure_api_key")
             api_base = config.get("api_base")
             if not api_key or not api_base:
                 raise AIAnalystError(
-                    "Azure OpenAI requires api_key and api_base in config (api_base is your endpoint)."
+                    "Azure OpenAI requires api_key and api_base in config (api_base is your endpoint URL)."
                 )
 
-            # Configure OpenAI python client for Azure
-            openai.api_type = "azure"
-            openai.api_key = api_key
-            openai.api_base = api_base
-            openai.api_version = config.get("api_version", "2023-05-15")
+            api_version = config.get("api_version", "2024-02-01")
+            self.client = AzureOpenAI(
+                api_key=api_key,
+                azure_endpoint=api_base,
+                api_version=api_version,
+            )
             # For Azure, use deployment name as model identifier if provided
             self.model = config.get("deployment") or config.get("model") or self.model
-            self.client = openai
 
         else:
             raise AIAnalystError(f"Unsupported AI provider: {self.provider}")
@@ -419,34 +418,20 @@ class ObservabilityAIAnalyst:
                 logger.info("AI analysis complete (anthropic, %s tokens)", tokens_used)
 
             else:
-                # Azure OpenAI (openai package configured for azure)
+                # Azure OpenAI (openai v1.x AzureOpenAI client)
                 messages = [
                     {"role": "system", "content": _SYSTEM_PROMPT},
                     {"role": "user", "content": user_message},
                 ]
-                # For Azure, ChatCompletion uses 'engine' parameter (deployment name)
-                response = self.client.ChatCompletion.create(
-                    engine=self.model,
+                response = self.client.chat.completions.create(
+                    model=self.model,  # deployment name
                     messages=messages,
                     max_tokens=self.max_tokens,
                     temperature=self.temperature,
                 )
-                raw_text = ""
-                # response choices -> message -> content
-                if getattr(response, "choices", None):
-                    choice = response.choices[0]
-                    if isinstance(choice, dict):
-                        # older style dict
-                        raw_text = (choice.get("message") or {}).get("content") or choice.get("text", "")
-                    else:
-                        # object-style
-                        msg = getattr(choice, "message", None)
-                        if msg:
-                            raw_text = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
-                        else:
-                            raw_text = getattr(choice, "text", "") or ""
+                raw_text = response.choices[0].message.content or ""
                 try:
-                    tokens_used = getattr(response, "usage", {}).get("total_tokens", None) if isinstance(response.usage, dict) else getattr(response, "usage", None) and getattr(response.usage, "total_tokens", None)
+                    tokens_used = response.usage.total_tokens if response.usage else None
                 except Exception:
                     tokens_used = None
                 logger.info("AI analysis complete (azure, %s tokens)", tokens_used)

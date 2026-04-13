@@ -249,8 +249,11 @@ def assess(config: str, output: str, ai: bool, verbose: bool) -> None:
 
     # --- AI Analysis ---
     ai_cfg = cfg.get("ai", {})
-    if ai and ai_cfg.get("enabled", True) and ai_cfg.get("api_key"):
-        console.rule("[bold blue]AI Analysis (Claude)")
+    ai_key_present = bool(ai_cfg.get("api_key") or ai_cfg.get("azure_api_key"))
+    if ai and ai_cfg.get("enabled", True) and ai_key_present:
+        provider = (ai_cfg.get("provider") or "anthropic").strip().lower()
+        provider_label = "Azure OpenAI" if provider in ("azure", "azure_openai", "openai_azure") else "Claude"
+        console.rule(f"[bold blue]AI Analysis ({provider_label})")
         try:
             from observascore.ai import ObservabilityAIAnalyst
             analyst = ObservabilityAIAnalyst(ai_cfg)
@@ -269,8 +272,8 @@ def assess(config: str, output: str, ai: bool, verbose: bool) -> None:
                 )
         except Exception as e:
             console.print(f"[yellow]  AI analysis skipped: {e}[/yellow]")
-    elif ai and not ai_cfg.get("api_key"):
-        console.print("[dim]  AI analysis skipped — set ai.api_key in config to enable[/dim]")
+    elif ai and not ai_key_present:
+        console.print("[dim]  AI analysis skipped — set ai.api_key (or ai.azure_api_key) in config to enable[/dim]")
 
     console.rule("[bold blue]Generating report")
     generator = ReportGenerator()
