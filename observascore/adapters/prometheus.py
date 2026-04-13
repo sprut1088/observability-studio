@@ -142,7 +142,7 @@ class PrometheusAdapter(BaseAdapter):
         # Sample metrics - names and cardinality estimate
         try:
             metrics_data = self._get("/api/v1/label/__name__/values")
-            metric_names = metrics_data.get("data", [])[:500]  # cap for demo
+            metric_names = metrics_data.get("data", [])[:750]  # cap for demo
             for m in metric_names:
                 semantic = self._infer_semantic(m)
                 result["signals"].append(
