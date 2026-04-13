@@ -318,26 +318,67 @@ _RESPONSE_SCHEMA = {
 # ---------------------------------------------------------------------------
 
 class ObservabilityAIAnalyst:
-    """Calls Claude to produce qualitative gap analysis beyond deterministic rules."""
+    """Calls Claude or Azure OpenAI to produce qualitative gap analysis beyond deterministic rules."""
 
     def __init__(self, config: dict[str, Any]):
-        try:
-            import anthropic
-        except ImportError as e:
-            raise AIAnalystError(
-                "anthropic package not installed. Run: pip install anthropic"
-            ) from e
-
-        api_key = config.get("api_key") or config.get("anthropic_api_key")
-        if not api_key:
-            raise AIAnalystError(
-                "No Anthropic API key configured. Set ai.api_key in config."
-            )
-
-        self.client = anthropic.Anthropic(api_key=api_key)
-        self.model = config.get("model", "claude-sonnet-4-6")
+        """
+        config keys:
+          - provider: "anthropic" (default) or "azure" / "azure_openai"
+          - api_key / anthropic_api_key / azure_api_key
+          - model (Anthropic model name) or deployment (Azure deployment name)
+          - api_base (required for Azure)
+          - api_version (optional for Azure, default "2023-05-15")
+          - max_tokens, temperature
+        """
+        self.provider = (config.get("provider") or "anthropic").strip().lower()
         self.max_tokens = config.get("max_tokens", 4096)
         self.temperature = config.get("temperature", 1.0)
+        # default model for Anthropic
+        self.model = config.get("model", "claude-sonnet-4-6")
+
+        if self.provider == "anthropic":
+            try:
+                import anthropic  # type: ignore
+            except ImportError as e:
+                raise AIAnalystError(
+                    "anthropic package not installed. Run: pip install anthropic"
+                ) from e
+
+            api_key = config.get("api_key") or config.get("anthropic_api_key")
+            if not api_key:
+                raise AIAnalystError(
+                    "No Anthropic API key configured. Set ai.api_key in config."
+                )
+
+            self.client = anthropic.Anthropic(api_key=api_key)
+            # keep self.model as Anthropic model name
+
+        elif self.provider in ("azure", "azure_openai", "openai_azure"):
+            try:
+                import openai  # type: ignore
+            except ImportError as e:
+                raise AIAnalystError(
+                    "openai package not installed. Run: pip install openai"
+                ) from e
+
+            api_key = config.get("api_key") or config.get("azure_api_key")
+            api_base = config.get("api_base")
+            if not api_key or not api_base:
+                raise AIAnalystError(
+                    "Azure OpenAI requires api_key and api_base in config (api_base is your endpoint)."
+                )
+
+            # Configure OpenAI python client for Azure
+            openai.api_type = "azure"
+            openai.api_key = api_key
+            openai.api_base = api_base
+            openai.api_version = config.get("api_version", "2023-05-15")
+            # For Azure, use deployment name as model identifier if provided
+            self.model = config.get("deployment") or config.get("model") or self.model
+            self.client = openai
+
+        else:
+            raise AIAnalystError(f"Unsupported AI provider: {self.provider}")
 
     def analyze(
         self,
@@ -346,20 +387,69 @@ class ObservabilityAIAnalyst:
         result: MaturityResult,
     ) -> AIAnalysis:
         """Run AI analysis and return structured AIAnalysis."""
-        logger.info("Running AI analysis with model %s ...", self.model)
+        logger.info("Running AI analysis with provider=%s model=%s ...", self.provider, self.model)
 
         context = _build_context(estate, findings, result)
         user_message = self._build_user_message(context)
 
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                system=_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_message}],
-            )
-            raw_text = response.content[0].text
-            logger.info("AI analysis complete (%d tokens used)", response.usage.output_tokens)
+            if self.provider == "anthropic":
+                # Keep compatibility with existing Anthropic usage
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=self.max_tokens,
+                    system=_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": user_message}],
+                )
+                # Anthropic sdk shapes response.content as a list in some versions
+                raw_text = ""
+                if getattr(response, "content", None):
+                    try:
+                        raw_text = response.content[0].text
+                    except Exception:
+                        # fallback if response.content is different shape
+                        raw_text = str(response)
+                else:
+                    raw_text = str(response)
+                try:
+                    tokens_used = response.usage.output_tokens
+                except Exception:
+                    tokens_used = None
+                logger.info("AI analysis complete (anthropic, %s tokens)", tokens_used)
+
+            else:
+                # Azure OpenAI (openai package configured for azure)
+                messages = [
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ]
+                # For Azure, ChatCompletion uses 'engine' parameter (deployment name)
+                response = self.client.ChatCompletion.create(
+                    engine=self.model,
+                    messages=messages,
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                )
+                raw_text = ""
+                # response choices -> message -> content
+                if getattr(response, "choices", None):
+                    choice = response.choices[0]
+                    if isinstance(choice, dict):
+                        # older style dict
+                        raw_text = (choice.get("message") or {}).get("content") or choice.get("text", "")
+                    else:
+                        # object-style
+                        msg = getattr(choice, "message", None)
+                        if msg:
+                            raw_text = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
+                        else:
+                            raw_text = getattr(choice, "text", "") or ""
+                try:
+                    tokens_used = getattr(response, "usage", {}).get("total_tokens", None) if isinstance(response.usage, dict) else getattr(response, "usage", None) and getattr(response.usage, "total_tokens", None)
+                except Exception:
+                    tokens_used = None
+                logger.info("AI analysis complete (azure, %s tokens)", tokens_used)
+
         except Exception as e:
             logger.error("AI analysis API call failed: %s", e)
             return self._error_analysis(str(e))
