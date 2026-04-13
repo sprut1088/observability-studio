@@ -53,9 +53,9 @@ class PrometheusAdapter(BaseAdapter):
             try:
                 self._get("/api/v1/status/buildinfo")
                 return True
-        except Exception as e:
-            logger.error("Prometheus health check failed: %s", e)
-            return False
+            except Exception as e:
+                logger.error("Prometheus health check failed: %s", e)
+                return False
 
     def extract(self) -> dict[str, Any]:
         """Pull targets, rules, and sample metrics."""
