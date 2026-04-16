@@ -14,10 +14,13 @@ def assess(req: RunRequest):
         base_dir = Path("runtime") / run_id
         config_path = build_runtime_config(req.model_dump(), base_dir)
         outputs = run_assessment(config_path, base_dir / "reports", req.ai.enabled if req.ai else False)
+
+        html_path = Path(outputs["html"])
+
         return RunResponse(
             success=True,
             message="Assessment completed",
-            download_url=outputs["html"],
+            download_url=f"http://20.193.248.157:8000/api/download/{html_path.as_posix()}",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

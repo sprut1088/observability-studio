@@ -14,10 +14,11 @@ def export_excel(req: RunRequest):
         base_dir = Path("runtime") / run_id
         config_path = build_runtime_config(req.model_dump(), base_dir)
         file_path = run_export(config_path, base_dir / "exports")
+
         return RunResponse(
             success=True,
             message="Excel export completed",
-            download_url=f"/api/download/{file_path.as_posix()}",
+            download_url=f"http://20.193.248.157:8000/api/download/{file_path.as_posix()}",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
