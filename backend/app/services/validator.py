@@ -37,7 +37,7 @@ def validate_tool(tool: dict) -> tuple[bool, str]:
     try:
         adapter = adapter_cls(tool)
         ok = adapter.health_check()
+        print("VALIDATION ERROR:", str(e))
         return (True, "Connection successful") if ok else (False, str(e))
-	print("VALIDATION ERROR:", str(e))"message": str(e)
     except Exception as e:
         return False, str(e)
