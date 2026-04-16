@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { validateTool, exportExcel, runAssessment } from "./api";
+import { useState, useEffect } from "react";
+import { validateTool, exportExcel, runAssessment, API_HOST } from "./api";
 import "./styles.css";
 
 /* ── Tool catalogue ─────────────────────────────────── */
@@ -48,6 +48,22 @@ function alertType(msg) {
   return "info";
 }
 
+/* Resolves a root-relative path like /api/download/... to a full URL
+   and triggers a browser file download without navigating away. */
+function triggerDownload(downloadPath) {
+  if (!downloadPath) return;
+  const url = downloadPath.startsWith("http")
+    ? downloadPath
+    : `${API_HOST}${downloadPath}`;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "";          // browser derives filename from the URL
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 const alertMeta = {
   success: { icon: "✓", label: "Success" },
   error:   { icon: "✗", label: "Error"   },
@@ -59,6 +75,17 @@ const alertMeta = {
    APP
 ═══════════════════════════════════════════════════════ */
 export default function App() {
+  const [theme, setTheme] = useState(
+    () => localStorage.getItem("observascore-theme") || "light"
+  );
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("observascore-theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((t) => (t === "light" ? "dark" : "light"));
+
   const [clientName,        setClientName]        = useState("MVP Client");
   const [environment,       setEnvironment]       = useState("dev");
   const [selectedTool,      setSelectedTool]      = useState("prometheus");
@@ -126,6 +153,7 @@ export default function App() {
       setLoading(true);
       const res = await exportExcel(buildPayload());
       setMessage(`Export completed: ${res.data.message}${res.data.download_url ? " — " + res.data.download_url : ""}`);
+      triggerDownload(res.data.download_url);
     } catch (err) {
       setMessage(err?.response?.data?.detail || "Export failed.");
     } finally { setLoading(false); }
@@ -138,6 +166,7 @@ export default function App() {
       setLoading(true);
       const res = await runAssessment(buildPayload());
       setMessage(`Assessment completed: ${res.data.message}${res.data.download_url ? " — " + res.data.download_url : ""}`);
+      triggerDownload(res.data.download_url);
     } catch (err) {
       setMessage(err?.response?.data?.detail || "Assessment failed.");
     } finally { setLoading(false); }
@@ -151,6 +180,14 @@ export default function App() {
     <>
       {/* ════════════ HERO ════════════ */}
       <header className="hero">
+        <button
+          className="theme-toggle"
+          onClick={toggleTheme}
+          title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+        >
+          {theme === "light" ? "🌙 Dark" : "☀️ Light"}
+        </button>
+
         <div className="hero-badge">
           <span className="hero-badge-dot" />
           SRE Accelerator

@@ -1,7 +1,9 @@
 import axios from "axios";
 
+export const API_HOST = "http://20.193.248.157:8000";
+
 const api = axios.create({
-  baseURL: "http://20.193.248.157:8000/api",
+  baseURL: `${API_HOST}/api`,
 });
 
 export const validateTool = (payload) => api.post("/validate", payload);
