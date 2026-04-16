@@ -73,22 +73,27 @@ export default function App() {
   };
 
   const validateSingleTool = async (tool) => {
-    try {
-      const res = await validateTool(tool);
-      setValidationResults((prev) => ({
-        ...prev,
-        [tool.name]: res.data,
-      }));
-    } catch (err) {
-      setValidationResults((prev) => ({
-        ...prev,
-        [tool.name]: {
-          reachable: false,
-          message: err?.response?.data?.detail || "Validation failed",
-        },
-      }));
-    }
-  };
+  try {
+    const res = await validateTool(tool);
+    setValidationResults((prev) => ({
+      ...prev,
+      [tool.name]: res.data,
+    }));
+  } catch (err) {
+    const message =
+      err?.response?.data?.detail ||
+      err?.message ||
+      "Validation failed";
+
+    setValidationResults((prev) => ({
+      ...prev,
+      [tool.name]: {
+        reachable: false,
+        message,
+      },
+    }));
+  }
+};
 
   const buildPayload = () => ({
     client: {
