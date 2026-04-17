@@ -4,8 +4,9 @@ from backend.app.routes.systems import router as systems_router
 from backend.app.routes.export import router as export_router
 from backend.app.routes.assess import router as assess_router
 from backend.app.routes.download import router as download_router
+from backend.app.routes.v1 import router as v1_router
 
-app = FastAPI(title="ObservaScore UI API", version="0.1.0")
+app = FastAPI(title="ObservaScore UI API", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -22,6 +23,7 @@ app.include_router(systems_router, prefix="/api")
 app.include_router(export_router, prefix="/api")
 app.include_router(assess_router, prefix="/api")
 app.include_router(download_router, prefix="/api")
+app.include_router(v1_router, prefix="/api")   # Hub v1 — /api/v1/{validate,crawl,assess}
 
 @app.get("/api/health")
 def health():

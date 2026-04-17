@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { validateTool, exportExcel, runAssessment, API_HOST } from "./api";
+import HubPage from "./components/HubPage";
 import "./styles.css";
 
 /* ── Tool catalogue ─────────────────────────────────── */
@@ -78,6 +79,9 @@ export default function App() {
   const [theme, setTheme] = useState(
     () => localStorage.getItem("observascore-theme") || "light"
   );
+
+  // "hub" = landing tile view  |  "advanced" = full multi-tool form
+  const [view, setView] = useState("hub");
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -200,6 +204,22 @@ export default function App() {
           and best practices — powered by AI.
         </p>
 
+        {/* View switcher */}
+        <div className="view-switcher">
+          <button
+            className={`view-switch-btn${view === "hub" ? " active" : ""}`}
+            onClick={() => setView("hub")}
+          >
+            🏠 Hub
+          </button>
+          <button
+            className={`view-switch-btn${view === "advanced" ? " active" : ""}`}
+            onClick={() => setView("advanced")}
+          >
+            ⚙️ Advanced
+          </button>
+        </div>
+
         <div className="hero-stats">
           <div className="hero-stat">
             <span className="hero-stat-value">35+</span>
@@ -218,7 +238,13 @@ export default function App() {
 
       <main className="page">
 
-        {/* ════════════ STEP INDICATOR ════════════ */}
+        {/* ════════════ HUB VIEW ════════════ */}
+        {view === "hub" && <HubPage />}
+
+        {/* ════════════ ADVANCED VIEW ════════════ */}
+        {view === "advanced" && <>
+
+        {/* Step indicator */}
         <div className="steps">
           <Step n={1} label="Client Setup"     activeStep={activeStep} />
           <div className="step-connector" />
@@ -481,6 +507,8 @@ export default function App() {
             </div>
           </section>
         )}
+
+        </>} {/* end advanced view */}
 
       </main>
 

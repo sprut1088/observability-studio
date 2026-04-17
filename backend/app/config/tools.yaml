@@ -1,0 +1,171 @@
+# ============================================================
+#  ObservaScore Hub — Tool Catalogue
+#  Chaos-as-a-Code style: every tool is a fully declarative
+#  unit — health endpoints, auth strategies, and capability
+#  map are all expressed as data, not code.
+# ============================================================
+
+version: "1.0"
+
+# ── Shared defaults ─────────────────────────────────────────
+defaults:
+  timeout_seconds: 15
+  retry_attempts: 2
+  verify_tls: false
+
+# ── Tool definitions ────────────────────────────────────────
+tools:
+
+  prometheus:
+    display_name: "Prometheus"
+    icon: "🔥"
+    category: metrics
+    vendor: open-source
+    health_endpoint: "/api/v1/status/config"
+    probe_endpoint: "/api/v1/targets"          # richer liveness check
+    auth_methods: [none, basic, bearer]
+    capabilities: [metrics, alerts, recording_rules, scrape_targets]
+    default_port: 9090
+    timeout_seconds: 15
+    docs_url: "https://prometheus.io/docs"
+    tags: [cncf, pull-based, open-source]
+
+  grafana:
+    display_name: "Grafana"
+    icon: "📊"
+    category: visualization
+    vendor: grafana-labs
+    health_endpoint: "/api/health"
+    probe_endpoint: "/api/dashboards/home"
+    auth_methods: [api_key, basic, oauth]
+    capabilities: [dashboards, alerts, datasources, annotations, folders]
+    default_port: 3000
+    timeout_seconds: 15
+    docs_url: "https://grafana.com/docs"
+    tags: [cncf, visualization, open-source]
+
+  loki:
+    display_name: "Loki"
+    icon: "📋"
+    category: logging
+    vendor: grafana-labs
+    health_endpoint: "/ready"
+    probe_endpoint: "/loki/api/v1/labels"
+    auth_methods: [none, bearer, basic]
+    capabilities: [logs, labels, streams, queries]
+    default_port: 3100
+    timeout_seconds: 15
+    docs_url: "https://grafana.com/docs/loki"
+    tags: [cncf, logging, open-source]
+
+  jaeger:
+    display_name: "Jaeger"
+    icon: "🔍"
+    category: tracing
+    vendor: cncf
+    health_endpoint: "/api/services"
+    probe_endpoint: "/api/services"
+    auth_methods: [none, bearer]
+    capabilities: [traces, services, operations, dependencies]
+    default_port: 16686
+    timeout_seconds: 15
+    docs_url: "https://www.jaegertracing.io/docs"
+    tags: [cncf, tracing, open-source]
+
+  alertmanager:
+    display_name: "Alertmanager"
+    icon: "🔔"
+    category: alerting
+    vendor: open-source
+    health_endpoint: "/api/v2/status"
+    probe_endpoint: "/api/v2/alerts"
+    auth_methods: [none, basic]
+    capabilities: [alerts, silences, receivers, inhibition_rules]
+    default_port: 9093
+    timeout_seconds: 15
+    docs_url: "https://prometheus.io/docs/alerting/latest/alertmanager"
+    tags: [cncf, alerting, open-source]
+
+  tempo:
+    display_name: "Tempo"
+    icon: "⚡"
+    category: tracing
+    vendor: grafana-labs
+    health_endpoint: "/ready"
+    probe_endpoint: "/api/search/tags"
+    auth_methods: [none, bearer]
+    capabilities: [traces, services, tag_search, exemplars]
+    default_port: 3200
+    timeout_seconds: 15
+    docs_url: "https://grafana.com/docs/tempo"
+    tags: [cncf, tracing, open-source]
+
+  elasticsearch:
+    display_name: "Elasticsearch"
+    icon: "🔎"
+    category: search_analytics
+    vendor: elastic
+    health_endpoint: "/_cluster/health"
+    probe_endpoint: "/_cat/indices?format=json"
+    auth_methods: [none, basic, api_key, bearer]
+    capabilities: [logs, indices, data_streams, ilm, signals]
+    default_port: 9200
+    timeout_seconds: 20
+    docs_url: "https://www.elastic.co/guide/en/elasticsearch/reference"
+    tags: [search, analytics, logging]
+
+  dynatrace:
+    display_name: "Dynatrace"
+    icon: "🛡️"
+    category: apm
+    vendor: dynatrace
+    health_endpoint: "/api/v2/metrics"
+    probe_endpoint: "/api/v2/entities"
+    auth_methods: [api_token]
+    capabilities: [metrics, traces, logs, dashboards, slo, problems, synthetic, rum]
+    default_port: 443
+    timeout_seconds: 20
+    docs_url: "https://www.dynatrace.com/support/help/dynatrace-api"
+    tags: [commercial, apm, full-stack]
+
+  datadog:
+    display_name: "Datadog"
+    icon: "🐕"
+    category: apm
+    vendor: datadog
+    health_endpoint: "/api/v1/validate"
+    probe_endpoint: "/api/v1/metrics"
+    auth_methods: [api_key, app_key]
+    capabilities: [metrics, traces, logs, dashboards, monitors, slo, synthetics, service_catalog]
+    default_port: 443
+    timeout_seconds: 20
+    docs_url: "https://docs.datadoghq.com/api"
+    tags: [commercial, saas, full-stack]
+
+  appdynamics:
+    display_name: "AppDynamics"
+    icon: "📱"
+    category: apm
+    vendor: cisco
+    health_endpoint: "/controller/rest/applications"
+    probe_endpoint: "/controller/rest/applications"
+    auth_methods: [basic, oauth2]
+    capabilities: [metrics, traces, dashboards, alerts, business_transactions, eum, sim]
+    default_port: 8090
+    timeout_seconds: 20
+    docs_url: "https://docs.appdynamics.com/appd/24.x/en/extend-appdynamics/appdynamics-apis"
+    tags: [commercial, apm, cisco]
+
+  splunk:
+    display_name: "Splunk"
+    icon: "🌊"
+    category: siem_analytics
+    vendor: splunk
+    health_endpoint: "/services/server/info"
+    probe_endpoint: "/services/search/jobs"
+    auth_methods: [basic, token, oauth2]
+    capabilities: [logs, alerts, dashboards, searches, hec, observability_cloud]
+    default_port: 8089
+    timeout_seconds: 20
+    docs_url: "https://docs.splunk.com/Documentation/Splunk/latest/RESTREF"
+    tags: [commercial, siem, analytics]
