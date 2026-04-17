@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { v1Validate, v1Crawl } from "../api";
-import { API_HOST } from "../api";
+import { v1Validate, exportExcel, API_HOST } from "../api";
 
+/* ── Shared constants ───────────────────────────────────── */
 const TOOL_OPTIONS = [
   { value: "prometheus",    label: "🔥 Prometheus"    },
   { value: "grafana",       label: "📊 Grafana"       },
@@ -16,153 +16,330 @@ const TOOL_OPTIONS = [
   { value: "splunk",        label: "🌊 Splunk"        },
 ];
 
+// Sensible default usages per tool (used when building RunRequest payload)
+const DEFAULT_USAGES = {
+  prometheus:    ["metrics", "alerts"],
+  grafana:       ["dashboards", "alerts"],
+  loki:          ["logs"],
+  jaeger:        ["traces"],
+  alertmanager:  ["alerts"],
+  tempo:         ["traces"],
+  elasticsearch: ["logs"],
+  dynatrace:     ["metrics", "traces", "logs", "dashboards", "alerts"],
+  datadog:       ["metrics", "traces", "logs", "dashboards", "alerts"],
+  appdynamics:   ["metrics", "traces", "dashboards", "alerts"],
+  splunk:        ["logs", "alerts", "dashboards"],
+};
+
+const TOOL_ICONS = {
+  prometheus: "🔥", grafana: "📊", loki: "📋",
+  jaeger: "🔍", alertmanager: "🔔", tempo: "⚡",
+  elasticsearch: "🔎", dynatrace: "🛡️", datadog: "🐕",
+  appdynamics: "📱", splunk: "🌊",
+};
+
+let _uid = 0;
+const nextId = () => ++_uid;
+
+function triggerDownload(downloadPath) {
+  if (!downloadPath) return;
+  const url = downloadPath.startsWith("http") ? downloadPath : `${API_HOST}${downloadPath}`;
+  const a = document.createElement("a");
+  a.href = url; a.download = ""; a.style.display = "none";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
 /* ══════════════════════════════════════════════════════════
-   CrawlModal — ObsCrawl tile modal
+   CrawlModal — multi-tool ObsCrawl modal
 ══════════════════════════════════════════════════════════ */
 export default function CrawlModal({ onClose }) {
-  const [toolName,   setToolName]   = useState("prometheus");
-  const [baseUrl,    setBaseUrl]    = useState("");
-  const [authToken,  setAuthToken]  = useState("");
 
-  const [validating, setValidating] = useState(false);
-  const [validated,  setValidated]  = useState(false);   // gate for Generate Report
-  const [crawling,   setCrawling]   = useState(false);
+  /* ── Add-form state ────────────────────────────────────── */
+  const [addTool,  setAddTool]  = useState("prometheus");
+  const [addUrl,   setAddUrl]   = useState("");
+  const [addToken, setAddToken] = useState("");
 
-  const [status, setStatus] = useState(null);  // { type, title, msg }
+  /* ── Tools table state ─────────────────────────────────── */
+  // [{ id, toolName, baseUrl, authToken, validation: null | {reachable, message, latency_ms} }]
+  const [tools, setTools] = useState([]);
 
-  /* ── Helpers ──────────────────────────────────────────── */
-  const loading = validating || crawling;
+  /* ── Operation state ───────────────────────────────────── */
+  const [validatingId, setValidatingId]   = useState(null); // id of tool being validated
+  const [validatingAll, setValidatingAll] = useState(false);
+  const [crawling, setCrawling]           = useState(false);
+  const [status, setStatus]               = useState(null); // { type, title, msg }
 
-  function setMsg(type, title, msg) {
-    setStatus({ type, title, msg });
-  }
+  const busy = validatingId !== null || validatingAll || crawling;
 
-  function triggerDownload(downloadPath) {
-    if (!downloadPath) return;
-    const url = downloadPath.startsWith("http")
-      ? downloadPath
-      : `${API_HOST}${downloadPath}`;
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "";
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }
-
-  /* ── Validate Connection ──────────────────────────────── */
-  async function handleValidate() {
-    if (!baseUrl.trim()) {
-      setMsg("error", "Missing URL", "Base URL is required before validating.");
-      return;
-    }
-    setValidating(true);
-    setValidated(false);
+  /* ── Add tool row ──────────────────────────────────────── */
+  function handleAdd() {
+    if (!addUrl.trim()) return;
+    setTools(prev => [...prev, {
+      id: nextId(),
+      toolName: addTool,
+      baseUrl: addUrl.trim(),
+      authToken: addToken.trim() || null,
+      validation: null,
+    }]);
+    setAddUrl(""); setAddToken("");
     setStatus(null);
+  }
+
+  /* ── Remove tool row ───────────────────────────────────── */
+  function handleRemove(id) {
+    setTools(prev => prev.filter(t => t.id !== id));
+  }
+
+  /* ── Update a single tool's validation result ──────────── */
+  function setToolValidation(id, result) {
+    setTools(prev => prev.map(t => t.id === id ? { ...t, validation: result } : t));
+  }
+
+  /* ── Validate single tool ──────────────────────────────── */
+  async function handleValidate(tool) {
+    setValidatingId(tool.id);
     try {
-      const res = await v1Validate({ tool_name: toolName, base_url: baseUrl, auth_token: authToken || null });
-      const { reachable, message, latency_ms } = res.data;
-      if (reachable) {
-        setValidated(true);
-        setMsg(
-          "success",
-          "Connection established",
-          `${message}${latency_ms != null ? ` — ${latency_ms} ms` : ""}`,
-        );
-      } else {
-        setMsg("error", "Unreachable", message);
-      }
+      const res = await v1Validate({
+        tool_name:  tool.toolName,
+        base_url:   tool.baseUrl,
+        auth_token: tool.authToken,
+      });
+      setToolValidation(tool.id, res.data);
     } catch (err) {
-      setMsg("error", "Validation error", err?.response?.data?.detail || err.message);
+      setToolValidation(tool.id, {
+        reachable: false,
+        message: err?.response?.data?.detail || err.message,
+      });
     } finally {
-      setValidating(false);
+      setValidatingId(null);
     }
   }
 
-  /* ── Generate Report ──────────────────────────────────── */
+  /* ── Validate all tools (sequential) ──────────────────── */
+  async function handleValidateAll() {
+    setValidatingAll(true);
+    setStatus(null);
+    for (const tool of tools) {
+      setValidatingId(tool.id);
+      try {
+        const res = await v1Validate({
+          tool_name:  tool.toolName,
+          base_url:   tool.baseUrl,
+          auth_token: tool.authToken,
+        });
+        setToolValidation(tool.id, res.data);
+      } catch (err) {
+        setToolValidation(tool.id, {
+          reachable: false,
+          message: err?.response?.data?.detail || err.message,
+        });
+      }
+    }
+    setValidatingId(null);
+    setValidatingAll(false);
+  }
+
+  /* ── Generate Report (all tools → /api/export) ─────────── */
   async function handleCrawl() {
+    if (tools.length === 0) return;
     setCrawling(true);
     setStatus(null);
     try {
-      const res = await v1Crawl({ tool_name: toolName, base_url: baseUrl, auth_token: authToken || null });
-      const { message, download_url } = res.data;
-      setMsg("success", "Report ready", message);
-      triggerDownload(download_url);
+      const payload = {
+        client: { name: "ObsCrawl Hub", environment: "hub" },
+        tools: tools.map(t => ({
+          name:    t.toolName,
+          enabled: true,
+          usages:  DEFAULT_USAGES[t.toolName] ?? ["metrics"],
+          url:     t.baseUrl,
+          api_key: t.authToken ?? null,
+        })),
+        ai: { enabled: false, provider: null, model: null, api_key: null },
+      };
+      const res = await exportExcel(payload);
+      setStatus({ type: "success", title: "Report ready", msg: res.data.message });
+      triggerDownload(res.data.download_url);
     } catch (err) {
-      setMsg("error", "Crawl failed", err?.response?.data?.detail || err.message);
+      setStatus({ type: "error", title: "Crawl failed", msg: err?.response?.data?.detail || err.message });
     } finally {
       setCrawling(false);
     }
   }
 
-  /* ── Render ───────────────────────────────────────────── */
-  return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label="ObsCrawl">
+  /* ── Derived ────────────────────────────────────────────── */
+  const reachableCount = tools.filter(t => t.validation?.reachable).length;
+  const validatedCount = tools.filter(t => t.validation !== null).length;
 
-        {/* Header */}
+  /* ── Render ─────────────────────────────────────────────── */
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal modal-wide" role="dialog" aria-modal="true" aria-label="ObsCrawl">
+
+        {/* ── Header ── */}
         <div className="modal-header modal-header-teal">
           <div className="modal-header-left">
             <span className="modal-icon">🕷️</span>
             <div>
               <div className="modal-title">ObsCrawl</div>
-              <div className="modal-subtitle">Extract & export tool telemetry</div>
+              <div className="modal-subtitle">
+                Add tools below, validate connections, then generate a combined Excel report
+              </div>
             </div>
           </div>
           <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
         </div>
 
-        {/* Body */}
+        {/* ── Body ── */}
         <div className="modal-body">
 
-          {/* Tool selector */}
-          <div className="form-group">
-            <label className="form-label">Tool Name</label>
-            <select
-              className="form-select"
-              value={toolName}
-              onChange={(e) => { setToolName(e.target.value); setValidated(false); setStatus(null); }}
-              disabled={loading}
+          {/* ── Add-tool bar ── */}
+          <div className="mtool-add-bar">
+            <div className="form-group mtool-add-tool">
+              <label className="form-label">Tool</label>
+              <select
+                className="form-select"
+                value={addTool}
+                onChange={e => setAddTool(e.target.value)}
+                disabled={busy}
+              >
+                {TOOL_OPTIONS.map(t => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group mtool-add-url">
+              <label className="form-label">Base URL</label>
+              <input
+                className="form-input"
+                type="url"
+                value={addUrl}
+                onChange={e => setAddUrl(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleAdd()}
+                placeholder="https://host:port"
+                disabled={busy}
+              />
+            </div>
+
+            <div className="form-group mtool-add-token">
+              <label className="form-label">
+                Auth Token <span className="form-label-opt">(opt)</span>
+              </label>
+              <input
+                className="form-input"
+                type="password"
+                value={addToken}
+                onChange={e => setAddToken(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleAdd()}
+                placeholder="••••••••"
+                disabled={busy}
+              />
+            </div>
+
+            <button
+              className="btn btn-teal mtool-add-btn"
+              onClick={handleAdd}
+              disabled={busy || !addUrl.trim()}
+              title="Add tool to list"
             >
-              {TOOL_OPTIONS.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
+              + Add
+            </button>
           </div>
 
-          {/* Base URL */}
-          <div className="form-group">
-            <label className="form-label">Base URL</label>
-            <input
-              className="form-input"
-              type="url"
-              value={baseUrl}
-              onChange={(e) => { setBaseUrl(e.target.value); setValidated(false); setStatus(null); }}
-              placeholder="https://prometheus.example.com"
-              disabled={loading}
-            />
-          </div>
+          {/* ── Tools table ── */}
+          {tools.length > 0 ? (
+            <div className="mtool-table-wrap animate-in">
+              {/* Header row */}
+              <div className="mtool-cols mtool-header">
+                <span>#</span>
+                <span>Tool</span>
+                <span>URL</span>
+                <span>Auth</span>
+                <span>Validation</span>
+                <span>Actions</span>
+              </div>
 
-          {/* Auth token */}
-          <div className="form-group">
-            <label className="form-label">Auth Token <span className="form-label-opt">(optional)</span></label>
-            <input
-              className="form-input"
-              type="password"
-              value={authToken}
-              onChange={(e) => setAuthToken(e.target.value)}
-              placeholder="Bearer token or API key"
-              disabled={loading}
-            />
-          </div>
+              {/* Data rows */}
+              {tools.map((tool, i) => {
+                const isValidating = validatingId === tool.id;
+                const v = tool.validation;
+                return (
+                  <div key={tool.id} className="mtool-cols mtool-row">
+                    <span className="mtool-num">{i + 1}</span>
+
+                    <span className="mtool-name">
+                      <span>{TOOL_ICONS[tool.toolName] ?? "🔧"}</span>
+                      {tool.toolName}
+                    </span>
+
+                    <span className="mtool-url" title={tool.baseUrl}>{tool.baseUrl}</span>
+
+                    <span className="mtool-auth">
+                      {tool.authToken ? "•••••" : <span className="mtool-none">—</span>}
+                    </span>
+
+                    <span className="mtool-status">
+                      {isValidating ? (
+                        <span className="mtool-validating">
+                          <span className="spinner" style={{ width: 12, height: 12, borderTopColor: "var(--teal)" }} />
+                          Checking…
+                        </span>
+                      ) : v ? (
+                        <span className={`validation-badge ${v.reachable ? "ok" : "fail"}`}>
+                          {v.reachable
+                            ? `✓ ${v.latency_ms != null ? v.latency_ms + " ms" : "Connected"}`
+                            : "✗ Failed"}
+                        </span>
+                      ) : (
+                        <span className="mtool-pending">Not validated</span>
+                      )}
+                    </span>
+
+                    <span className="mtool-actions">
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => handleValidate(tool)}
+                        disabled={busy}
+                        title="Validate this tool"
+                      >
+                        {isValidating ? "…" : "Validate"}
+                      </button>
+                      <button
+                        className="btn btn-danger btn-sm"
+                        onClick={() => handleRemove(tool.id)}
+                        disabled={busy}
+                        title="Remove"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  </div>
+                );
+              })}
+
+              {/* Summary bar */}
+              <div className="mtool-summary-bar">
+                <span>{tools.length} tool{tools.length !== 1 ? "s" : ""} added</span>
+                {validatedCount > 0 && (
+                  <span>
+                    {reachableCount}/{validatedCount} validated reachable
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="empty-state">
+              <span className="empty-icon">📡</span>
+              <span className="empty-text">
+                No tools added yet — use the form above to add one or more tools.
+              </span>
+            </div>
+          )}
 
           {/* Status alert */}
           {status && (
-            <div className={`modal-alert modal-alert-${status.type}`}>
-              <span className="modal-alert-icon">
-                {status.type === "success" ? "✓" : "✗"}
-              </span>
+            <div className={`modal-alert modal-alert-${status.type} animate-in`}>
+              <span className="modal-alert-icon">{status.type === "success" ? "✓" : "✗"}</span>
               <div>
                 <div className="modal-alert-title">{status.title}</div>
                 <div className="modal-alert-msg">{status.msg}</div>
@@ -171,31 +348,31 @@ export default function CrawlModal({ onClose }) {
           )}
         </div>
 
-        {/* Footer actions */}
+        {/* ── Footer ── */}
         <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onClose} disabled={loading}>
+          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>
             Cancel
           </button>
 
           <button
-            className="btn btn-teal"
-            onClick={handleValidate}
-            disabled={loading || !baseUrl.trim()}
+            className="btn btn-secondary"
+            onClick={handleValidateAll}
+            disabled={busy || tools.length === 0}
+            title="Validate all tools sequentially"
           >
-            {validating
-              ? <><span className="spinner" /> Validating…</>
-              : "🔌 Validate Connection"}
+            {validatingAll
+              ? <><span className="spinner" style={{ borderTopColor: "var(--accent)" }} /> Validating…</>
+              : "🔌 Validate All"}
           </button>
 
           <button
-            className="btn btn-primary"
+            className="btn btn-teal"
             onClick={handleCrawl}
-            disabled={!validated || loading}
-            title={!validated ? "Validate the connection first" : undefined}
+            disabled={busy || tools.length === 0}
           >
             {crawling
               ? <><span className="spinner" /> Generating…</>
-              : "⬇ Generate Report"}
+              : `⬇ Generate Report (${tools.length} tool${tools.length !== 1 ? "s" : ""})`}
           </button>
         </div>
 

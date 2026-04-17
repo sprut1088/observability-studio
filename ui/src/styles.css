@@ -1487,6 +1487,186 @@ html[data-theme="dark"] .view-switch-btn.active {
 }
 
 /* ============================================
+   MULTI-TOOL TABLE (mtool-*)
+   ============================================ */
+
+/* Wider modal variant for tabular content */
+.modal-wide {
+  max-width: 820px;
+}
+
+/* Add-tool inline bar */
+.mtool-add-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.mtool-add-tool  { flex: 0 0 160px; min-width: 130px; }
+.mtool-add-url   { flex: 1 1 220px;  min-width: 160px; }
+.mtool-add-token { flex: 1 1 160px;  min-width: 120px; }
+
+.mtool-add-btn {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  height: 38px;
+  padding: 0 18px;
+  white-space: nowrap;
+}
+
+/* Table container */
+.mtool-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  font-size: 13px;
+}
+
+/* 6-column grid row (# | Tool | URL | Auth | Validation | Actions) */
+.mtool-cols {
+  display: grid;
+  grid-template-columns: 32px 130px 1fr 60px 140px 110px;
+  align-items: center;
+  gap: 0;
+  padding: 0 12px;
+}
+
+/* Header row */
+.mtool-header {
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  padding-top: 8px;
+  padding-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* Data row */
+.mtool-row {
+  border-bottom: 1px solid var(--border);
+  padding-top: 9px;
+  padding-bottom: 9px;
+  color: var(--text-primary);
+  transition: background var(--ease);
+}
+.mtool-row:last-child { border-bottom: none; }
+.mtool-row:hover { background: var(--accent-deep); }
+
+/* Cell variants */
+.mtool-num {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.mtool-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.mtool-url {
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 8px;
+}
+
+.mtool-auth {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: center;
+}
+
+.mtool-none { color: var(--text-muted); }
+
+/* Validation status cell */
+.mtool-status { font-size: 12px; }
+
+.mtool-pending {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.mtool-validating {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--teal);
+  font-size: 12px;
+}
+
+/* Validation badge */
+.validation-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.validation-badge.ok {
+  background: var(--green-bg);
+  color: var(--green);
+  border: 1px solid var(--green-border);
+}
+.validation-badge.fail {
+  background: var(--red-bg);
+  color: var(--red);
+  border: 1px solid var(--red-border);
+}
+
+/* Actions cell */
+.mtool-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Summary bar below table */
+.mtool-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 14px;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* Dark overrides */
+html[data-theme="dark"] .mtool-add-bar {
+  background: rgba(255,255,255,0.03);
+}
+html[data-theme="dark"] .mtool-header {
+  background: rgba(255,255,255,0.04);
+}
+html[data-theme="dark"] .mtool-row:hover {
+  background: rgba(99,102,241,0.06);
+}
+html[data-theme="dark"] .mtool-summary-bar {
+  background: rgba(255,255,255,0.03);
+}
+
+/* ============================================
    RESPONSIVE
    ============================================ */
 @media (max-width: 768px) {
@@ -1522,4 +1702,26 @@ html[data-theme="dark"] .view-switch-btn.active {
   .modal-footer .btn {
     width: 100%;
   }
+
+  .modal-wide {
+    max-width: 100%;
+  }
+
+  .mtool-add-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mtool-add-tool,
+  .mtool-add-url,
+  .mtool-add-token { flex: 1 1 100%; }
+
+  /* Collapse table to stacked cards on small screens */
+  .mtool-cols {
+    grid-template-columns: 28px 1fr 1fr;
+    grid-template-rows: auto auto;
+  }
+
+  .mtool-auth    { display: none; }
+  .mtool-header  { display: none; }
 }

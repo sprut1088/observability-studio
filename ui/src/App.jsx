@@ -197,11 +197,11 @@ export default function App() {
           SRE Accelerator
         </div>
 
-        <h1 className="hero-title">ObservaScore</h1>
+        <h1 className="hero-title">Observability Studio</h1>
 
         <p className="hero-subtitle">
           Assess and score your observability maturity across tools, dimensions,
-          and best practices — powered by AI.
+          and best practices - powered by AI.
         </p>
 
         {/* View switcher */}
