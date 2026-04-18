@@ -32,7 +32,7 @@ BASE_URL = "http://20.193.248.157:8000"
 # ── Tool catalogue (loaded once at import) ────────────────────────────────────
 def _load_tools() -> dict[str, Any]:
     if _TOOLS_YAML.exists():
-        with open(_TOOLS_YAML) as fh:
+        with open(_TOOLS_YAML, encoding="utf-8") as fh:
             data = yaml.safe_load(fh) or {}
         return data.get("tools", {})
     return {}

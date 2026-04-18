@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import CrawlModal from "./CrawlModal";
 import AssessModal from "./AssessModal";
+import { getFeatureFlags } from "../api";
 
 /* ── Tile definitions ───────────────────────────────────── */
 const TILES = [
@@ -35,6 +36,19 @@ const TILES = [
 ══════════════════════════════════════════════════════════ */
 export default function HubPage() {
   const [activeTile, setActiveTile] = useState(null); // "obscrawl" | "observascore" | null
+  // Feature flags — default all true so tiles show during initial load
+  const [flags, setFlags] = useState({ observascore: true, obscrawl: true });
+
+  useEffect(() => {
+    getFeatureFlags()
+      .then((res) => setFlags(res.data || {}))
+      .catch(() => {
+        // If the endpoint is unreachable, keep defaults (show everything)
+      });
+  }, []);
+
+  // Only render tiles whose feature flag is enabled
+  const visibleTiles = TILES.filter((tile) => flags[tile.id] !== false);
 
   return (
     <div className="hub-wrapper">
@@ -47,7 +61,7 @@ export default function HubPage() {
 
       {/* ── Tile grid ─────────────────────────────────── */}
       <div className="hub-grid">
-        {TILES.map((tile) => (
+        {visibleTiles.map((tile) => (
           <button
             key={tile.id}
             className={`hub-tile ${tile.accentClass}`}

@@ -16,4 +16,7 @@ export const v1Validate = (payload) => api.post("/v1/validate", payload);
 export const v1Crawl    = (payload) => api.post("/v1/crawl",    payload);
 export const v1Assess   = (payload) => api.post("/v1/assess",   payload);
 
+// ── Platform feature flags ────────────────────────────────
+export const getFeatureFlags = () => api.get("/feature-flags");
+
 export default api;

@@ -1,0 +1,7 @@
+# Observability Studio — Feature Flags
+# ─────────────────────────────────────
+# Set a flag to false to disable the accelerator's backend APIs
+# AND hide its tile in the UI.
+
+observascore: true   # ObservaScore maturity assessment accelerator
+obscrawl: true       # ObsCrawl telemetry crawler & Excel exporter

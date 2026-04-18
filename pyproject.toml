@@ -34,7 +34,7 @@ dev = [
 observascore = "observascore.cli:cli"
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["accelerators"]
 include = ["observascore*"]
 
 [tool.setuptools.package-data]
