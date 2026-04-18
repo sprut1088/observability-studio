@@ -68,9 +68,11 @@ export default function AssessModal({ onClose }) {
   const [tools, setTools] = useState([]);
 
   /* ── AI config state ───────────────────────────────────── */
-  const [useAi,      setUseAi]      = useState(false);
-  const [aiProvider, setAiProvider] = useState("anthropic");
-  const [aiApiKey,   setAiApiKey]   = useState("");
+  const [useAi,           setUseAi]           = useState(false);
+  const [aiProvider,      setAiProvider]      = useState("anthropic");
+  const [aiApiKey,        setAiApiKey]        = useState("");
+  const [azureEndpoint,   setAzureEndpoint]   = useState("");
+  const [azureDeployment, setAzureDeployment] = useState("");
 
   /* ── Operation state ───────────────────────────────────── */
   const [validatingId,  setValidatingId]  = useState(null);
@@ -155,6 +157,14 @@ export default function AssessModal({ onClose }) {
       setStatus({ type: "error", title: "Missing API key", msg: "An AI API key is required when AI scoring is enabled." });
       return;
     }
+    if (useAi && aiProvider === "azure" && !azureEndpoint.trim()) {
+      setStatus({ type: "error", title: "Missing Azure endpoint", msg: "Azure OpenAI endpoint URL is required (e.g. https://your-resource.openai.azure.com/)." });
+      return;
+    }
+    if (useAi && aiProvider === "azure" && !azureDeployment.trim()) {
+      setStatus({ type: "error", title: "Missing deployment name", msg: "Azure OpenAI deployment name is required (e.g. gpt-4o)." });
+      return;
+    }
     setAssessing(true);
     setStatus(null);
     try {
@@ -168,10 +178,11 @@ export default function AssessModal({ onClose }) {
           api_key: t.authToken ?? null,
         })),
         ai: {
-          enabled:  useAi,
-          provider: useAi ? aiProvider : null,
-          model:    null,
-          api_key:  useAi ? aiApiKey   : null,
+          enabled:           useAi,
+          provider:          useAi ? aiProvider                              : null,
+          api_key:           useAi ? aiApiKey                                : null,
+          azure_endpoint:    useAi && aiProvider === "azure" ? azureEndpoint    : null,
+          azure_deployment:  useAi && aiProvider === "azure" ? azureDeployment  : null,
         },
       };
       const res = await runAssessment(payload);
@@ -398,17 +409,47 @@ export default function AssessModal({ onClose }) {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">AI API Key</label>
+                  <label className="form-label">
+                    {aiProvider === "azure" ? "Azure API Key" : "API Key"}
+                  </label>
                   <input
                     className="form-input"
                     type="password"
                     value={aiApiKey}
                     onChange={e => setAiApiKey(e.target.value)}
-                    placeholder="sk-••••••••••••••••••"
+                    placeholder={aiProvider === "azure" ? "Azure OpenAI key" : "sk-••••••••••••••••••"}
                     disabled={busy}
                   />
                 </div>
               </div>
+
+              {/* Azure-specific fields */}
+              {aiProvider === "azure" && (
+                <div className="form-grid form-grid-2 animate-in" style={{ marginTop: 12 }}>
+                  <div className="form-group">
+                    <label className="form-label">Azure Endpoint URL</label>
+                    <input
+                      className="form-input"
+                      type="url"
+                      value={azureEndpoint}
+                      onChange={e => setAzureEndpoint(e.target.value)}
+                      placeholder="https://your-resource.openai.azure.com/"
+                      disabled={busy}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Deployment Name</label>
+                    <input
+                      className="form-input"
+                      type="text"
+                      value={azureDeployment}
+                      onChange={e => setAzureDeployment(e.target.value)}
+                      placeholder="e.g. gpt-4o"
+                      disabled={busy}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

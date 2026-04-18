@@ -24,10 +24,17 @@ def build_runtime_config(payload: dict, workdir: Path) -> Path:
         if tool.get("password"):
             sources[tool["name"]]["password"] = tool["password"]
 
+    # Strip None values from the AI config so the CLI can apply its own
+    # defaults (e.g. model name).  Keeping "key: null" in the YAML causes
+    # dict.get(key, default) to return None instead of the default because
+    # the key is present — even though the value is meaningless.
+    ai_raw = payload.get("ai") or {"enabled": False}
+    ai_cfg = {k: v for k, v in ai_raw.items() if v is not None}
+
     cfg = {
         "client": payload.get("client", {}),
         "sources": sources,
-        "ai": payload.get("ai", {"enabled": False}),
+        "ai": ai_cfg,
     }
 
     with open(config_path, "w", encoding="utf-8") as f:

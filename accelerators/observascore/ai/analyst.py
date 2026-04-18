@@ -333,8 +333,9 @@ class ObservabilityAIAnalyst:
         self.provider = (config.get("provider") or "anthropic").strip().lower()
         self.max_tokens = config.get("max_tokens", 4096)
         self.temperature = config.get("temperature", 1.0)
-        # default model for Anthropic
-        self.model = config.get("model", "claude-sonnet-4-6")
+        # Bug fix: use `or` so that an explicit null/None value falls back to
+        # the default rather than being passed as-is to the SDK.
+        self.model = config.get("model") or "claude-sonnet-4-6"
 
         if self.provider == "anthropic":
             try:
@@ -362,10 +363,11 @@ class ObservabilityAIAnalyst:
                 ) from e
 
             api_key = config.get("api_key") or config.get("azure_api_key")
-            api_base = config.get("api_base")
+            # Accept both the legacy "api_base" key and the schema field "azure_endpoint"
+            api_base = config.get("api_base") or config.get("azure_endpoint")
             if not api_key or not api_base:
                 raise AIAnalystError(
-                    "Azure OpenAI requires api_key and api_base in config (api_base is your endpoint URL)."
+                    "Azure OpenAI requires api_key and azure_endpoint in the AI config."
                 )
 
             api_version = config.get("api_version", "2024-02-01")
@@ -374,8 +376,15 @@ class ObservabilityAIAnalyst:
                 azure_endpoint=api_base,
                 api_version=api_version,
             )
-            # For Azure, use deployment name as model identifier if provided
-            self.model = config.get("deployment") or config.get("model") or self.model
+            # For Azure, use deployment name as model identifier if provided.
+            # Accept both "deployment" (legacy CLI config key) and "azure_deployment"
+            # (the schema field name sent from the UI).
+            self.model = (
+                config.get("deployment")
+                or config.get("azure_deployment")
+                or config.get("model")
+                or "gpt-4o"
+            )
 
         else:
             raise AIAnalystError(f"Unsupported AI provider: {self.provider}")
