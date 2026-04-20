@@ -50,7 +50,7 @@ const TILES = [
 export default function HubPage() {
   const [activeTile, setActiveTile] = useState(null); // "obscrawl" | "observascore" | null
   // Feature flags — default all true so tiles show during initial load
-  const [flags, setFlags] = useState({ observascore: true, obscrawl: true });
+  const [flags, setFlags] = useState({ observascore: true, obscrawl: true, rca_agent: true });
 
   useEffect(() => {
     getFeatureFlags()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -44,18 +45,31 @@ def setup_logging(verbose: bool) -> None:
 
 def _run_adapter(name: str, adapter_cls, config: dict, estate: ObservabilityEstate,
                  summary: ExtractionSummary) -> None:
-    """Generic adapter runner — health-checks then extracts, populates estate."""
+    """Generic adapter runner — health-checks then extracts, populates estate.
+
+    Health-check failure is treated as a warning, not a hard stop: we still
+    attempt extraction so that partial data is captured when a tool is slow to
+    respond to the health probe but its API endpoints work.
+    """
     console.print(f"[cyan]→ {name.capitalize()}[/cyan]")
     adapter = adapter_cls(config)
-    if not adapter.health_check():
-        summary.extraction_errors.append(f"{name}: health check failed")
-        console.print(f"[red]  {name} unreachable[/red]")
-        return
+    health_ok = adapter.health_check()
+    if not health_ok:
+        console.print(
+            f"[yellow]  {name} health check did not pass — "
+            f"attempting extraction anyway[/yellow]"
+        )
     try:
         data = adapter.extract()
         _merge_adapter_data(name, data, estate, summary)
+        if not health_ok:
+            # Health check failed but extraction succeeded — note it
+            console.print(f"[yellow]  {name} health check uncertain but data extracted[/yellow]")
     except Exception as e:
-        summary.extraction_errors.append(f"{name}: {e}")
+        reason = f"{name}: {e}"
+        summary.extraction_errors.append(reason)
+        if not health_ok:
+            summary.extraction_errors.append(f"{name}: health check failed — tool may be unavailable")
         console.print(f"[red]  {name} extraction failed: {e}[/red]")
 
 
@@ -249,9 +263,17 @@ def assess(config: str, output: str, ai: bool, verbose: bool) -> None:
 
     # --- AI Analysis ---
     ai_cfg = cfg.get("ai", {})
-    ai_key_present = bool(ai_cfg.get("api_key") or ai_cfg.get("azure_api_key"))
+    # Check config dict first, then fall back to well-known env vars so that
+    # CLI users with ANTHROPIC_API_KEY set in their shell don't need to repeat
+    # the key in every config file.
+    provider = (ai_cfg.get("provider") or "anthropic").strip().lower()
+    ai_key_present = bool(
+        ai_cfg.get("api_key")
+        or ai_cfg.get("azure_api_key")
+        or (provider not in ("azure", "azure_openai", "openai_azure") and os.environ.get("ANTHROPIC_API_KEY"))
+        or (provider in ("azure", "azure_openai", "openai_azure") and os.environ.get("AZURE_OPENAI_API_KEY"))
+    )
     if ai and ai_cfg.get("enabled", True) and ai_key_present:
-        provider = (ai_cfg.get("provider") or "anthropic").strip().lower()
         provider_label = "Azure OpenAI" if provider in ("azure", "azure_openai", "openai_azure") else "Claude"
         console.rule(f"[bold blue]AI Analysis ({provider_label})")
         try:
@@ -271,9 +293,27 @@ def assess(config: str, output: str, ai: bool, verbose: bool) -> None:
                     f"Trend alignments: {len(estate.ai_analysis.trend_alignments)}"
                 )
         except Exception as e:
-            console.print(f"[yellow]  AI analysis skipped: {e}[/yellow]")
+            console.print(f"[red]  AI analysis failed: {e}[/red]")
+            # Surface the error in the report so the user sees it clearly
+            from observascore.model import AIAnalysis
+            from datetime import datetime, timezone as _tz
+            estate.ai_analysis = AIAnalysis(
+                narrative="AI analysis could not be completed — see error below.",
+                technical_gaps=[],
+                functional_gaps=[],
+                trend_alignments=[],
+                prioritized_recommendations=[],
+                trend_score=0.0,
+                strengths=[],
+                model_used="none",
+                generated_at=datetime.now(_tz.utc).isoformat(),
+                error=str(e),
+            )
     elif ai and not ai_key_present:
-        console.print("[dim]  AI analysis skipped — set ai.api_key (or ai.azure_api_key) in config to enable[/dim]")
+        console.print(
+            "[dim]  AI analysis skipped — provide ai.api_key in config or set "
+            "ANTHROPIC_API_KEY (Anthropic) / AZURE_OPENAI_API_KEY (Azure) env var[/dim]"
+        )
 
     console.rule("[bold blue]Generating report")
     generator = ReportGenerator()

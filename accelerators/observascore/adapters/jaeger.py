@@ -14,11 +14,28 @@ class JaegerAdapter(BaseAdapter):
     tool_name = "jaeger"
 
     def health_check(self) -> bool:
+        """
+        Jaeger Query does not expose a dedicated /health endpoint.
+        We probe /api/services (lightweight) as a liveness check.
+        A 200 response with a JSON body (even an empty data array) means Jaeger is up.
+        """
         try:
             data = self._get("/api/services")
-            return "data" in data
+            # Any 200 with a JSON body is a healthy response; "data" key may be []
+            if isinstance(data, dict):
+                return True
+            logger.error(
+                "Jaeger health check: unexpected response shape at %s/api/services — %r",
+                self.url, type(data),
+            )
+            return False
         except Exception as e:
-            logger.error("Jaeger health check failed: %s", e)
+            logger.error(
+                "Jaeger health check failed for %s — %s\n"
+                "  Verify: (1) Jaeger Query is running, (2) the base URL points to the "
+                "Query service (default port 16686), not the Collector.",
+                self.url, e,
+            )
             return False
 
     def extract(self) -> dict[str, Any]:

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -345,10 +346,15 @@ class ObservabilityAIAnalyst:
                     "anthropic package not installed. Run: pip install anthropic"
                 ) from e
 
-            api_key = config.get("api_key") or config.get("anthropic_api_key")
+            api_key = (
+                config.get("api_key")
+                or config.get("anthropic_api_key")
+                or os.environ.get("ANTHROPIC_API_KEY", "")
+            )
             if not api_key:
                 raise AIAnalystError(
-                    "No Anthropic API key configured. Set ai.api_key in config."
+                    "No Anthropic API key provided. Pass ai.api_key in config "
+                    "or set the ANTHROPIC_API_KEY environment variable."
                 )
 
             self.client = anthropic.Anthropic(api_key=api_key)
@@ -362,12 +368,21 @@ class ObservabilityAIAnalyst:
                     "openai package not installed. Run: pip install openai>=1.0"
                 ) from e
 
-            api_key = config.get("api_key") or config.get("azure_api_key")
+            api_key = (
+                config.get("api_key")
+                or config.get("azure_api_key")
+                or os.environ.get("AZURE_OPENAI_API_KEY", "")
+            )
             # Accept both the legacy "api_base" key and the schema field "azure_endpoint"
-            api_base = config.get("api_base") or config.get("azure_endpoint")
+            api_base = (
+                config.get("api_base")
+                or config.get("azure_endpoint")
+                or os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+            )
             if not api_key or not api_base:
                 raise AIAnalystError(
-                    "Azure OpenAI requires api_key and azure_endpoint in the AI config."
+                    "Azure OpenAI requires api_key and azure_endpoint. "
+                    "Pass them in config or set AZURE_OPENAI_API_KEY / AZURE_OPENAI_ENDPOINT env vars."
                 )
 
             api_version = config.get("api_version", "2024-02-01")

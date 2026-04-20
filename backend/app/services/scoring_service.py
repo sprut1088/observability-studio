@@ -88,9 +88,17 @@ def _write_assess_config(req: AssessmentRequest, workdir: Path) -> Path:
 
     ai_cfg: dict[str, Any] = {"enabled": req.use_ai}
     if req.use_ai:
-        ai_cfg["provider"] = req.ai_provider or "anthropic"
+        provider = (req.ai_provider or "anthropic").lower()
+        ai_cfg["provider"] = provider
         if req.ai_api_key:
             ai_cfg["api_key"] = req.ai_api_key
+        if provider in ("azure", "azure_openai", "openai_azure"):
+            if req.azure_endpoint:
+                ai_cfg["azure_endpoint"] = req.azure_endpoint
+            if req.azure_deployment:
+                ai_cfg["azure_deployment"] = req.azure_deployment
+            if req.azure_api_version:
+                ai_cfg["azure_api_version"] = req.azure_api_version
 
     config = {
         "client": {

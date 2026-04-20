@@ -63,9 +63,10 @@ class GrafanaAdapter(BaseAdapter):
         except AdapterError as e:
             result["errors"].append(f"datasources: {e}")
 
-        # Dashboards - search then fetch each
+        # Dashboards - search then fetch each (cap at 100 to avoid gateway timeouts
+        # when a Grafana instance has hundreds of dashboards behind a slow proxy)
         try:
-            search = self._get("/api/search", params={"type": "dash-db", "limit": 500})
+            search = self._get("/api/search", params={"type": "dash-db", "limit": 100})
             logger.info("  Found %d dashboards, fetching details...", len(search))
             for item in search:
                 uid = item.get("uid")

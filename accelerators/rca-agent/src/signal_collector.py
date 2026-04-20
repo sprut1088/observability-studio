@@ -36,19 +36,40 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _http_get(base_url: str, path: str, token: str | None = None,
-              timeout: int = 15) -> Any | None:
-    """GET a JSON endpoint; return parsed body or None on error."""
+              timeout: int = 30) -> Any | None:
+    """GET a JSON endpoint with simple retry on transient errors; return parsed body or None."""
     url = base_url.rstrip("/") + path
     headers: dict[str, str] = {}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    try:
-        resp = requests.get(url, headers=headers, timeout=timeout, verify=False)
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as exc:
-        logger.debug("GET %s failed: %s", url, exc)
-        return None
+
+    _retry_statuses = {429, 500, 502, 503, 504}
+    for attempt in range(3):
+        try:
+            resp = requests.get(url, headers=headers, timeout=timeout, verify=False)
+            if resp.status_code in _retry_statuses and attempt < 2:
+                wait = 1.0 * (2 ** attempt)
+                logger.debug("GET %s → HTTP %s, retrying in %.0fs …", url, resp.status_code, wait)
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            return resp.json()
+        except requests.exceptions.ConnectionError as exc:
+            if attempt < 2:
+                time.sleep(1.0 * (2 ** attempt))
+                continue
+            logger.debug("GET %s failed after 3 attempts: %s", url, exc)
+            return None
+        except requests.exceptions.Timeout as exc:
+            if attempt < 2:
+                time.sleep(1.0 * (2 ** attempt))
+                continue
+            logger.debug("GET %s timed out after 3 attempts: %s", url, exc)
+            return None
+        except Exception as exc:
+            logger.debug("GET %s failed: %s", url, exc)
+            return None
+    return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

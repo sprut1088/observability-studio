@@ -13,8 +13,11 @@ class AssessmentRequest(BaseModel):
 
     # AI branch
     use_ai: bool = False
-    ai_provider: Optional[str] = None   # "anthropic" | "azure"
+    ai_provider: Optional[str] = None       # "anthropic" | "azure"
     ai_api_key: Optional[str] = None
+    azure_endpoint: Optional[str] = None    # required when ai_provider="azure"
+    azure_deployment: Optional[str] = None  # Azure deployment name, e.g. gpt-4o
+    azure_api_version: Optional[str] = None # default: 2024-02-01
 
 
 class AssessmentResponse(BaseModel):

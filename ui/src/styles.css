@@ -1081,10 +1081,10 @@ html[data-theme="dark"] .view-switch-btn.active {
   white-space: nowrap;
 }
 
-/* ── Two-column tile grid ──────────────────── */
+/* ── Three-column tile grid (one per accelerator) ── */
 .hub-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 20px;
 }
 
@@ -1669,6 +1669,14 @@ html[data-theme="dark"] .mtool-summary-bar {
 /* ============================================
    RESPONSIVE
    ============================================ */
+
+/* Tablet: 3 columns → 2 columns */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .hub-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 @media (max-width: 768px) {
   .hero-title { font-size: 34px; }
   .hero-stats { gap: 28px; }
@@ -1694,6 +1702,7 @@ html[data-theme="dark"] .mtool-summary-bar {
     max-height: 95vh;
     border-radius: var(--radius-lg);
   }
+
 
   .modal-footer {
     flex-direction: column;
