@@ -296,18 +296,17 @@ def assess(config: str, output: str, ai: bool, verbose: bool) -> None:
             console.print(f"[red]  AI analysis failed: {e}[/red]")
             # Surface the error in the report so the user sees it clearly
             from observascore.model import AIAnalysis
-            from datetime import datetime, timezone as _tz
             estate.ai_analysis = AIAnalysis(
-                narrative="AI analysis could not be completed — see error below.",
-                technical_gaps=[],
-                functional_gaps=[],
-                trend_alignments=[],
-                prioritized_recommendations=[],
-                trend_score=0.0,
-                strengths=[],
-                model_used="none",
-                generated_at=datetime.now(_tz.utc).isoformat(),
-                error=str(e),
+               narrative="AI analysis could not be completed — see error below.",
+               technical_gaps=[],
+               functional_gaps=[],
+               trend_alignments=[],
+               prioritized_recommendations=[],
+               trend_score=0.0,
+               strengths=[],
+               model_used="none",
+               generated_at=datetime.now(timezone.utc).isoformat(),
+               error=str(e),
             )
     elif ai and not ai_key_present:
         console.print(
