@@ -1,0 +1,46 @@
+# config/correlation_rules.yaml
+
+# Service dependency mapping
+service_dependencies:
+  PaymentService:
+    downstream: [CheckoutService, OrderService]
+    upstream: [APIGateway]
+  
+  CheckoutService:
+    downstream: [OrderService, InventoryService]
+    upstream: [APIGateway, PaymentService]
+  
+  OrderService:
+    downstream: [InventoryService, NotificationService]
+    upstream: [CheckoutService]
+
+# Anomaly patterns
+anomaly_patterns:
+  high_latency:
+    metric: latency_p99
+    threshold_multiplier: 1.5  # 1.5x baseline
+    duration_threshold: 60  # seconds
+  
+  error_spike:
+    metric: error_rate
+    threshold: 5  # percent
+    baseline_comparison: true
+  
+  resource_exhaustion:
+    metrics: [cpu, memory]
+    threshold: 85  # percent
+
+# Correlation rules (what usually causes what)
+correlation_rules:
+  latency_in_database:
+    indicators:
+      - high_cpu_on_db_service
+      - query_response_time_high
+    probable_causes: [slow_query, connection_pool_exhaustion, lock_contention]
+  
+  memory_leak:
+    indicators:
+      - memory_steadily_increasing
+      - gc_frequency_increasing
+      - latency_increasing
+    probable_causes: [memory_leak, cache_overflow]

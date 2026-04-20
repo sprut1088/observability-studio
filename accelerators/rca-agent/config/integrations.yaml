@@ -1,0 +1,21 @@
+# config/integrations.yaml
+
+integrations:
+  splunk_o11y:
+    enabled: true
+    realm: us0  # or your realm
+    token_env: SPLUNK_O11Y_TOKEN
+    endpoints:
+      traces: /apm/v1/traces
+      metrics: /api/v1/metric_query
+  
+  grafana:
+    enabled: false
+    url_env: http://localhost:8080/grafana
+    token_env: GRAFANA_TOKEN
+    data_source_id: prometheus
+  
+  jaeger:
+    enabled: true
+    url: http://localhost:16686
+    service_endpoint: /api/services

@@ -1,0 +1,17 @@
+# config/thresholds.yaml
+
+thresholds:
+  PaymentService:
+    latency_p99_ms: 500
+    error_rate_percent: 1
+    cpu_percent: 80
+    memory_percent: 80
+  
+  CheckoutService:
+    latency_p99_ms: 1000
+    error_rate_percent: 2
+    cpu_percent: 80
+  
+  global:
+    latency_p99_ms: 1000
+    error_rate_percent: 2
