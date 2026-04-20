@@ -5,3 +5,4 @@
 
 observascore: true   # ObservaScore maturity assessment accelerator
 obscrawl: true       # ObsCrawl telemetry crawler & Excel exporter
+rca_agent: true      # RCA Agent — multi-tool root cause analysis

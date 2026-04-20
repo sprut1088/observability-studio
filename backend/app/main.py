@@ -52,6 +52,10 @@ async def enforce_feature_flags(request, call_next):
     if path in ("/api/assess", "/api/v1/assess"):
         _require_flag("observascore")
 
+    # RCA Agent endpoint
+    if path == "/api/v1/rca":
+        _require_flag("rca_agent")
+
     return await call_next(request)
 
 

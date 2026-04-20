@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import CrawlModal from "./CrawlModal";
 import AssessModal from "./AssessModal";
+import RCAModal from "./RCAModal";
 import { getFeatureFlags } from "../api";
 
 /* ── Tile definitions ───────────────────────────────────── */
@@ -29,6 +30,18 @@ const TILES = [
     badge: "Assessment",
     badgeClass: "badge-indigo",
   },
+  {
+    id: "rca_agent",
+    icon: "🔍",
+    title: "RCA Agent",
+    tagline: "Analyse & Investigate",
+    description:
+      "Automatically collect signals from Prometheus, Grafana, Jaeger, and OpenSearch during an incident. The agent correlates anomalies, maps the blast radius, and generates a Claude-powered Root Cause Analysis report.",
+    accentClass: "tile-amber",
+    features: ["Multi-tool signal collection", "Anomaly correlation engine", "Claude AI RCA report"],
+    badge: "RCA",
+    badgeClass: "badge-amber",
+  },
 ];
 
 /* ══════════════════════════════════════════════════════════
@@ -49,6 +62,7 @@ export default function HubPage() {
 
   // Only render tiles whose feature flag is enabled
   const visibleTiles = TILES.filter((tile) => flags[tile.id] !== false);
+
 
   return (
     <div className="hub-wrapper">
@@ -107,6 +121,9 @@ export default function HubPage() {
       )}
       {activeTile === "observascore" && (
         <AssessModal onClose={() => setActiveTile(null)} />
+      )}
+      {activeTile === "rca_agent" && (
+        <RCAModal onClose={() => setActiveTile(null)} />
       )}
     </div>
   );
