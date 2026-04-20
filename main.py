@@ -13,7 +13,7 @@ The accelerator CLIs are also callable directly via their installed entry-points
     observascore assess --config config/config.yaml
 """
 
-from studio-platform.cli.main_cli import main
+from studio_platform.cli.main_cli import main
 
 if __name__ == "__main__":
     main()
