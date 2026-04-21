@@ -497,3 +497,39 @@ export default function AssessModal({ onClose }) {
     </div>
   );
 }
+
+export function ReportDisplay({ htmlContent }) {
+  const [reportPopup, setReportPopup] = useState(null);
+
+  function handleReportDisplay(htmlContent) {
+    setReportPopup(
+      <div className="modal-overlay">
+        <div className="modal">
+          <div className="modal-header">
+            <h2>Assessment Report</h2>
+            <button onClick={() => setReportPopup(null)}>Close</button>
+          </div>
+          <div className="modal-body">
+            <iframe srcDoc={htmlContent} style={{ width: "100%", height: "400px" }} />
+          </div>
+          <div className="modal-footer">
+            <button onClick={() => triggerDownload(htmlContent)}>Download HTML</button>
+            <button onClick={() => setReportPopup(null)}>Close</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  async function handleAssessment() {
+    const result = await runAssessment(tools);
+    handleReportDisplay(result.htmlContent);
+  }
+
+  return (
+    <div>
+      {reportPopup}
+      <button onClick={handleAssessment}>Run Assessment</button>
+    </div>
+  );
+}
