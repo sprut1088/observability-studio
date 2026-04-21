@@ -1,1 +1,0 @@
-# studio_platform.cli.main_cli
