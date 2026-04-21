@@ -1,1 +1,1 @@
-# platform.cli — platform-controlled CLI entry layer.
+# studio_platform.cli — platform-controlled CLI entry layer.

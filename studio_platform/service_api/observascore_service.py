@@ -1,6 +1,6 @@
 """
-platform.service_api.observascore_service
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+studio_platform.service_api.observascore_service
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Service boundary for the ObservaScore accelerator.
 
 This class is a placeholder for the future MCP / SaaS API layer.

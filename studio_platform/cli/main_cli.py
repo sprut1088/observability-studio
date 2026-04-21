@@ -1,13 +1,13 @@
 """
-platform.cli.main_cli
-~~~~~~~~~~~~~~~~~~~~~
+studio_platform.cli.main_cli
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Platform-controlled CLI entry point for Observability Studio.
 
 This module delegates to each accelerator's own CLI so that the platform
 controls the top-level entry while accelerators remain independently runnable.
 
 Usage (from root main.py):
-    from platform.cli.main_cli import main
+    from studio_platform.cli.main_cli import main
     main()
 
 Direct CLI usage (accelerator CLIs are still callable independently):

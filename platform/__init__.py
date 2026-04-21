@@ -1,1 +1,0 @@
-# studio-platform — Observability Studio platform layer (CLI, service API, config).

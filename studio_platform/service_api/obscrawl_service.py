@@ -1,6 +1,6 @@
 """
-platform.service_api.obscrawl_service
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+studio_platform.service_api.obscrawl_service
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Service boundary for the ObsCrawl accelerator.
 
 Placeholder for MCP / SaaS exposure.  Crawl logic lives in

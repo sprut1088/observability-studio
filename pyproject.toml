@@ -34,8 +34,8 @@ dev = [
 observascore = "observascore.cli:cli"
 
 [tool.setuptools.packages.find]
-where = ["accelerators"]
-include = ["observascore*"]
+where = [".", "accelerators"]
+include = ["studio_platform*", "shared_core*", "integrations*", "observascore*"]
 
 [tool.setuptools.package-data]
 "observascore.rules" = ["packs/*.yaml"]
