@@ -11,6 +11,22 @@ BASE_URL = "http://20.193.248.157:8000"
 RUNTIME_DIR = Path("runtime")
 
 
+def _build_runtime_urls(file_path: Path) -> tuple[str, str]:
+    try:
+        rel = file_path.resolve().relative_to(RUNTIME_DIR.resolve())
+        rel_path = rel.as_posix()
+        return (
+            f"{BASE_URL}/api/preview/runtime/{rel_path}",
+            f"{BASE_URL}/api/download/runtime/{rel_path}",
+        )
+    except ValueError:
+        legacy_path = file_path.as_posix()
+        return (
+            f"{BASE_URL}/api/download/{legacy_path}",
+            f"{BASE_URL}/api/download/{legacy_path}",
+        )
+
+
 @router.post("/assess", response_model=RunResponse)
 def assess(req: RunRequest):
     try:
@@ -21,20 +37,19 @@ def assess(req: RunRequest):
         outputs = run_assessment(config_path, reports_dir, req.ai.enabled if req.ai else False)
 
         html_path = Path(outputs["html"])
+        preview_url, download_url = _build_runtime_urls(html_path)
 
-        # Build a path relative to RUNTIME_DIR so the download handler resolves it
-        # correctly: GET /api/download/runtime/<rel_path>
-        try:
-            rel = html_path.resolve().relative_to(RUNTIME_DIR.resolve())
-            download_url = f"{BASE_URL}/api/download/runtime/{rel.as_posix()}"
-        except ValueError:
-            # Fallback: use the absolute path segment after "runtime/"
-            download_url = f"{BASE_URL}/api/download/{html_path.as_posix()}"
+        json_url = None
+        json_path_str = outputs.get("json")
+        if json_path_str:
+            _, json_url = _build_runtime_urls(Path(json_path_str))
 
         return RunResponse(
             success=True,
             message="Assessment completed",
+            preview_url=preview_url,
             download_url=download_url,
+            json_url=json_url,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

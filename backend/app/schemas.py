@@ -52,4 +52,6 @@ class ValidationResponse(BaseModel):
 class RunResponse(BaseModel):
     success: bool
     message: str
+    preview_url: Optional[str] = None
     download_url: Optional[str] = None
+    json_url: Optional[str] = None

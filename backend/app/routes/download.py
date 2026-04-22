@@ -7,6 +7,38 @@ router = APIRouter()
 BASE_RUNTIME_DIR = Path("runtime").resolve()
 
 
+def _resolve_runtime_path(file_path: str) -> Path:
+    full_path = (BASE_RUNTIME_DIR / file_path).resolve()
+
+    try:
+        full_path.relative_to(BASE_RUNTIME_DIR)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Access denied") from exc
+
+    if not full_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+    return full_path
+
+
+@router.get("/preview/runtime/{file_path:path}")
+def preview_runtime_html(file_path: str):
+    """
+    Serve generated HTML reports inline for iframe-based preview.
+    """
+    full_path = _resolve_runtime_path(file_path)
+
+    if full_path.suffix.lower() != ".html":
+        raise HTTPException(status_code=400, detail="Preview is only supported for HTML reports")
+
+    return FileResponse(
+        path=str(full_path),
+        filename=full_path.name,
+        media_type="text/html",
+        headers={"Content-Disposition": f'inline; filename="{full_path.name}"'},
+    )
+
+
 @router.get("/download/runtime/{file_path:path}")
 def download_runtime_file(file_path: str):
     """
@@ -14,16 +46,7 @@ def download_runtime_file(file_path: str):
     file_path is relative to the runtime/ root, e.g.
       abc123/reports/observascore-report.html
     """
-    full_path = (BASE_RUNTIME_DIR / file_path).resolve()
-
-    # Safety: only serve files that live inside runtime/
-    try:
-        full_path.relative_to(BASE_RUNTIME_DIR)
-    except ValueError:
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    if not full_path.exists():
-        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+    full_path = _resolve_runtime_path(file_path)
 
     return FileResponse(
         path=str(full_path),

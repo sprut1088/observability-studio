@@ -53,6 +53,11 @@ function triggerDownload(downloadPath) {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
+function resolveApiUrl(path) {
+  if (!path) return null;
+  return path.startsWith("http") ? path : `${API_HOST}${path}`;
+}
+
 /* ══════════════════════════════════════════════════════════
    AssessModal — multi-tool ObservaScore assessment modal
 ══════════════════════════════════════════════════════════ */
@@ -79,6 +84,8 @@ export default function AssessModal({ onClose }) {
   const [validatingAll, setValidatingAll] = useState(false);
   const [assessing,     setAssessing]     = useState(false);
   const [status,        setStatus]        = useState(null); // { type, title, msg }
+  const [reportLinks,   setReportLinks]   = useState(null); // { previewUrl, downloadUrl, jsonUrl }
+  const [previewFailed, setPreviewFailed] = useState(false);
 
   const busy = validatingId !== null || validatingAll || assessing;
 
@@ -167,6 +174,8 @@ export default function AssessModal({ onClose }) {
     }
     setAssessing(true);
     setStatus(null);
+    setReportLinks(null);
+    setPreviewFailed(false);
     try {
       const payload = {
         client: { name: "ObservaScore Hub", environment: "hub" },
@@ -186,9 +195,14 @@ export default function AssessModal({ onClose }) {
         },
       };
       const res = await runAssessment(payload);
+      setReportLinks({
+        previewUrl: resolveApiUrl(res.data.preview_url),
+        downloadUrl: resolveApiUrl(res.data.download_url),
+        jsonUrl: resolveApiUrl(res.data.json_url),
+      });
       setStatus({ type: "success", title: "Assessment complete", msg: res.data.message });
-      triggerDownload(res.data.download_url);
     } catch (err) {
+      setReportLinks(null);
       setStatus({ type: "error", title: "Assessment failed", msg: err?.response?.data?.detail || err.message });
     } finally {
       setAssessing(false);
@@ -461,6 +475,53 @@ export default function AssessModal({ onClose }) {
                 <div className="modal-alert-title">{status.title}</div>
                 <div className="modal-alert-msg">{status.msg}</div>
               </div>
+            </div>
+          )}
+
+          {reportLinks && (
+            <div className="report-preview-card animate-in">
+              <div className="report-preview-header">
+                <div>
+                  <div className="report-preview-title">Assessment Report Preview</div>
+                  <div className="report-preview-subtitle">
+                    The generated HTML report is rendered inline. Download remains available separately.
+                  </div>
+                </div>
+                <div className="report-preview-actions">
+                  {reportLinks.downloadUrl && (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => triggerDownload(reportLinks.downloadUrl)}
+                    >
+                      Download Report
+                    </button>
+                  )}
+                  {reportLinks.jsonUrl && (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => triggerDownload(reportLinks.jsonUrl)}
+                    >
+                      Download JSON
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {previewFailed || !reportLinks.previewUrl ? (
+                <div className="report-preview-fallback">
+                  <div className="report-preview-fallback-title">Preview unavailable</div>
+                  <div className="report-preview-fallback-msg">
+                    The assessment finished, but the HTML preview could not be displayed in the UI. You can still download the generated report.
+                  </div>
+                </div>
+              ) : (
+                <iframe
+                  className="report-preview-frame"
+                  title="ObservaScore assessment report"
+                  src={reportLinks.previewUrl}
+                  onError={() => setPreviewFailed(true)}
+                />
+              )}
             </div>
           )}
         </div>

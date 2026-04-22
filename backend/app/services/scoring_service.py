@@ -25,6 +25,15 @@ RUNTIME_DIR = Path("runtime")
 BASE_URL = "http://20.193.248.157:8000"
 
 
+def _build_runtime_urls(file_path: Path) -> tuple[str, str]:
+    rel = file_path.relative_to(RUNTIME_DIR)
+    rel_path = rel.as_posix()
+    return (
+        f"{BASE_URL}/api/preview/runtime/{rel_path}",
+        f"{BASE_URL}/api/download/runtime/{rel_path}",
+    )
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 async def run_scoring(req: AssessmentRequest) -> AssessmentResponse:
@@ -62,15 +71,25 @@ async def run_scoring(req: AssessmentRequest) -> AssessmentResponse:
             message=f"Assessment failed — {error_detail}",
         )
 
+    json_files = sorted(
+        output_dir.glob("*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
     html_path = html_files[0]
-    rel = html_path.relative_to(RUNTIME_DIR)
-    download_url = f"{BASE_URL}/api/download/runtime/{rel.as_posix()}"
+    preview_url, download_url = _build_runtime_urls(html_path)
+    json_url = None
+    if json_files:
+        _, json_url = _build_runtime_urls(json_files[0])
 
     mode = "AI-powered" if req.use_ai else "deterministic"
     return AssessmentResponse(
         success=True,
         message=f"Assessment complete ({mode} scoring)",
+        preview_url=preview_url,
         download_url=download_url,
+        json_url=json_url,
     )
 
 

@@ -24,5 +24,7 @@ class AssessmentResponse(BaseModel):
     """Result returned after a completed assessment run."""
     success: bool
     message: str
+    preview_url: Optional[str] = None
     download_url: Optional[str] = None
+    json_url: Optional[str] = None
     score: Optional[float] = None
