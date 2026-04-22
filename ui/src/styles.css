@@ -13,6 +13,8 @@
    DESIGN TOKENS
    ============================================ */
 :root {
+  --page-max-width: 1560px;
+  --page-padding-x: 28px;
   --bg-base:        #f4f6fc;
   --bg-card:        #ffffff;
   --bg-input:       #ffffff;
@@ -225,9 +227,9 @@ body::before {
    ============================================ */
 .page {
   width: 100%;
-  max-width: 960px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
-  padding: 0 20px 72px;
+  padding: 0 var(--page-padding-x) 72px;
 }
 
 /* ============================================
@@ -235,9 +237,9 @@ body::before {
    ============================================ */
 .hero {
   width: 100%;
-  max-width: 960px;
+  max-width: var(--page-max-width);
   text-align: center;
-  padding: 64px 20px 44px;
+  padding: 64px var(--page-padding-x) 44px;
   position: relative;
 }
 
@@ -1056,7 +1058,8 @@ html[data-theme="dark"] .view-switch-btn.active {
    ============================================ */
 .hub-wrapper {
   width: 100%;
-  padding-top: 4px;
+  max-width: 100%;
+  padding-top: 10px;
 }
 
 .hub-section-label {
@@ -1084,8 +1087,9 @@ html[data-theme="dark"] .view-switch-btn.active {
 /* ── Three-column tile grid (one per accelerator) ── */
 .hub-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 28px;
+  align-items: stretch;
 }
 
 /* ── Individual tile ───────────────────────── */
@@ -1094,7 +1098,9 @@ html[data-theme="dark"] .view-switch-btn.active {
   flex-direction: column;
   align-items: flex-start;
   text-align: left;
-  padding: 32px 28px;
+  width: 100%;
+  min-height: 100%;
+  padding: 36px 32px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
@@ -1737,11 +1743,15 @@ html[data-theme="dark"] .mtool-summary-bar {
 /* Tablet: 3 columns → 2 columns */
 @media (max-width: 1024px) and (min-width: 769px) {
   .hub-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   }
 }
 
 @media (max-width: 768px) {
+  :root {
+    --page-padding-x: 20px;
+  }
+
   .hero-title { font-size: 34px; }
   .hero-stats { gap: 28px; }
   .steps      { display: none; }
@@ -1759,6 +1769,7 @@ html[data-theme="dark"] .mtool-summary-bar {
 
   .hub-grid {
     grid-template-columns: 1fr;
+    gap: 18px;
   }
 
   .modal {
