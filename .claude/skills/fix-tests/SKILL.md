@@ -62,7 +62,7 @@ If `ModuleNotFoundError: No module named 'signal_collector'` (RCA agent):
 ### 4. Fix assertion / HTTP failures
 
 For endpoint failures:
-1. Start the backend: `uvicorn backend.app.main:app --port 8000 --reload`
+1. Start the backend: `uvicorn backend.app.main:app --port 8001 --reload`
 2. Test the failing endpoint manually with curl
 3. Read the relevant route → service → accelerator chain (use analyze-module skill)
 4. Fix at the lowest layer first (adapter → service → route)
@@ -71,7 +71,7 @@ For endpoint failures:
 
 ```bash
 # Test payload manually
-curl -X POST http://localhost:8000/api/v1/rca \
+curl -X POST http://localhost:8001/api/v1/rca \
   -H "Content-Type: application/json" \
   -d '{"tools":[],"incident":{"service":"test"}}'
 # Read the 422 detail to see which field failed validation

@@ -4,8 +4,8 @@
 
 **Observability Studio** is a multi-accelerator SRE platform that crawls observability tools, scores maturity, and performs AI-driven root cause analysis. It exposes a FastAPI backend and a React+Vite frontend. All three accelerators share a common adapter pattern and a feature-flag gate.
 
-**Azure instance:** `http://20.193.248.157:8000` (backend) / `:5173` (UI)
-**Live Instance:** `http://10.235.21.132:8000/` (backend) / `:5173` (UI)
+**Azure instance:** `http://20.193.248.157:8001` (backend) / `:5173` (UI)
+**Live Instance:** `http://10.235.21.132:8001/` (backend) / `:5173` (UI)
 
 ---
 
@@ -150,8 +150,8 @@ LLMFormatter → Claude RCA JSON → Jinja2 HTML
 | Concept | Value |
 |---|---|
 | Default Claude model | `claude-sonnet-4-6` |
-| BASE_URL (hardcoded) | `http://20.193.248.157:8000` | `http://10.235.21.132:8000`
-| API_HOST (frontend) | `http://20.193.248.157:8000` | `http://10.235.21.132:8000`
+| BASE_URL (hardcoded) | `http://20.193.248.157:8001` | `http://10.235.21.132:8001`
+| API_HOST (frontend) | `http://20.193.248.157:8001` | `http://10.235.21.132:8001`
 | Runtime artifacts | `runtime/<run_id>/{rca/,reports/,exports/}` |
 | Observascore package | `accelerators/observascore/` installed via `pyproject.toml` |
 
@@ -163,7 +163,7 @@ LLMFormatter → Claude RCA JSON → Jinja2 HTML
 # Backend (from repo root)
 pip install -e .                          # install observascore package
 pip install -r backend/requirements.txt  # FastAPI deps
-uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn backend.app.main:app --host 0.0.0.0 --port 8001 --reload
 
 # Frontend
 cd ui && npm install && npm run dev       # dev on :5173

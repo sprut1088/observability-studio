@@ -123,7 +123,7 @@ rel = html_path.relative_to(RUNTIME_DIR)
 download_url = f"{BASE_URL}/api/download/runtime/{rel.as_posix()}"
 ```
 
-`BASE_URL = "http:/10.235.21.132:8000"` — hardcoded in both `crawler_service.py` and `scoring_service.py`. If changing the host, update both files (TODO: move to env var).
+`BASE_URL = "http:/10.235.21.132:8001"` — hardcoded in both `crawler_service.py` and `scoring_service.py`. If changing the host, update both files (TODO: move to env var).
 
 ## Frontend API Client (ui/src/api.js)
 

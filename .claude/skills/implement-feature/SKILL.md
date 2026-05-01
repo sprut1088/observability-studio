@@ -218,7 +218,7 @@ const [flags, setFlags] = useState({ observascore: true, obscrawl: true, rca_age
 ## Verification Checklist (all features)
 
 - [ ] `pytest tests/ -v` passes
-- [ ] Backend health: `curl http://localhost:8000/api/health`
+- [ ] Backend health: `curl http://localhost:8001/api/health`
 - [ ] New endpoint returns expected shape
 - [ ] Feature flag disables the endpoint (returns 503)
 - [ ] Frontend: tile appears when flag is true, hidden when false

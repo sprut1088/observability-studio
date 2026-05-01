@@ -22,7 +22,7 @@ from backend.app.models.assessment import AssessmentRequest, AssessmentResponse
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 RUNTIME_DIR = Path("runtime")
-BASE_URL = "http://10.235.21.132:8000"
+BASE_URL = "http://10.235.21.132:8001"
 
 
 def _build_runtime_urls(file_path: Path) -> tuple[str, str]:

@@ -26,7 +26,7 @@ from backend.app.models.connection import ConnectionSchema, ConnectionResponse
 # ── Paths ────────────────────────────────────────────────────────────────────
 RUNTIME_DIR = Path("runtime")
 _TOOLS_YAML = Path(__file__).parent.parent / "config" / "tools.yaml"
-BASE_URL = "http://10.235.21.132:8000"
+BASE_URL = "http://10.235.21.132:8001"
 
 
 # ── Tool catalogue (loaded once at import) ────────────────────────────────────

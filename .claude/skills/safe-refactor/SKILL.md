@@ -81,7 +81,7 @@ pytest tests/ -v
 
 If tests don't cover the changed code, manually verify the affected endpoint:
 ```bash
-curl -X POST http://localhost:8000/api/v1/validate \
+curl -X POST http://localhost:8001/api/v1/validate \
   -H "Content-Type: application/json" \
   -d '{"tool_name":"prometheus","base_url":"http://localhost:9090"}'
 ```
