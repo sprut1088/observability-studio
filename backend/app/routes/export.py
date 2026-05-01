@@ -18,7 +18,7 @@ def export_excel(req: RunRequest):
         return RunResponse(
             success=True,
             message="Excel export completed",
-            download_url=f"http://20.193.248.157:8000/api/download/{file_path.as_posix()}",
+            download_url=f"http://10.235.21.132:8000/api/download/{file_path.as_posix()}",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

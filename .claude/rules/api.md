@@ -77,7 +77,7 @@ Response: {
 
 Current allowed origins:
 ```python
-allow_origins=["http://localhost:5173", "http://20.193.248.157:5173"]
+allow_origins=["http://localhost:5173", "http://20.193.248.157:5173", "http://10.235.21.132:5173"]
 ```
 When deploying to a new domain, add the new origin here. Do not use `allow_origins=["*"]` in production.
 
@@ -123,7 +123,7 @@ rel = html_path.relative_to(RUNTIME_DIR)
 download_url = f"{BASE_URL}/api/download/runtime/{rel.as_posix()}"
 ```
 
-`BASE_URL = "http://20.193.248.157:8000"` — hardcoded in both `crawler_service.py` and `scoring_service.py`. If changing the host, update both files (TODO: move to env var).
+`BASE_URL = "http:/10.235.21.132:8000"` — hardcoded in both `crawler_service.py` and `scoring_service.py`. If changing the host, update both files (TODO: move to env var).
 
 ## Frontend API Client (ui/src/api.js)
 

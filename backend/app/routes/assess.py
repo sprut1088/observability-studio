@@ -7,7 +7,7 @@ from backend.app.services.assessor import run_assessment
 
 router = APIRouter()
 
-BASE_URL = "http://20.193.248.157:8000"
+BASE_URL = "http://10.235.21.132:8000"
 RUNTIME_DIR = Path("runtime")
 
 

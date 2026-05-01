@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 _REPO_ROOT   = Path(__file__).resolve().parents[3]
 _RCA_SRC     = _REPO_ROOT / "accelerators" / "rca-agent" / "src"
 RUNTIME_DIR  = _REPO_ROOT / "runtime"
-BASE_URL     = "http://20.193.248.157:8000"
+BASE_URL     = "http://10.235.21.132:8000"
 
 # Ensure the RCA agent source is importable
 if str(_RCA_SRC) not in sys.path:
