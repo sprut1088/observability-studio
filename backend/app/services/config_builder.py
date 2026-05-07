@@ -1,6 +1,7 @@
 import yaml
 from pathlib import Path
 from uuid import uuid4
+from urllib.parse import urlparse
 
 def load_local_config() -> dict:
     config_path = Path("config/config.yaml")
@@ -9,6 +10,23 @@ def load_local_config() -> dict:
 
     with open(config_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+    
+def derive_splunk_urls(base_url: str) -> dict:
+    parsed = urlparse(base_url)
+    hostname = parsed.hostname
+
+    if not hostname:
+        return {
+            "base": base_url.rstrip("/"),
+            "mgmt": base_url.rstrip("/"),
+            "hec": base_url.rstrip("/"),
+        }
+
+    return {
+        "base": f"http://{hostname}:8000",
+        "mgmt": f"https://{hostname}:8089",
+        "hec": f"http://{hostname}:8088",
+    }
 
 def build_runtime_config(payload: dict, workdir: Path) -> Path:
     workdir.mkdir(parents=True, exist_ok=True)
@@ -38,12 +56,13 @@ def build_runtime_config(payload: dict, workdir: Path) -> Path:
 
         # Splunk-specific fields
         if name == "splunk":
+            urls = derive_splunk_urls(tool.get("url", ""))
             if tool.get("splunk_base_url"):
-                source_cfg["splunk_base_url"] = tool["splunk_base_url"]
+                source_cfg["splunk_base_url"] = tool.get("splunk_base_url") or urls["base"]
             if tool.get("splunk_mgmt_url"):
-                source_cfg["splunk_mgmt_url"] = tool["splunk_mgmt_url"]
+                source_cfg["splunk_mgmt_url"] = tool.get("splunk_mgmt_url") or urls["mgmt"]
             if tool.get("splunk_hec_url"):
-                source_cfg["splunk_hec_url"] = tool["splunk_hec_url"]
+                source_cfg["splunk_hec_url"] = tool.get("splunk_hec_url") or urls["hec"]
 
             # Existing Auth Token field becomes Splunk HEC token
             source_cfg["splunk_hec_token"] = (
@@ -56,6 +75,8 @@ def build_runtime_config(payload: dict, workdir: Path) -> Path:
             source_cfg["password"] = splunk_config.get("password")
             source_cfg["splunk_app"] = splunk_config.get("app", "search")
             source_cfg["splunk_verify_ssl"] = splunk_config.get("verify_ssl", False)
+
+        sources[name] = source_cfg
 
     ai_raw = payload.get("ai") or {"enabled": False}
     ai_cfg = {k: v for k, v in ai_raw.items() if v is not None}

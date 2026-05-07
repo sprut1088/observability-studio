@@ -20,6 +20,7 @@ from typing import Any
 
 import requests
 import yaml
+from urllib.parse import urlparse
 
 from backend.app.models.connection import ConnectionSchema, ConnectionResponse
 
@@ -35,6 +36,23 @@ def load_local_config() -> dict[str, Any]:
 
     with open(config_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+    
+def derive_splunk_urls(base_url: str) -> dict[str, str]:
+    parsed = urlparse(base_url)
+    hostname = parsed.hostname
+
+    if not hostname:
+        return {
+            "base": base_url.rstrip("/"),
+            "mgmt": base_url.rstrip("/"),
+            "hec": base_url.rstrip("/"),
+        }
+
+    return {
+        "base": f"http://{hostname}:8000",
+        "mgmt": f"https://{hostname}:8089",
+        "hec": f"http://{hostname}:8088",
+    }
 
 
 # ── Tool catalogue (loaded once at import) ────────────────────────────────────
@@ -182,19 +200,17 @@ def _write_crawl_config(conn: ConnectionSchema, workdir: Path) -> Path:
         source["api_key"] = conn.auth_token
     
     if tool_key == "splunk":
-        source["splunk_base_url"] = conn.splunk_base_url or conn.base_url
-        source["splunk_mgmt_url"] = conn.splunk_mgmt_url or conn.base_url
-        source["splunk_hec_url"] = conn.splunk_hec_url
+        urls = derive_splunk_urls(conn.base_url)
 
-        source["splunk_hec_token"] = conn.auth_token
+        source["splunk_base_url"] = conn.splunk_base_url or urls["base"]
+        source["splunk_mgmt_url"] = conn.splunk_mgmt_url or urls["mgmt"]
+        source["splunk_hec_url"] = conn.splunk_hec_url or urls["hec"]
+
+        source["splunk_hec_token"] = conn.splunk_hec_token or conn.auth_token
         source["username"] = splunk_config.get("username")
         source["password"] = splunk_config.get("password")
         source["splunk_app"] = splunk_config.get("app", "search")
         source["splunk_verify_ssl"] = splunk_config.get("verify_ssl", False)
-
-        # Keep HEC token also visible to the adapter if you reused api_key handling.
-        if conn.splunk_hec_token and not source.get("api_key"):
-            source["api_key"] = conn.splunk_hec_token
 
 
     config = {

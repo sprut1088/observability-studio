@@ -24,6 +24,7 @@ class SplunkAdapter(BaseAdapter):
 
     def __init__(self, config: dict[str, Any]):
         super().__init__(config)
+        self.verify_tls = config.get("splunk_verify_ssl", config.get("verify_tls", False))
 
         self.base_url = (
             config.get("splunk_base_url")
