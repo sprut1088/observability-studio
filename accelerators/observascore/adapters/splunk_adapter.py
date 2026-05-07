@@ -3,6 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import json
+import xml.etree.ElementTree as ET
+from observascore.model import DashboardPanel
+
 from observascore.adapters.base import BaseAdapter, AdapterError
 from observascore.model import (
     AlertClassification,
@@ -39,6 +43,76 @@ class SplunkAdapter(BaseAdapter):
         # BaseAdapter uses self.url for _get()
         self.url = self.mgmt_url
 
+    def _parse_splunk_dashboard_panels(self, raw_view: str) -> list[DashboardPanel]:
+        panels: list[DashboardPanel] = []
+
+        if not raw_view:
+            return panels
+
+        # Dashboard Studio dashboards are often JSON
+        try:
+            parsed = json.loads(raw_view)
+            visualizations = parsed.get("visualizations", {}) or {}
+
+            for viz_id, viz in visualizations.items():
+                options = viz.get("options", {}) or {}
+                data_sources = viz.get("dataSources", {}) or {}
+
+                queries = []
+                for _, ds in data_sources.items():
+                    if isinstance(ds, dict):
+                        query = ds.get("query") or ds.get("search") or ""
+                        if query:
+                            queries.append(query)
+
+                panels.append(
+                    DashboardPanel(
+                        title=options.get("title") or viz_id,
+                        panel_type=viz.get("type") or "studio",
+                        queries=queries,
+                        has_thresholds=False,
+                        has_legend=True,
+                    )
+                )
+
+            return panels
+        except Exception:
+            pass
+
+        # Classic Simple XML dashboards
+        try:
+            root = ET.fromstring(raw_view)
+
+            for panel in root.findall(".//panel"):
+                title_node = panel.find("title")
+                title = title_node.text.strip() if title_node is not None and title_node.text else "Untitled Panel"
+
+                panel_type = "panel"
+                for child in panel:
+                    if child.tag in ("chart", "table", "single", "event", "map", "html"):
+                        panel_type = child.tag
+                        break
+
+                queries = []
+                for query_node in panel.findall(".//query"):
+                    if query_node.text:
+                        queries.append(query_node.text.strip())
+
+                panels.append(
+                    DashboardPanel(
+                        title=title,
+                        panel_type=panel_type,
+                        queries=queries,
+                        has_thresholds=False,
+                        has_legend=True,
+                    )
+                )
+
+        except Exception:
+            return panels
+
+        return panels
+
     def health_check(self) -> bool:
         try:
             data = self._get("/services/server/info", params={"output_mode": "json"})
@@ -72,6 +146,11 @@ class SplunkAdapter(BaseAdapter):
                 name = entry.get("name") or ""
                 label = content.get("label") or name
 
+                # Important: actual dashboard source is usually in content["eai:data"]
+                raw_view = content.get("eai:data") or ""
+
+                panels = self._parse_splunk_dashboard_panels(raw_view)
+
                 result["dashboards"].append(
                     Dashboard(
                         source_tool=self.tool_name,
@@ -79,14 +158,15 @@ class SplunkAdapter(BaseAdapter):
                         title=label,
                         folder=self.app,
                         tags=["splunk"],
-                        panels=[],
+                        panels=panels,
                         variables=[],
-                        has_templating=False,
+                        has_templating="${" in raw_view or "$" in raw_view,
                         last_modified=entry.get("updated"),
                         owner=entry.get("author"),
                         raw={
                             "is_visible": content.get("isVisible"),
                             "description": content.get("description"),
+                            "panel_count": len(panels),
                         },
                     )
                 )
