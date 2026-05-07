@@ -97,8 +97,6 @@ export default function CrawlModal({ onClose }) {
       toolName: addTool,
       baseUrl: addUrl.trim(),
       authToken: addToken.trim() || null,
-      username: addUsername.trim() || null,
-      password: addPassword.trim() || null,
       validation: null,
     };
 
@@ -106,7 +104,7 @@ export default function CrawlModal({ onClose }) {
       const derived = deriveSplunkUrls(addUrl.trim());
 
       if (!derived) {
-        setStatus({ type: "error", text: "Invalid Splunk URL" });
+        setStatus({ type: "error", title: "Invalid URL", msg: "Invalid Splunk URL" });
         return;
       }
 
@@ -121,10 +119,6 @@ export default function CrawlModal({ onClose }) {
 
     setAddUrl("");
     setAddToken("");
-    setAddUsername("");
-    setAddPassword("");
-    setAddSplunkHecToken("");
-    setAddSplunkApp("search");
     setStatus(null);
   }
 
@@ -298,52 +292,6 @@ export default function CrawlModal({ onClose }) {
                 placeholder="••••••••"
                 disabled={busy}
               />
-
-              {addTool === "splunk" && (
-                <>
-                  <label>
-                    Username
-                    <input
-                      value={addUsername}
-                      onChange={e => setAddUsername(e.target.value)}
-                      placeholder="Splunk username"
-                      disabled={busy}
-                    />
-                  </label>
-
-                  <label>
-                    Password
-                    <input
-                      type="password"
-                      value={addPassword}
-                      onChange={e => setAddPassword(e.target.value)}
-                      placeholder="Splunk password"
-                      disabled={busy}
-                    />
-                  </label>
-
-                  <label>
-                    Splunk HEC Token
-                    <input
-                      type="password"
-                      value={addSplunkHecToken}
-                      onChange={e => setAddSplunkHecToken(e.target.value)}
-                      placeholder="HEC token"
-                      disabled={busy}
-                    />
-                  </label>
-
-                  <label>
-                    Splunk App
-                    <input
-                      value={addSplunkApp}
-                      onChange={e => setAddSplunkApp(e.target.value)}
-                      placeholder="search"
-                      disabled={busy}
-                    />
-                  </label>
-                </>
-              )}
 
             </div>
 
