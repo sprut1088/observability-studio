@@ -156,14 +156,11 @@ export default function AssessModal({ onClose }) {
         tool_name: tool.toolName,
         base_url: tool.baseUrl,
         auth_token: tool.authToken,
-        username: tool.username,
-        password: tool.password,
-        splunk_base_url: tool.splunkBaseUrl,
-        splunk_mgmt_url: tool.splunkMgmtUrl,
-        splunk_hec_url: tool.splunkHecUrl,
-        splunk_hec_token: tool.splunkHecToken,
-        splunk_app: tool.splunkApp,
-        splunk_verify_ssl: tool.splunkVerifySsl,
+        splunk_base_url: tool.splunkBaseUrl ?? null,
+        splunk_mgmt_url: tool.splunkMgmtUrl ?? null,
+        splunk_hec_url: tool.splunkHecUrl ?? null,
+        splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
+        splunk_verify_ssl: tool.splunkVerifySsl ?? false,
       });
       setToolValidation(tool.id, res.data);
     } catch (err) {
@@ -187,14 +184,11 @@ export default function AssessModal({ onClose }) {
           tool_name: tool.toolName,
           base_url: tool.baseUrl,
           auth_token: tool.authToken,
-          username: tool.username,
-          password: tool.password,
-          splunk_base_url: tool.splunkBaseUrl,
-          splunk_mgmt_url: tool.splunkMgmtUrl,
-          splunk_hec_url: tool.splunkHecUrl,
-          splunk_hec_token: tool.splunkHecToken,
-          splunk_app: tool.splunkApp,
-          splunk_verify_ssl: tool.splunkVerifySsl,
+          splunk_base_url: tool.splunkBaseUrl ?? null,
+          splunk_mgmt_url: tool.splunkMgmtUrl ?? null,
+          splunk_hec_url: tool.splunkHecUrl ?? null,
+          splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
+          splunk_verify_ssl: tool.splunkVerifySsl ?? false,
         });
         setToolValidation(tool.id, res.data);
       } catch (err) {
@@ -239,7 +233,7 @@ export default function AssessModal({ onClose }) {
         splunk_base_url: t.splunkBaseUrl ?? null,
         splunk_mgmt_url: t.splunkMgmtUrl ?? null,
         splunk_hec_url: t.splunkHecUrl ?? null,
-        splunk_hec_token: t.authToken ?? null,
+        splunk_hec_token: t.splunkHecToken ?? t.authToken ?? null,
         splunk_verify_ssl: t.splunkVerifySsl ?? false,
       })),
         ai: {
