@@ -28,6 +28,14 @@ RUNTIME_DIR = Path("runtime")
 _TOOLS_YAML = Path(__file__).parent.parent / "config" / "tools.yaml"
 BASE_URL = "http://10.235.21.132:8001"
 
+def load_local_config() -> dict[str, Any]:
+    config_path = Path("config/config.yaml")
+    if not config_path.exists():
+        return {}
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
 
 # ── Tool catalogue (loaded once at import) ────────────────────────────────────
 def _load_tools() -> dict[str, Any]:
@@ -162,6 +170,9 @@ def _write_crawl_config(conn: ConnectionSchema, workdir: Path) -> Path:
     #if conn.auth_token:
     #    source["api_key"] = conn.auth_token
 
+    local_config = load_local_config()
+    splunk_config = local_config.get("splunk", {})
+
     source: dict[str, Any] = {
         "enabled": True,
         "url": conn.base_url,
@@ -170,19 +181,16 @@ def _write_crawl_config(conn: ConnectionSchema, workdir: Path) -> Path:
     if conn.auth_token:
         source["api_key"] = conn.auth_token
     
-    if conn.username:
-        source["username"] = conn.username
-
-    if conn.password:
-        source["password"] = conn.password
-    
     if tool_key == "splunk":
         source["splunk_base_url"] = conn.splunk_base_url or conn.base_url
         source["splunk_mgmt_url"] = conn.splunk_mgmt_url or conn.base_url
         source["splunk_hec_url"] = conn.splunk_hec_url
-        source["splunk_hec_token"] = conn.splunk_hec_token
-        source["splunk_app"] = conn.splunk_app or "search"
-        source["splunk_verify_ssl"] = conn.splunk_verify_ssl
+
+        source["splunk_hec_token"] = conn.auth_token
+        source["username"] = splunk_config.get("username")
+        source["password"] = splunk_config.get("password")
+        source["splunk_app"] = splunk_config.get("app", "search")
+        source["splunk_verify_ssl"] = splunk_config.get("verify_ssl", False)
 
         # Keep HEC token also visible to the adapter if you reused api_key handling.
         if conn.splunk_hec_token and not source.get("api_key"):

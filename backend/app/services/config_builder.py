@@ -2,11 +2,22 @@ import yaml
 from pathlib import Path
 from uuid import uuid4
 
+def load_local_config() -> dict:
+    config_path = Path("config/config.yaml")
+    if not config_path.exists():
+        return {}
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
 def build_runtime_config(payload: dict, workdir: Path) -> Path:
     workdir.mkdir(parents=True, exist_ok=True)
     config_path = workdir / f"config-{uuid4().hex}.yaml"
 
     sources = {}
+
+    local_config = load_local_config()
+    splunk_config = local_config.get("splunk", {})
 
     for tool in payload.get("tools", []):
         name = tool["name"]
@@ -33,14 +44,18 @@ def build_runtime_config(payload: dict, workdir: Path) -> Path:
                 source_cfg["splunk_mgmt_url"] = tool["splunk_mgmt_url"]
             if tool.get("splunk_hec_url"):
                 source_cfg["splunk_hec_url"] = tool["splunk_hec_url"]
-            if tool.get("splunk_hec_token"):
-                source_cfg["splunk_hec_token"] = tool["splunk_hec_token"]
-            if tool.get("splunk_app"):
-                source_cfg["splunk_app"] = tool["splunk_app"]
 
-            source_cfg["splunk_verify_ssl"] = tool.get("splunk_verify_ssl", False)
+            # Existing Auth Token field becomes Splunk HEC token
+            source_cfg["splunk_hec_token"] = (
+                tool.get("splunk_hec_token")
+                or tool.get("api_key")
+            )
 
-        sources[name] = source_cfg
+            # Private values come from local config/config.yaml
+            source_cfg["username"] = splunk_config.get("username")
+            source_cfg["password"] = splunk_config.get("password")
+            source_cfg["splunk_app"] = splunk_config.get("app", "search")
+            source_cfg["splunk_verify_ssl"] = splunk_config.get("verify_ssl", False)
 
     ai_raw = payload.get("ai") or {"enabled": False}
     ai_cfg = {k: v for k, v in ai_raw.items() if v is not None}

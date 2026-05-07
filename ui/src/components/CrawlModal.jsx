@@ -75,11 +75,6 @@ export default function CrawlModal({ onClose }) {
   const [addTool, setAddTool] = useState("prometheus");
   const [addUrl, setAddUrl] = useState("");
   const [addToken, setAddToken] = useState("");
-  
-  const [addUsername, setAddUsername] = useState("");
-  const [addPassword, setAddPassword] = useState("");
-  const [addSplunkHecToken, setAddSplunkHecToken] = useState("");
-  const [addSplunkApp, setAddSplunkApp] = useState("search");
 
   /* ── Tools table state ─────────────────────────────────── */
   // [{ id, toolName, baseUrl, authToken, validation: null | {reachable, message, latency_ms} }]
@@ -118,8 +113,7 @@ export default function CrawlModal({ onClose }) {
       row.splunkBaseUrl = derived.splunkBaseUrl;
       row.splunkMgmtUrl = derived.splunkMgmtUrl;
       row.splunkHecUrl = derived.splunkHecUrl;
-      row.splunkHecToken = addSplunkHecToken.trim() || null;
-      row.splunkApp = addSplunkApp.trim() || "search";
+      row.splunkHecToken = addToken.trim() || null;
       row.splunkVerifySsl = false;
     }
 
@@ -218,13 +212,10 @@ export default function CrawlModal({ onClose }) {
           usages: DEFAULT_USAGES[t.toolName] ?? ["metrics"],
           url: t.baseUrl,
           api_key: t.authToken ?? null,
-          username: t.username ?? null,
-          password: t.password ?? null,
           splunk_base_url: t.splunkBaseUrl ?? null,
           splunk_mgmt_url: t.splunkMgmtUrl ?? null,
           splunk_hec_url: t.splunkHecUrl ?? null,
-          splunk_hec_token: t.splunkHecToken ?? null,
-          splunk_app: t.splunkApp ?? "search",
+          splunk_hec_token: t.authToken ?? null,
           splunk_verify_ssl: t.splunkVerifySsl ?? false,
         })),
         ai: { enabled: false, provider: null, model: null, api_key: null },
