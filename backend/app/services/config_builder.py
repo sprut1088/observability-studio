@@ -7,27 +7,41 @@ def build_runtime_config(payload: dict, workdir: Path) -> Path:
     config_path = workdir / f"config-{uuid4().hex}.yaml"
 
     sources = {}
-    for tool in payload.get("tools", []):
-        if tool.get("name") == "splunk":
-            # MVP placeholder: not wired yet
-            continue
 
-        sources[tool["name"]] = {
+    for tool in payload.get("tools", []):
+        name = tool["name"]
+
+        source_cfg = {
             "enabled": tool.get("enabled", True),
             "url": tool.get("url"),
         }
 
         if tool.get("api_key"):
-            sources[tool["name"]]["api_key"] = tool["api_key"]
-        if tool.get("username"):
-            sources[tool["name"]]["username"] = tool["username"]
-        if tool.get("password"):
-            sources[tool["name"]]["password"] = tool["password"]
+            source_cfg["api_key"] = tool["api_key"]
 
-    # Strip None values from the AI config so the CLI can apply its own
-    # defaults (e.g. model name).  Keeping "key: null" in the YAML causes
-    # dict.get(key, default) to return None instead of the default because
-    # the key is present — even though the value is meaningless.
+        if tool.get("username"):
+            source_cfg["username"] = tool["username"]
+
+        if tool.get("password"):
+            source_cfg["password"] = tool["password"]
+
+        # Splunk-specific fields
+        if name == "splunk":
+            if tool.get("splunk_base_url"):
+                source_cfg["splunk_base_url"] = tool["splunk_base_url"]
+            if tool.get("splunk_mgmt_url"):
+                source_cfg["splunk_mgmt_url"] = tool["splunk_mgmt_url"]
+            if tool.get("splunk_hec_url"):
+                source_cfg["splunk_hec_url"] = tool["splunk_hec_url"]
+            if tool.get("splunk_hec_token"):
+                source_cfg["splunk_hec_token"] = tool["splunk_hec_token"]
+            if tool.get("splunk_app"):
+                source_cfg["splunk_app"] = tool["splunk_app"]
+
+            source_cfg["splunk_verify_ssl"] = tool.get("splunk_verify_ssl", False)
+
+        sources[name] = source_cfg
+
     ai_raw = payload.get("ai") or {"enabled": False}
     ai_cfg = {k: v for k, v in ai_raw.items() if v is not None}
 

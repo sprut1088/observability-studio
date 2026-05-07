@@ -193,6 +193,12 @@ class ExtractionSummary:
     dynatrace_notification_integrations: int = 0
     dynatrace_has_log_management: bool = False
     dynatrace_has_rum: bool = False
+    # Splunk
+    splunk_dashboards: int = 0
+    splunk_alerts: int = 0
+    splunk_indexes: int = 0
+    splunk_saved_searches: int = 0
+    splunk_hec_configured: bool = False
     # General
     extraction_errors: list[str] = field(default_factory=list)
 

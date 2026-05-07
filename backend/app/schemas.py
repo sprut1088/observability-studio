@@ -21,10 +21,20 @@ class ToolConfig(BaseModel):
     name: SystemName
     enabled: bool = True
     usages: List[UsageType] = Field(default_factory=list)
+
+    #generic
     url: str
     api_key: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
+
+    #splunk-specific
+    splunk_base_url: Optional[str] = None      # ex: http://10.235.21.132:8000
+    splunk_mgmt_url: Optional[str] = None      # ex: https://10.235.21.132:8089
+    splunk_hec_url: Optional[str] = None       # ex: http://10.235.21.132:8088
+    splunk_hec_token: Optional[str] = None
+    splunk_app: Optional[str] = None           # ex: search
+    splunk_verify_ssl: bool = False
 
 class AIConfig(BaseModel):
     enabled: bool = False

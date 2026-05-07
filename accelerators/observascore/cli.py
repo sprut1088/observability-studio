@@ -23,6 +23,7 @@ from observascore.adapters import (
     OtelCollectorAdapter,
     PrometheusAdapter,
     TempoAdapter,
+    SplunkAdapter,
 )
 from observascore.engine import ScoringEngine
 from observascore.model import ExtractionSummary, ObservabilityEstate
@@ -181,11 +182,22 @@ def _merge_adapter_data(name: str, data: dict, estate: ObservabilityEstate,
         summary.dynatrace_has_log_management = data.get("has_log_management", False)
         summary.dynatrace_has_rum = data.get("has_rum", False)
 
+    elif name == "splunk":
+        estate.dashboards.extend(data.get("dashboards", []))
+        estate.alert_rules.extend(data.get("alert_rules", []))
+        estate.signals.extend(data.get("signals", []))
+
+        summary.splunk_dashboards = len(data.get("dashboards", []))
+        summary.splunk_alerts = len(data.get("alert_rules", []))
+        summary.splunk_indexes = data.get("indexes_count", 0)
+        summary.splunk_saved_searches = data.get("saved_searches_count", 0)
+        summary.splunk_hec_configured = data.get("hec_configured", False)
+
 
 @click.group()
 @click.version_option("0.2.0", prog_name="observascore")
 def cli():
-    """ObservaScore — Observability & SRE Maturity Assessment with AI Analysis."""
+    """ObservaScore - Observability & SRE Maturity Assessment with AI Analysis."""
 
 
 @cli.command()
@@ -230,6 +242,7 @@ def assess(config: str, output: str, ai: bool, verbose: bool) -> None:
         ("appdynamics", AppDynamicsAdapter),
         ("datadog", DatadogAdapter),
         ("dynatrace", DynatraceAdapter),
+        ("splunk", SplunkAdapter),
     ]
 
     console.rule("[bold blue]Extracting from sources")
@@ -344,6 +357,7 @@ def check(config: str) -> None:
         ("appdynamics", AppDynamicsAdapter),
         ("datadog", DatadogAdapter),
         ("dynatrace", DynatraceAdapter),
+        ("splunk", SplunkAdapter),
     ]
     console.rule("[bold blue]Connectivity Check")
     for name, cls in adapters:
@@ -427,6 +441,7 @@ def export_cmd(config: str, output: str, verbose: bool) -> None:
         ("appdynamics",   AppDynamicsAdapter),
         ("datadog",       DatadogAdapter),
         ("dynatrace",     DynatraceAdapter),
+        ("splunk",        SplunkAdapter),
     ]
 
     console.rule("[bold blue]Extracting from sources")

@@ -9,6 +9,7 @@ from observascore.adapters import (
     AppDynamicsAdapter,
     DatadogAdapter,
     DynatraceAdapter,
+    SplunkAdapter,
 )
 
 ADAPTER_MAP = {
@@ -22,13 +23,12 @@ ADAPTER_MAP = {
     "appdynamics": AppDynamicsAdapter,
     "datadog": DatadogAdapter,
     "dynatrace": DynatraceAdapter,
+    "splunk": SplunkAdapter,
 }
+
 
 def validate_tool(tool: dict) -> tuple[bool, str]:
     name = tool["name"]
-
-    if name == "splunk":
-        return False, "Splunk adapter not implemented in current repo MVP"
 
     adapter_cls = ADAPTER_MAP.get(name)
     if not adapter_cls:
@@ -37,7 +37,6 @@ def validate_tool(tool: dict) -> tuple[bool, str]:
     try:
         adapter = adapter_cls(tool)
         ok = adapter.health_check()
-        print("VALIDATION ERROR:", str(e))
-        return (True, "Connection successful") if ok else (False, str(e))
+        return (True, "Connection successful") if ok else (False, "Health check failed")
     except Exception as e:
         return False, str(e)

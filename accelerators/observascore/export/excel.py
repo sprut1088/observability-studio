@@ -232,11 +232,12 @@ class ExcelExporter:
         self._header(ws, ["Category", "Metric", "Value"], "summary", row=2)
 
         tool_map = {
-            "Prometheus": "prometheus", "Grafana": "grafana", "Loki": "loki",
-            "Jaeger": "jaeger", "AlertManager": "alertmanager", "Tempo": "tempo",
-            "Elasticsearch": "elasticsearch", "OTel Collector": "otel_collector",
-            "AppDynamics": "appdynamics", "Datadog": "datadog", "Dynatrace": "dynatrace",
-        }
+    "Prometheus": "prometheus", "Grafana": "grafana", "Loki": "loki",
+    "Jaeger": "jaeger", "AlertManager": "alertmanager", "Tempo": "tempo",
+    "Elasticsearch": "elasticsearch", "OTel Collector": "otel_collector",
+    "AppDynamics": "appdynamics", "Datadog": "datadog", "Dynatrace": "dynatrace",
+    "Splunk": "splunk",
+}
 
         rows = [
             # ── Client metadata ──
@@ -306,6 +307,12 @@ class ExcelExporter:
             ("Dynatrace", "Notification Integrations",    s.dynatrace_notification_integrations),
             ("Dynatrace", "Log Management",               _yes_no(s.dynatrace_has_log_management)),
             ("Dynatrace", "Real User Monitoring (RUM)",   _yes_no(s.dynatrace_has_rum)),
+            # ── Splunk ──
+            ("Splunk", "Dashboards", s.splunk_dashboards),
+            ("Splunk", "Alerts / Saved Searches", s.splunk_alerts),
+            ("Splunk", "Indexes", s.splunk_indexes),
+            ("Splunk", "Saved Searches", s.splunk_saved_searches),
+            ("Splunk", "HEC Configured", _yes_no(s.splunk_hec_configured)),
         ]
 
         for i, (cat, metric, val) in enumerate(rows, start=3):

@@ -94,6 +94,12 @@ class ReportGenerator:
                 "dynatrace_notification_integrations": estate.summary.dynatrace_notification_integrations,
                 "dynatrace_has_log_management": estate.summary.dynatrace_has_log_management,
                 "dynatrace_has_rum": estate.summary.dynatrace_has_rum,
+                # Splunk
+                "splunk_dashboards": estate.summary.splunk_dashboards,
+                "splunk_alerts": estate.summary.splunk_alerts,
+                "splunk_indexes": estate.summary.splunk_indexes,
+                "splunk_saved_searches": estate.summary.splunk_saved_searches,
+                "splunk_hec_configured": estate.summary.splunk_hec_configured,
                 "extraction_errors": estate.summary.extraction_errors,
             },
             "result": result.to_dict(),

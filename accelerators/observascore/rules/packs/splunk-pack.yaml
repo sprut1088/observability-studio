@@ -1,0 +1,46 @@
+name: splunk-pack
+version: "1.0"
+description: "Splunk Enterprise log observability setup quality and maturity assessment"
+
+rules:
+  - id: SPL-001
+    dimension: signal_coverage
+    severity: critical
+    weight: 10
+    title: "No Splunk indexes discovered"
+    description: "Splunk is configured but no log indexes were discovered"
+    remediation: >
+      Verify Splunk index permissions and confirm application logs are routed into
+      well-named indexes. Check forwarders, HEC inputs, sourcetypes, and index retention
+      configuration.
+
+  - id: SPL-002
+    dimension: alert_quality
+    severity: high
+    weight: 8
+    title: "No Splunk alerts or scheduled saved searches"
+    description: "Splunk has log data but no scheduled alerts were discovered"
+    remediation: >
+      Create scheduled Splunk alerts for critical log patterns, ingestion failures,
+      service errors, security events, and operational thresholds. Ensure alerts have
+      clear notification actions.
+
+  - id: SPL-003
+    dimension: incident_response
+    severity: medium
+    weight: 5
+    title: "No Splunk dashboards discovered"
+    description: "Splunk has log data but no dashboards/views were discovered"
+    remediation: >
+      Create Splunk dashboards for key services, business flows, error trends,
+      ingestion health, and incident triage workflows.
+
+  - id: SPL-004
+    dimension: signal_coverage
+    severity: medium
+    weight: 5
+    title: "Splunk HEC not configured"
+    description: "Splunk HEC endpoint/token was not provided for ingestion validation"
+    remediation: >
+      Configure Splunk HTTP Event Collector for structured application log ingestion.
+      Validate sourcetype, index routing, timestamp parsing, and event formatting.

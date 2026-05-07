@@ -3,13 +3,21 @@ from pydantic import BaseModel
 
 
 class ConnectionSchema(BaseModel):
-    """
-    Minimal connection descriptor for a single observability tool.
-    Used by POST /api/v1/validate and POST /api/v1/crawl.
-    """
-    tool_name: str              # e.g. "prometheus", "grafana"
-    base_url: str               # e.g. "http://host:9090"
-    auth_token: Optional[str] = None   # Bearer token or API key
+    tool_name: str
+    base_url: str
+    auth_token: Optional[str] = None
+
+    # generic basic auth
+    username: Optional[str] = None
+    password: Optional[str] = None
+
+    # splunk-specific
+    splunk_base_url: Optional[str] = None
+    splunk_mgmt_url: Optional[str] = None
+    splunk_hec_url: Optional[str] = None
+    splunk_hec_token: Optional[str] = None
+    splunk_app: Optional[str] = "search"
+    splunk_verify_ssl: bool = False
 
 
 class ConnectionResponse(BaseModel):

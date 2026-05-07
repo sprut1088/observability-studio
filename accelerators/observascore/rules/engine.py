@@ -80,6 +80,7 @@ class RulesEngine:
         from observascore.rules import appdynamics_checks  # noqa: F401
         from observascore.rules import datadog_checks  # noqa: F401
         from observascore.rules import dynatrace_checks  # noqa: F401
+        from observascore.rules import splunk_checks  # noqa: F401
 
     def _load_packs(self) -> None:
         """Load all YAML rule packs from pack_dir."""

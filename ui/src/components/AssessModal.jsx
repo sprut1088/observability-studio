@@ -58,6 +58,23 @@ function resolveApiUrl(path) {
   return path.startsWith("http") ? path : `${API_HOST}${path}`;
 }
 
+function deriveSplunkUrls(inputUrl) {
+  try {
+    const parsed = new URL(inputUrl);
+
+    const protocol = parsed.protocol;
+    const hostname = parsed.hostname;
+
+    return {
+      splunkBaseUrl: `${protocol}//${hostname}:8000`,
+      splunkMgmtUrl: `${protocol}//${hostname}:8089`,
+      splunkHecUrl: `${protocol}//${hostname}:8088`,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /* ══════════════════════════════════════════════════════════
    AssessModal — multi-tool ObservaScore assessment modal
 ══════════════════════════════════════════════════════════ */
@@ -67,6 +84,11 @@ export default function AssessModal({ onClose }) {
   const [addTool,  setAddTool]  = useState("prometheus");
   const [addUrl,   setAddUrl]   = useState("");
   const [addToken, setAddToken] = useState("");
+
+  const [addUsername, setAddUsername] = useState("");
+  const [addPassword, setAddPassword] = useState("");
+  const [addSplunkHecToken, setAddSplunkHecToken] = useState("");
+  const [addSplunkApp, setAddSplunkApp] = useState("search");
 
   /* ── Tools table state ─────────────────────────────────── */
   // [{ id, toolName, baseUrl, authToken, validation: null | {reachable, message, latency_ms} }]
@@ -92,14 +114,41 @@ export default function AssessModal({ onClose }) {
   /* ── Add tool row ──────────────────────────────────────── */
   function handleAdd() {
     if (!addUrl.trim()) return;
-    setTools(prev => [...prev, {
+
+    const row = {
       id: nextId(),
       toolName: addTool,
       baseUrl: addUrl.trim(),
       authToken: addToken.trim() || null,
+      username: addUsername.trim() || null,
+      password: addPassword.trim() || null,
       validation: null,
-    }]);
-    setAddUrl(""); setAddToken("");
+    };
+
+    if (addTool === "splunk") {
+      const derived = deriveSplunkUrls(addUrl.trim());
+
+      if (!derived) {
+        setStatus({ type: "error", text: "Invalid Splunk URL" });
+        return;
+      }
+
+      row.splunkBaseUrl = derived.splunkBaseUrl;
+      row.splunkMgmtUrl = derived.splunkMgmtUrl;
+      row.splunkHecUrl = derived.splunkHecUrl;
+      row.splunkHecToken = addSplunkHecToken.trim() || null;
+      row.splunkApp = addSplunkApp.trim() || "search";
+      row.splunkVerifySsl = false;
+    }
+
+    setTools(prev => [...prev, row]);
+
+    setAddUrl("");
+    setAddToken("");
+    setAddUsername("");
+    setAddPassword("");
+    setAddSplunkHecToken("");
+    setAddSplunkApp("search");
     setStatus(null);
   }
 
@@ -118,9 +167,17 @@ export default function AssessModal({ onClose }) {
     setValidatingId(tool.id);
     try {
       const res = await v1Validate({
-        tool_name:  tool.toolName,
-        base_url:   tool.baseUrl,
+        tool_name: tool.toolName,
+        base_url: tool.baseUrl,
         auth_token: tool.authToken,
+        username: tool.username,
+        password: tool.password,
+        splunk_base_url: tool.splunkBaseUrl,
+        splunk_mgmt_url: tool.splunkMgmtUrl,
+        splunk_hec_url: tool.splunkHecUrl,
+        splunk_hec_token: tool.splunkHecToken,
+        splunk_app: tool.splunkApp,
+        splunk_verify_ssl: tool.splunkVerifySsl,
       });
       setToolValidation(tool.id, res.data);
     } catch (err) {
@@ -141,9 +198,17 @@ export default function AssessModal({ onClose }) {
       setValidatingId(tool.id);
       try {
         const res = await v1Validate({
-          tool_name:  tool.toolName,
-          base_url:   tool.baseUrl,
+          tool_name: tool.toolName,
+          base_url: tool.baseUrl,
           auth_token: tool.authToken,
+          username: tool.username,
+          password: tool.password,
+          splunk_base_url: tool.splunkBaseUrl,
+          splunk_mgmt_url: tool.splunkMgmtUrl,
+          splunk_hec_url: tool.splunkHecUrl,
+          splunk_hec_token: tool.splunkHecToken,
+          splunk_app: tool.splunkApp,
+          splunk_verify_ssl: tool.splunkVerifySsl,
         });
         setToolValidation(tool.id, res.data);
       } catch (err) {
@@ -180,12 +245,20 @@ export default function AssessModal({ onClose }) {
       const payload = {
         client: { name: "ObservaScore Hub", environment: "hub" },
         tools: tools.map(t => ({
-          name:    t.toolName,
-          enabled: true,
-          usages:  DEFAULT_USAGES[t.toolName] ?? ["metrics"],
-          url:     t.baseUrl,
-          api_key: t.authToken ?? null,
-        })),
+        name: t.toolName,
+        enabled: true,
+        usages: DEFAULT_USAGES[t.toolName] ?? ["metrics"],
+        url: t.baseUrl,
+        api_key: t.authToken ?? null,
+        username: t.username ?? null,
+        password: t.password ?? null,
+        splunk_base_url: t.splunkBaseUrl ?? null,
+        splunk_mgmt_url: t.splunkMgmtUrl ?? null,
+        splunk_hec_url: t.splunkHecUrl ?? null,
+        splunk_hec_token: t.splunkHecToken ?? null,
+        splunk_app: t.splunkApp ?? "search",
+        splunk_verify_ssl: t.splunkVerifySsl ?? false,
+      })),
         ai: {
           enabled:           useAi,
           provider:          useAi ? aiProvider                              : null,
@@ -277,6 +350,53 @@ export default function AssessModal({ onClose }) {
                 placeholder="••••••••"
                 disabled={busy}
               />
+
+              {addTool === "splunk" && (
+                <>
+                  <label>
+                    Username
+                    <input
+                      value={addUsername}
+                      onChange={e => setAddUsername(e.target.value)}
+                      placeholder="Splunk username"
+                      disabled={busy}
+                    />
+                  </label>
+
+                  <label>
+                    Password
+                    <input
+                      type="password"
+                      value={addPassword}
+                      onChange={e => setAddPassword(e.target.value)}
+                      placeholder="Splunk password"
+                      disabled={busy}
+                    />
+                  </label>
+
+                  <label>
+                    Splunk HEC Token
+                    <input
+                      type="password"
+                      value={addSplunkHecToken}
+                      onChange={e => setAddSplunkHecToken(e.target.value)}
+                      placeholder="HEC token"
+                      disabled={busy}
+                    />
+                  </label>
+
+                  <label>
+                    Splunk App
+                    <input
+                      value={addSplunkApp}
+                      onChange={e => setAddSplunkApp(e.target.value)}
+                      placeholder="search"
+                      disabled={busy}
+                    />
+                  </label>
+                </>
+              )}
+
             </div>
 
             <button

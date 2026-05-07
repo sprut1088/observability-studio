@@ -11,6 +11,7 @@ from observascore.adapters.otel_collector import OtelCollectorAdapter
 from observascore.adapters.appdynamics import AppDynamicsAdapter
 from observascore.adapters.datadog import DatadogAdapter
 from observascore.adapters.dynatrace import DynatraceAdapter
+from observascore.adapters.splunk_adapter import SplunkAdapter
 
 __all__ = [
     "BaseAdapter",
@@ -28,4 +29,5 @@ __all__ = [
     "AppDynamicsAdapter",
     "DatadogAdapter",
     "DynatraceAdapter",
+    "SplunkAdapter",
 ]
