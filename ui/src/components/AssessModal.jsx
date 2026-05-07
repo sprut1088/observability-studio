@@ -61,14 +61,12 @@ function resolveApiUrl(path) {
 function deriveSplunkUrls(inputUrl) {
   try {
     const parsed = new URL(inputUrl);
-
-    const protocol = parsed.protocol;
     const hostname = parsed.hostname;
 
     return {
-      splunkBaseUrl: `${protocol}//${hostname}:8000`,
-      splunkMgmtUrl: `${protocol}//${hostname}:8089`,
-      splunkHecUrl: `${protocol}//${hostname}:8088`,
+      splunkBaseUrl: `http://${hostname}:8000`,
+      splunkMgmtUrl: `https://${hostname}:8089`,
+      splunkHecUrl: `http://${hostname}:8088`,
     };
   } catch {
     return null;
