@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 
-from backend.app.schemas import RunRequest, RunResponse
+from backend.app.schemas import RedIntelligenceRequest, RunResponse
 from backend.app.services.config_builder import build_runtime_config
 from backend.app.services.red_intelligence_service import run_red_intelligence
 
@@ -34,14 +34,29 @@ def _build_runtime_urls(file_path: Path) -> tuple[str, str]:
 
 
 @router.post("/red-intelligence", response_model=RunResponse)
-def red_intelligence(req: RunRequest) -> RunResponse:
+def red_intelligence(req: RedIntelligenceRequest) -> RunResponse:
     try:
         run_id = uuid4().hex
         base_dir = RUNTIME_DIR / run_id
-        config_path = build_runtime_config(req.model_dump(), base_dir)
+        app_name = req.application_name or (req.client.name if req.client else "RED Intelligence Hub")
+        environment = req.environment or (req.client.environment if req.client else "hub")
+        config_payload = {
+            "client": {"name": app_name, "environment": environment},
+            "tools": [tool.model_dump() for tool in req.tools],
+            "ai": (req.ai.model_dump() if req.ai else {"enabled": False}),
+        }
+
+        config_path = build_runtime_config(config_payload, base_dir)
         reports_dir = base_dir / "red-intelligence"
 
-        outputs = run_red_intelligence(config_path=config_path, output_dir=reports_dir)
+        outputs = run_red_intelligence(
+            config_path=config_path,
+            output_dir=reports_dir,
+            application_name=app_name,
+            environment=environment,
+            canonical_services=req.canonical_services,
+            auto_discover_services=req.auto_discover_services,
+        )
 
         html_path = Path(outputs["html"])
         preview_url, download_url = _build_runtime_urls(html_path)

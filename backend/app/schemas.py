@@ -70,6 +70,17 @@ class ObservabilityGapMapRequest(RunRequest):
     application: Optional[ApplicationScopeRequest] = None
 
 
+class RedIntelligenceRequest(BaseModel):
+    application_name: Optional[str] = None
+    environment: Optional[str] = None
+    canonical_services: List[str] = Field(default_factory=list)
+    auto_discover_services: bool = False
+    tools: List[ToolConfig]
+    # Backward-compatible fields for existing callers.
+    client: Optional[ClientConfig] = None
+    ai: Optional[AIConfig] = None
+
+
 class ValidationResponse(BaseModel):
     system: str
     reachable: bool

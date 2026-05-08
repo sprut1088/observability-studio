@@ -79,6 +79,11 @@ function deriveSplunkUrls(inputUrl) {
 }
 
 export default function RedIntelligenceModal({ onClose }) {
+  const [applicationName, setApplicationName] = useState("");
+  const [environment, setEnvironment] = useState("prod");
+  const [canonicalInput, setCanonicalInput] = useState("");
+  const [autoDiscoverServices, setAutoDiscoverServices] = useState(false);
+
   const [addTool, setAddTool] = useState("grafana");
   const [addUrl, setAddUrl] = useState("");
   const [addToken, setAddToken] = useState("");
@@ -189,6 +194,11 @@ export default function RedIntelligenceModal({ onClose }) {
   async function handleRun() {
     if (tools.length === 0) return;
 
+    const canonicalServices = canonicalInput
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+
     setRunning(true);
     setStatus(null);
     setReportLinks(null);
@@ -196,7 +206,10 @@ export default function RedIntelligenceModal({ onClose }) {
 
     try {
       const payload = {
-        client: { name: "RED Intelligence Hub", environment: "hub" },
+        application_name: applicationName.trim() || "RED Intelligence Hub",
+        environment: environment.trim() || "prod",
+        canonical_services: canonicalServices,
+        auto_discover_services: autoDiscoverServices,
         tools: tools.map((tool) => ({
           name: tool.toolName,
           enabled: true,
@@ -209,12 +222,6 @@ export default function RedIntelligenceModal({ onClose }) {
           splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
           splunk_verify_ssl: tool.splunkVerifySsl ?? false,
         })),
-        ai: {
-          enabled: false,
-          provider: null,
-          model: null,
-          api_key: null,
-        },
       };
 
       const res = await runRedIntelligence(payload);
@@ -244,7 +251,7 @@ export default function RedIntelligenceModal({ onClose }) {
             <div>
               <div className="modal-title">RED Panel Intelligence</div>
               <div className="modal-subtitle">
-                Analyze dashboards for Rate, Errors, and Duration coverage across multiple tools
+                Measure service-centric RED coverage with explicit evidence mapping
               </div>
             </div>
           </div>
@@ -252,6 +259,54 @@ export default function RedIntelligenceModal({ onClose }) {
         </div>
 
         <div className="modal-body">
+          <div className="mtool-add-bar" style={{ marginBottom: 12 }}>
+            <div className="form-group mtool-add-url">
+              <label className="form-label">Application Name</label>
+              <input
+                className="form-input"
+                type="text"
+                value={applicationName}
+                onChange={(e) => setApplicationName(e.target.value)}
+                placeholder="payments-platform"
+                disabled={busy}
+              />
+            </div>
+
+            <div className="form-group mtool-add-tool">
+              <label className="form-label">Environment</label>
+              <input
+                className="form-input"
+                type="text"
+                value={environment}
+                onChange={(e) => setEnvironment(e.target.value)}
+                placeholder="prod"
+                disabled={busy}
+              />
+            </div>
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 12 }}>
+            <label className="form-label">Canonical Services (comma-separated)</label>
+            <input
+              className="form-input"
+              type="text"
+              value={canonicalInput}
+              onChange={(e) => setCanonicalInput(e.target.value)}
+              placeholder="checkout, payment, catalog"
+              disabled={busy}
+            />
+          </div>
+
+          <label className="checkbox" style={{ marginBottom: 12, display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={autoDiscoverServices}
+              onChange={(e) => setAutoDiscoverServices(e.target.checked)}
+              disabled={busy}
+            />
+            Include auto-discovered services in the coverage scope
+          </label>
+
           <div className="mtool-add-bar">
             <div className="form-group mtool-add-tool">
               <label className="form-label">Tool</label>
