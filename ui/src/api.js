@@ -21,6 +21,9 @@ export const v1Assess   = (payload) => api.post("/v1/assess",   payload);
 // ── RCA Agent ─────────────────────────────────────────────
 export const v1Rca = (payload) => api.post("/v1/rca", payload);
 
+// ── Incident Simulator ───────────────────────────────────
+export const runIncidentSimulation = (payload) => api.post("/incident-simulator", payload);
+
 // ── Platform feature flags ────────────────────────────────
 export const getFeatureFlags = () => api.get("/feature-flags");
 

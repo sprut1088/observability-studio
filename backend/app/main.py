@@ -5,6 +5,7 @@ from backend.app.routes.export import router as export_router
 from backend.app.routes.assess import router as assess_router
 from backend.app.routes.red_intelligence import router as red_intelligence_router
 from backend.app.routes.observability_gap_map import router as observability_gap_map_router
+from backend.app.routes.incident_simulator import router as incident_simulator_router
 from backend.app.routes.download import router as download_router
 from backend.app.routes.v1 import router as v1_router
 from backend.app.routes.feature_flags import router as feature_flags_router
@@ -29,6 +30,7 @@ app.include_router(export_router, prefix="/api")
 app.include_router(assess_router, prefix="/api")
 app.include_router(red_intelligence_router, prefix="/api")
 app.include_router(observability_gap_map_router, prefix="/api")
+app.include_router(incident_simulator_router, prefix="/api")
 app.include_router(download_router, prefix="/api")
 app.include_router(v1_router, prefix="/api")            # Hub v1 — /api/v1/{validate,crawl,assess}
 app.include_router(feature_flags_router, prefix="/api") # GET /api/feature-flags
