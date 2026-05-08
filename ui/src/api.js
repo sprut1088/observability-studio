@@ -11,6 +11,7 @@ export const validateTool  = (payload) => api.post("/validate", payload);
 export const exportExcel   = (payload) => api.post("/export",   payload);
 export const runAssessment = (payload) => api.post("/assess",   payload);
 export const runRedIntelligence = (payload) => api.post("/red-intelligence", payload);
+export const runObservabilityGapMap = (payload) => api.post("/observability-gap-map", payload);
 
 // ── Hub v1 endpoints (single-tool, streamlined) ──────────
 export const v1Validate = (payload) => api.post("/v1/validate", payload);

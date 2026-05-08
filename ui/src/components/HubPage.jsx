@@ -3,6 +3,7 @@ import CrawlModal from "./CrawlModal";
 import AssessModal from "./AssessModal";
 import RCAModal from "./RCAModal";
 import RedIntelligenceModal from "./RedIntelligenceModal";
+import GapMapModal from "./GapMapModal";
 import { getFeatureFlags } from "../api";
 
 /* ── Tile definitions ───────────────────────────────────── */
@@ -55,6 +56,18 @@ const TILES = [
     badge: "Dashboard Quality",
     badgeClass: "badge-rose",
   },
+  {
+    id: "observability_gap_map",
+    icon: "🧭",
+    title: "Observability Gap Map",
+    tagline: "Service Blind Spot Analysis",
+    description:
+      "Visualize service-level gaps across metrics, logs, traces, dashboards, alerts, and RED coverage. Identify blind spots, weak services, and the fastest path to production readiness.",
+    accentClass: "tile-cyan",
+    features: ["Interactive service coverage matrix", "Signal heatmap and blind spot radar", "Prioritized remediation roadmap"],
+    badge: "Blind Spot Analysis",
+    badgeClass: "badge-cyan",
+  },
 ];
 
 /* ══════════════════════════════════════════════════════════
@@ -63,7 +76,13 @@ const TILES = [
 export default function HubPage() {
   const [activeTile, setActiveTile] = useState(null); // "obscrawl" | "observascore" | null
   // Feature flags — default all true so tiles show during initial load
-  const [flags, setFlags] = useState({ observascore: true, obscrawl: true, rca_agent: true, red_panel_intelligence: true });
+  const [flags, setFlags] = useState({
+    observascore: true,
+    obscrawl: true,
+    rca_agent: true,
+    red_panel_intelligence: true,
+    observability_gap_map: true,
+  });
 
   useEffect(() => {
     getFeatureFlags()
@@ -140,6 +159,9 @@ export default function HubPage() {
       )}
       {activeTile === "red_panel_intelligence" && (
         <RedIntelligenceModal onClose={() => setActiveTile(null)} />
+      )}
+      {activeTile === "observability_gap_map" && (
+        <GapMapModal onClose={() => setActiveTile(null)} />
       )}
     </div>
   );
