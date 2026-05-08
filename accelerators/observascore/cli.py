@@ -5,6 +5,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import click
 import yaml
@@ -33,6 +34,23 @@ from observascore.rules import RulesEngine
 
 console = Console()
 
+ADAPTER_MAP = [
+    # Open-source stack
+    ("prometheus", PrometheusAdapter),
+    ("grafana", GrafanaAdapter),
+    ("loki", LokiAdapter),
+    ("jaeger", JaegerAdapter),
+    ("alertmanager", AlertManagerAdapter),
+    ("tempo", TempoAdapter),
+    ("elasticsearch", ElasticsearchAdapter),
+    ("otel_collector", OtelCollectorAdapter),
+    # Commercial APM / observability platforms
+    ("appdynamics", AppDynamicsAdapter),
+    ("datadog", DatadogAdapter),
+    ("dynatrace", DynatraceAdapter),
+    ("splunk", SplunkAdapter),
+]
+
 
 def setup_logging(verbose: bool) -> None:
     level = logging.DEBUG if verbose else logging.INFO
@@ -44,18 +62,25 @@ def setup_logging(verbose: bool) -> None:
     )
 
 
-def _run_adapter(name: str, adapter_cls, config: dict, estate: ObservabilityEstate,
-                 summary: ExtractionSummary) -> None:
+def _run_adapter(
+    name: str,
+    adapter_cls,
+    config: dict,
+    estate: ObservabilityEstate,
+    summary: ExtractionSummary,
+    emit_console: bool = True,
+) -> None:
     """Generic adapter runner — health-checks then extracts, populates estate.
 
     Health-check failure is treated as a warning, not a hard stop: we still
     attempt extraction so that partial data is captured when a tool is slow to
     respond to the health probe but its API endpoints work.
     """
-    console.print(f"[cyan]→ {name.capitalize()}[/cyan]")
+    if emit_console:
+        console.print(f"[cyan]→ {name.capitalize()}[/cyan]")
     adapter = adapter_cls(config)
     health_ok = adapter.health_check()
-    if not health_ok:
+    if not health_ok and emit_console:
         console.print(
             f"[yellow]  {name} health check did not pass — "
             f"attempting extraction anyway[/yellow]"
@@ -63,7 +88,7 @@ def _run_adapter(name: str, adapter_cls, config: dict, estate: ObservabilityEsta
     try:
         data = adapter.extract()
         _merge_adapter_data(name, data, estate, summary)
-        if not health_ok:
+        if not health_ok and emit_console:
             # Health check failed but extraction succeeded — note it
             console.print(f"[yellow]  {name} health check uncertain but data extracted[/yellow]")
     except Exception as e:
@@ -71,7 +96,8 @@ def _run_adapter(name: str, adapter_cls, config: dict, estate: ObservabilityEsta
         summary.extraction_errors.append(reason)
         if not health_ok:
             summary.extraction_errors.append(f"{name}: health check failed — tool may be unavailable")
-        console.print(f"[red]  {name} extraction failed: {e}[/red]")
+        if emit_console:
+            console.print(f"[red]  {name} extraction failed: {e}[/red]")
 
 
 def _merge_adapter_data(name: str, data: dict, estate: ObservabilityEstate,
@@ -194,6 +220,45 @@ def _merge_adapter_data(name: str, data: dict, estate: ObservabilityEstate,
         summary.splunk_hec_configured = data.get("hec_configured", False)
 
 
+def _load_config(config: str | Path | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(config, dict):
+        return config
+
+    with open(config, encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def run_extraction(config: str | Path | dict[str, Any], emit_console: bool = True) -> ObservabilityEstate:
+    """Run adapter extraction and return a populated ObservabilityEstate."""
+    cfg = _load_config(config)
+
+    client_name = cfg.get("client", {}).get("name", "Unknown")
+    environment = cfg.get("client", {}).get("environment", "unknown")
+
+    estate = ObservabilityEstate(
+        client_name=client_name,
+        environment=environment,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+    summary = ExtractionSummary()
+    sources = cfg.get("sources", {})
+
+    if emit_console:
+        console.rule("[bold blue]Extracting from sources")
+
+    for src_key, adapter_cls in ADAPTER_MAP:
+        src_cfg = sources.get(src_key, {})
+        if not src_cfg.get("enabled"):
+            if emit_console:
+                console.print(f"[dim]  {src_key:<16} disabled[/dim]")
+            continue
+        estate.configured_tools.append(src_key)
+        _run_adapter(src_key, adapter_cls, src_cfg, estate, summary, emit_console=emit_console)
+
+    estate.summary = summary
+    return estate
+
+
 @click.group()
 @click.version_option("0.2.0", prog_name="observascore")
 def cli():
@@ -213,48 +278,8 @@ def assess(config: str, output: str, ai: bool, verbose: bool) -> None:
     setup_logging(verbose)
     console.rule("[bold blue]ObservaScore v0.2.0 — Assessment Starting")
 
-    with open(config) as f:
-        cfg = yaml.safe_load(f)
-
-    client_name = cfg.get("client", {}).get("name", "Unknown")
-    environment = cfg.get("client", {}).get("environment", "unknown")
-
-    estate = ObservabilityEstate(
-        client_name=client_name,
-        environment=environment,
-        timestamp=datetime.now(timezone.utc).isoformat(),
-    )
-    summary = ExtractionSummary()
-    sources = cfg.get("sources", {})
-
-    # Map of (source_key, adapter_class) in extraction order
-    adapter_map = [
-        # Open-source stack
-        ("prometheus", PrometheusAdapter),
-        ("grafana", GrafanaAdapter),
-        ("loki", LokiAdapter),
-        ("jaeger", JaegerAdapter),
-        ("alertmanager", AlertManagerAdapter),
-        ("tempo", TempoAdapter),
-        ("elasticsearch", ElasticsearchAdapter),
-        ("otel_collector", OtelCollectorAdapter),
-        # Commercial APM / observability platforms
-        ("appdynamics", AppDynamicsAdapter),
-        ("datadog", DatadogAdapter),
-        ("dynatrace", DynatraceAdapter),
-        ("splunk", SplunkAdapter),
-    ]
-
-    console.rule("[bold blue]Extracting from sources")
-    for src_key, adapter_cls in adapter_map:
-        src_cfg = sources.get(src_key, {})
-        if not src_cfg.get("enabled"):
-            console.print(f"[dim]  {src_key:<16} disabled[/dim]")
-            continue
-        estate.configured_tools.append(src_key)
-        _run_adapter(src_key, adapter_cls, src_cfg, estate, summary)
-
-    estate.summary = summary
+    cfg = _load_config(config)
+    estate = run_extraction(cfg, emit_console=True)
 
     console.rule("[bold blue]Evaluating rules")
     engine = RulesEngine()
@@ -415,45 +440,7 @@ def export_cmd(config: str, output: str, verbose: bool) -> None:
     setup_logging(verbose)
     console.rule("[bold blue]ObservaScore v0.2.0 — Estate Export")
 
-    with open(config) as f:
-        cfg = yaml.safe_load(f)
-
-    client_name = cfg.get("client", {}).get("name", "Unknown")
-    environment = cfg.get("client", {}).get("environment", "unknown")
-
-    estate  = ObservabilityEstate(
-        client_name=client_name,
-        environment=environment,
-        timestamp=datetime.now(timezone.utc).isoformat(),
-    )
-    summary = ExtractionSummary()
-    sources = cfg.get("sources", {})
-
-    adapter_map = [
-        ("prometheus",    PrometheusAdapter),
-        ("grafana",       GrafanaAdapter),
-        ("loki",          LokiAdapter),
-        ("jaeger",        JaegerAdapter),
-        ("alertmanager",  AlertManagerAdapter),
-        ("tempo",         TempoAdapter),
-        ("elasticsearch", ElasticsearchAdapter),
-        ("otel_collector", OtelCollectorAdapter),
-        ("appdynamics",   AppDynamicsAdapter),
-        ("datadog",       DatadogAdapter),
-        ("dynatrace",     DynatraceAdapter),
-        ("splunk",        SplunkAdapter),
-    ]
-
-    console.rule("[bold blue]Extracting from sources")
-    for src_key, adapter_cls in adapter_map:
-        src_cfg = sources.get(src_key, {})
-        if not src_cfg.get("enabled"):
-            console.print(f"[dim]  {src_key:<16} disabled[/dim]")
-            continue
-        estate.configured_tools.append(src_key)
-        _run_adapter(src_key, adapter_cls, src_cfg, estate, summary)
-
-    estate.summary = summary
+    estate = run_extraction(config, emit_console=True)
 
     # ── Signals / alerts / services counts ──
     console.print(

@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.routes.systems import router as systems_router
 from backend.app.routes.export import router as export_router
 from backend.app.routes.assess import router as assess_router
+from backend.app.routes.red_intelligence import router as red_intelligence_router
 from backend.app.routes.download import router as download_router
 from backend.app.routes.v1 import router as v1_router
 from backend.app.routes.feature_flags import router as feature_flags_router
@@ -25,6 +26,7 @@ app.add_middleware(
 app.include_router(systems_router, prefix="/api")
 app.include_router(export_router, prefix="/api")
 app.include_router(assess_router, prefix="/api")
+app.include_router(red_intelligence_router, prefix="/api")
 app.include_router(download_router, prefix="/api")
 app.include_router(v1_router, prefix="/api")            # Hub v1 — /api/v1/{validate,crawl,assess}
 app.include_router(feature_flags_router, prefix="/api") # GET /api/feature-flags
@@ -56,6 +58,10 @@ async def enforce_feature_flags(request, call_next):
     # RCA Agent endpoint
     if path == "/api/v1/rca":
         _require_flag("rca_agent")
+
+    # RED Panel Intelligence endpoint
+    if path == "/api/red-intelligence":
+        _require_flag("red_panel_intelligence")
 
     return await call_next(request)
 

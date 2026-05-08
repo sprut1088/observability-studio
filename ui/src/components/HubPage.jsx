@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import CrawlModal from "./CrawlModal";
 import AssessModal from "./AssessModal";
 import RCAModal from "./RCAModal";
+import RedIntelligenceModal from "./RedIntelligenceModal";
 import { getFeatureFlags } from "../api";
 
 /* ── Tile definitions ───────────────────────────────────── */
@@ -42,6 +43,18 @@ const TILES = [
     badge: "RCA",
     badgeClass: "badge-amber",
   },
+  {
+    id: "red_panel_intelligence",
+    icon: "📉",
+    title: "RED Panel Intelligence",
+    tagline: "Dashboard RED Coverage",
+    description:
+      "Analyze dashboards across Grafana, Splunk, Datadog, Dynatrace, and AppDynamics for Rate, Errors, and Duration coverage. Detect weak panels, missing queries, and incomplete service views.",
+    accentClass: "tile-rose",
+    features: ["Multi-tool dashboard analysis", "RED coverage scoring", "Panel query intelligence"],
+    badge: "Dashboard Quality",
+    badgeClass: "badge-rose",
+  },
 ];
 
 /* ══════════════════════════════════════════════════════════
@@ -50,7 +63,7 @@ const TILES = [
 export default function HubPage() {
   const [activeTile, setActiveTile] = useState(null); // "obscrawl" | "observascore" | null
   // Feature flags — default all true so tiles show during initial load
-  const [flags, setFlags] = useState({ observascore: true, obscrawl: true, rca_agent: true });
+  const [flags, setFlags] = useState({ observascore: true, obscrawl: true, rca_agent: true, red_panel_intelligence: true });
 
   useEffect(() => {
     getFeatureFlags()
@@ -124,6 +137,9 @@ export default function HubPage() {
       )}
       {activeTile === "rca_agent" && (
         <RCAModal onClose={() => setActiveTile(null)} />
+      )}
+      {activeTile === "red_panel_intelligence" && (
+        <RedIntelligenceModal onClose={() => setActiveTile(null)} />
       )}
     </div>
   );
