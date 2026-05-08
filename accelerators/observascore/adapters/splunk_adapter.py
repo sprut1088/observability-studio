@@ -1,10 +1,13 @@
 from __future__ import annotations
+from html import unescape
 import logging
 from typing import Any
 
 import json
+import re
 import xml.etree.ElementTree as ET
 from urllib.parse import quote
+from xml.sax.saxutils import unescape
 from observascore.model import DashboardPanel
 
 from observascore.adapters.base import BaseAdapter, AdapterError
@@ -49,37 +52,53 @@ class SplunkAdapter(BaseAdapter):
 
         viz_data_sources = viz.get("dataSources") or {}
 
-        # Example:
-        # "dataSources": { "primary": "ds_xxx" }
-        # or "dataSources": { "primary": { "id": "ds_xxx" } }
         for _, ds_ref in viz_data_sources.items():
-            ds = None
-
             if isinstance(ds_ref, str):
-                ds = all_data_sources.get(ds_ref)
+                ds = all_data_sources.get(ds_ref, {})
             elif isinstance(ds_ref, dict):
-                ds_id = (
-                    ds_ref.get("id")
-                    or ds_ref.get("primary")
-                    or ds_ref.get("dataSource")
-                )
-                ds = all_data_sources.get(ds_id) if ds_id else ds_ref
+                ds_id = ds_ref.get("id") or ds_ref.get("primary") or ds_ref.get("dataSource")
+                ds = all_data_sources.get(ds_id, ds_ref)
+            else:
+                ds = {}
 
             if not isinstance(ds, dict):
                 continue
 
             options = ds.get("options") or {}
-            query = (
-                options.get("query")
-                or options.get("search")
-                or ds.get("query")
-                or ds.get("search")
-            )
+            query = options.get("query") or options.get("search") or ds.get("query") or ds.get("search")
 
             if query:
                 queries.append(query)
 
         return queries
+
+    def _extract_json_from_raw_view(self, raw_view: str) -> str:
+        if not raw_view:
+            return ""
+
+        text = unescape(raw_view.strip())
+
+        if text.startswith("{") and "visualizations" in text:
+            return text
+
+        try:
+            root = ET.fromstring(text)
+            for node in root.iter():
+                node_text = (node.text or "").strip()
+                if not node_text:
+                    continue
+
+                cleaned = unescape(node_text).strip()
+                if cleaned.startswith("{") and "visualizations" in cleaned:
+                    return cleaned
+        except Exception:
+            pass
+
+        match = re.search(r"(\{[\s\S]*\"visualizations\"[\s\S]*\"dataSources\"[\s\S]*\})", text)
+        if match:
+            return unescape(match.group(1)).strip()
+
+        return ""
     
     def _parse_splunk_dashboard_panels(self, raw_view: str) -> list[DashboardPanel]:
         panels: list[DashboardPanel] = []
@@ -87,18 +106,15 @@ class SplunkAdapter(BaseAdapter):
         if not raw_view:
             return panels
 
-        raw_view = raw_view.strip()
+        studio_json = self._extract_json_from_raw_view(raw_view)
 
-        # Dashboard Studio JSON
-        if raw_view.startswith("{"):
+        if studio_json:
             try:
-                parsed = json.loads(raw_view)
+                parsed = json.loads(studio_json)
 
                 visualizations = parsed.get("visualizations") or {}
                 data_sources = parsed.get("dataSources") or {}
-                layout = parsed.get("layout") or {}
 
-                # Main Studio format: panels are visualizations
                 for viz_id, viz in visualizations.items():
                     if not isinstance(viz, dict):
                         continue
@@ -106,53 +122,31 @@ class SplunkAdapter(BaseAdapter):
                     options = viz.get("options") or {}
 
                     title = (
-                        options.get("title")
+                        viz.get("title")
+                        or options.get("title")
                         or options.get("displayName")
-                        or viz.get("title")
                         or viz_id
                     )
 
-                    panel_type = viz.get("type") or "studio"
-
-                    queries = self._extract_studio_queries(viz, data_sources)
+                    panel_type = viz.get("type") or "splunk.studio"
 
                     panels.append(
                         DashboardPanel(
                             title=title,
                             panel_type=panel_type,
-                            queries=queries,
+                            queries=self._extract_studio_queries(viz, data_sources),
                             has_thresholds=bool(options.get("thresholds")),
                             has_legend=True,
                         )
                     )
 
-                # Fallback: some Studio dashboards expose visible items only in layout
-                if not panels:
-                    structure = layout.get("structure") or []
-                    for item in structure:
-                        item_id = item.get("item")
-                        if not item_id:
-                            continue
-
-                        viz = visualizations.get(item_id) or {}
-                        options = viz.get("options") or {}
-
-                        panels.append(
-                            DashboardPanel(
-                                title=options.get("title") or item_id,
-                                panel_type=viz.get("type") or "studio",
-                                queries=self._extract_studio_queries(viz, data_sources),
-                                has_thresholds=bool(options.get("thresholds")),
-                                has_legend=True,
-                            )
-                        )
-
-                return panels
+                if panels:
+                    return panels
 
             except Exception:
-                return panels
+                pass
 
-        # Classic Simple XML
+        # Classic Simple XML fallback
         try:
             root = ET.fromstring(raw_view)
 
