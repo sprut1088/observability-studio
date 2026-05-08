@@ -43,93 +43,114 @@ class SplunkAdapter(BaseAdapter):
 
         # BaseAdapter uses self.url for _get()
         self.url = self.mgmt_url
+    
+    def _extract_studio_queries(self, viz: dict, all_data_sources: dict) -> list[str]:
+        queries: list[str] = []
 
+        viz_data_sources = viz.get("dataSources") or {}
+
+        # Example:
+        # "dataSources": { "primary": "ds_xxx" }
+        # or "dataSources": { "primary": { "id": "ds_xxx" } }
+        for _, ds_ref in viz_data_sources.items():
+            ds = None
+
+            if isinstance(ds_ref, str):
+                ds = all_data_sources.get(ds_ref)
+            elif isinstance(ds_ref, dict):
+                ds_id = (
+                    ds_ref.get("id")
+                    or ds_ref.get("primary")
+                    or ds_ref.get("dataSource")
+                )
+                ds = all_data_sources.get(ds_id) if ds_id else ds_ref
+
+            if not isinstance(ds, dict):
+                continue
+
+            options = ds.get("options") or {}
+            query = (
+                options.get("query")
+                or options.get("search")
+                or ds.get("query")
+                or ds.get("search")
+            )
+
+            if query:
+                queries.append(query)
+
+        return queries
+    
     def _parse_splunk_dashboard_panels(self, raw_view: str) -> list[DashboardPanel]:
         panels: list[DashboardPanel] = []
 
         if not raw_view:
             return panels
 
+        raw_view = raw_view.strip()
+
         # Dashboard Studio JSON
-        try:
-            parsed = json.loads(raw_view)
+        if raw_view.startswith("{"):
+            try:
+                parsed = json.loads(raw_view)
 
-            visualizations = parsed.get("visualizations", {}) or {}
-            layout = parsed.get("layout", {}) or {}
-            data_sources = parsed.get("dataSources", {}) or {}
+                visualizations = parsed.get("visualizations") or {}
+                data_sources = parsed.get("dataSources") or {}
+                layout = parsed.get("layout") or {}
 
-            # Map visualization id -> title/type
-            for viz_id, viz in visualizations.items():
-                options = viz.get("options", {}) or {}
-
-                panel_title = (
-                    options.get("title")
-                    or options.get("displayName")
-                    or viz.get("title")
-                    or viz_id
-                )
-
-                panel_type = viz.get("type") or "studio"
-
-                queries = []
-
-                # Studio usually links visualizations to data sources by id
-                viz_data_sources = viz.get("dataSources", {}) or {}
-                for _, ds_ref in viz_data_sources.items():
-                    if isinstance(ds_ref, str):
-                        ds = data_sources.get(ds_ref, {}) or {}
-                    elif isinstance(ds_ref, dict):
-                        ds_id = ds_ref.get("primary") or ds_ref.get("id")
-                        ds = data_sources.get(ds_id, {}) if ds_id else ds_ref
-                    else:
-                        ds = {}
-
-                    options = ds.get("options", {}) or {}
-                    query = (
-                        options.get("query")
-                        or options.get("search")
-                        or ds.get("query")
-                        or ds.get("search")
-                        or ""
-                    )
-
-                    if query:
-                        queries.append(query)
-
-                panels.append(
-                    DashboardPanel(
-                        title=panel_title,
-                        panel_type=panel_type,
-                        queries=queries,
-                        has_thresholds=False,
-                        has_legend=True,
-                    )
-                )
-
-            # Some Studio dashboards expose layout structure even if visualizations parsing missed
-            if not panels:
-                for item in layout.get("structure", []):
-                    item_id = item.get("item")
-                    if not item_id:
+                # Main Studio format: panels are visualizations
+                for viz_id, viz in visualizations.items():
+                    if not isinstance(viz, dict):
                         continue
 
-                    viz = visualizations.get(item_id, {}) or {}
-                    options = viz.get("options", {}) or {}
+                    options = viz.get("options") or {}
+
+                    title = (
+                        options.get("title")
+                        or options.get("displayName")
+                        or viz.get("title")
+                        or viz_id
+                    )
+
+                    panel_type = viz.get("type") or "studio"
+
+                    queries = self._extract_studio_queries(viz, data_sources)
 
                     panels.append(
                         DashboardPanel(
-                            title=options.get("title") or item_id,
-                            panel_type=viz.get("type") or "studio",
-                            queries=[],
-                            has_thresholds=False,
+                            title=title,
+                            panel_type=panel_type,
+                            queries=queries,
+                            has_thresholds=bool(options.get("thresholds")),
                             has_legend=True,
                         )
                     )
 
-            return panels
+                # Fallback: some Studio dashboards expose visible items only in layout
+                if not panels:
+                    structure = layout.get("structure") or []
+                    for item in structure:
+                        item_id = item.get("item")
+                        if not item_id:
+                            continue
 
-        except Exception:
-            pass
+                        viz = visualizations.get(item_id) or {}
+                        options = viz.get("options") or {}
+
+                        panels.append(
+                            DashboardPanel(
+                                title=options.get("title") or item_id,
+                                panel_type=viz.get("type") or "studio",
+                                queries=self._extract_studio_queries(viz, data_sources),
+                                has_thresholds=bool(options.get("thresholds")),
+                                has_legend=True,
+                            )
+                        )
+
+                return panels
+
+            except Exception:
+                return panels
 
         # Classic Simple XML
         try:
@@ -202,9 +223,36 @@ class SplunkAdapter(BaseAdapter):
                 name = entry.get("name") or ""
                 label = content.get("label") or name
 
-                # Important: actual dashboard source is usually in content["eai:data"]
+                if not name:
+                    continue
+
                 raw_view = content.get("eai:data") or content.get("eai:data_template") or ""
-                
+
+                # Dashboard Studio detail is often only reliable when fetched per dashboard.
+                try:
+                    detail = self._get(
+                        f"/servicesNS/-/{self.app}/data/ui/views/{quote(name, safe='')}",
+                        params={"output_mode": "json"},
+                    )
+
+                    detail_entries = detail.get("entry") or []
+                    if detail_entries:
+                        detail_content = detail_entries[0].get("content", {}) or {}
+                        raw_view = (
+                            detail_content.get("eai:data")
+                            or detail_content.get("eai:data_template")
+                            or raw_view
+                        )
+
+                        label = (
+                            detail_content.get("label")
+                            or detail_entries[0].get("name")
+                            or label
+                        )
+
+                except AdapterError as e:
+                    result["errors"].append(f"dashboard detail {name}: {e}")
+
                 panels = self._parse_splunk_dashboard_panels(raw_view)
 
                 result["dashboards"].append(
@@ -216,13 +264,14 @@ class SplunkAdapter(BaseAdapter):
                         tags=["splunk"],
                         panels=panels,
                         variables=[],
-                        has_templating="${" in raw_view or "$" in raw_view,
+                        has_templating="$" in raw_view,
                         last_modified=entry.get("updated"),
                         owner=entry.get("author"),
                         raw={
                             "is_visible": content.get("isVisible"),
                             "description": content.get("description"),
                             "panel_count": len(panels),
+                            "dashboard_source_type": "json" if raw_view.strip().startswith("{") else "xml",
                         },
                     )
                 )
