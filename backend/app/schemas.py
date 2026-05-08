@@ -1,5 +1,5 @@
 from typing import List, Optional, Literal
-from pydantic import BaseModel, HttpUrl, Field
+from pydantic import BaseModel, Field
 
 SystemName = Literal[
     "prometheus",
@@ -17,24 +17,26 @@ SystemName = Literal[
 
 UsageType = Literal["metrics", "traces", "logs", "dashboards", "alerts"]
 
+
 class ToolConfig(BaseModel):
     name: SystemName
     enabled: bool = True
     usages: List[UsageType] = Field(default_factory=list)
 
-    #generic
+    # generic
     url: str
     api_key: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
 
-    #splunk-specific
+    # splunk-specific
     splunk_base_url: Optional[str] = None      # ex: http://10.235.21.132:8000
     splunk_mgmt_url: Optional[str] = None      # ex: https://10.235.21.132:8089
     splunk_hec_url: Optional[str] = None       # ex: http://10.235.21.132:8088
     splunk_hec_token: Optional[str] = None
     splunk_app: Optional[str] = None           # ex: search
     splunk_verify_ssl: bool = False
+
 
 class AIConfig(BaseModel):
     enabled: bool = False
@@ -45,19 +47,34 @@ class AIConfig(BaseModel):
     azure_endpoint: Optional[str] = None
     azure_deployment: Optional[str] = None
 
+
 class ClientConfig(BaseModel):
     name: str = "MVP Client"
     environment: str = "dev"
+
+
+class ApplicationScopeRequest(BaseModel):
+    name: str
+    environment: str = "dev"
+    services: List[str] = Field(default_factory=list)
+    include_auto_discovered: bool = False
+
 
 class RunRequest(BaseModel):
     client: ClientConfig
     tools: List[ToolConfig]
     ai: Optional[AIConfig] = None
 
+
+class ObservabilityGapMapRequest(RunRequest):
+    application: Optional[ApplicationScopeRequest] = None
+
+
 class ValidationResponse(BaseModel):
     system: str
     reachable: bool
     message: str
+
 
 class RunResponse(BaseModel):
     success: bool

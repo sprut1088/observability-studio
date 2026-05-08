@@ -6,9 +6,10 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 
-from backend.app.schemas import RunRequest, RunResponse
+from backend.app.schemas import ObservabilityGapMapRequest, RunResponse
 from backend.app.services.config_builder import build_runtime_config
 from backend.app.services.gap_map_service import run_observability_gap_map
+from observascore.insights.observability_gap_map import ApplicationContext
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -34,14 +35,36 @@ def _build_runtime_urls(file_path: Path) -> tuple[str, str]:
 
 
 @router.post("/observability-gap-map", response_model=RunResponse)
-def observability_gap_map(req: RunRequest) -> RunResponse:
+def observability_gap_map(req: ObservabilityGapMapRequest) -> RunResponse:
     try:
         run_id = uuid4().hex
         base_dir = RUNTIME_DIR / run_id
         config_path = build_runtime_config(req.model_dump(), base_dir)
         reports_dir = base_dir / "observability-gap-map"
 
-        outputs = run_observability_gap_map(config_path=config_path, output_dir=reports_dir)
+        app_name = req.client.name
+        app_env = req.client.environment
+        app_services: list[str] = []
+        include_auto_discovered = False
+
+        if req.application is not None:
+            app_name = req.application.name or app_name
+            app_env = req.application.environment or app_env
+            app_services = req.application.services or []
+            include_auto_discovered = req.application.include_auto_discovered
+
+        application_context = ApplicationContext(
+            name=app_name,
+            environment=app_env,
+            services=app_services,
+            include_auto_discovered=include_auto_discovered,
+        )
+
+        outputs = run_observability_gap_map(
+            config_path=config_path,
+            output_dir=reports_dir,
+            application_context=application_context,
+        )
 
         html_path = Path(outputs["html"])
         preview_url, download_url = _build_runtime_urls(html_path)

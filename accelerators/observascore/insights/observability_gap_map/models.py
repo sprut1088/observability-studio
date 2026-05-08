@@ -5,6 +5,17 @@ from typing import Any
 
 
 @dataclass
+class ApplicationContext:
+    name: str
+    environment: str
+    services: list[str] = field(default_factory=list)
+    include_auto_discovered: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class SignalCoverage:
     metrics_present: bool = False
     logs_present: bool = False
@@ -68,28 +79,38 @@ class ToolCoverageSummary:
 
 @dataclass
 class ObservabilityGapMapResult:
+    application_name: str
+    environment: str
+    canonical_services: list[str]
+    auto_discovered_candidates: list[str]
+    ignored_candidates: list[str]
     total_services: int
-    excellent_services: int
-    good_services: int
-    partial_services: int
-    poor_services: int
-    blind_spot_services: int
     overall_coverage_score: float
-    weakest_services: list[str] = field(default_factory=list)
-    strongest_services: list[str] = field(default_factory=list)
     service_profiles: list[ServiceGapProfile] = field(default_factory=list)
     tool_coverage_summary: list[ToolCoverageSummary] = field(default_factory=list)
     top_recommendations: list[GapRecommendation] = field(default_factory=list)
+    raw_counts: dict[str, int] = field(default_factory=dict)
     extraction_errors: list[str] = field(default_factory=list)
+    excellent_services: int = 0
+    good_services: int = 0
+    partial_services: int = 0
+    poor_services: int = 0
+    blind_spot_services: int = 0
+    strongest_services: list[str] = field(default_factory=list)
+    weakest_services: list[str] = field(default_factory=list)
     gap_map_score: float = 0.0
     service_blind_spots: int = 0
     missing_signal_counts: dict[str, int] = field(default_factory=dict)
-    no_services_inferred: bool = False
+    discovery_mode: bool = False
     no_dashboards_found: bool = False
-    raw_counts: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "application_name": self.application_name,
+            "environment": self.environment,
+            "canonical_services": self.canonical_services,
+            "auto_discovered_candidates": self.auto_discovered_candidates,
+            "ignored_candidates": self.ignored_candidates,
             "overall_coverage_score": self.overall_coverage_score,
             "total_services": self.total_services,
             "excellent_services": self.excellent_services,
@@ -102,11 +123,11 @@ class ObservabilityGapMapResult:
             "strongest_services": self.strongest_services,
             "tool_coverage_summary": [item.to_dict() for item in self.tool_coverage_summary],
             "top_recommendations": [rec.to_dict() for rec in self.top_recommendations],
+            "raw_counts": self.raw_counts,
             "extraction_errors": self.extraction_errors,
             "gap_map_score": self.gap_map_score,
             "service_blind_spots": self.service_blind_spots,
             "missing_signal_counts": self.missing_signal_counts,
-            "no_services_inferred": self.no_services_inferred,
+            "discovery_mode": self.discovery_mode,
             "no_dashboards_found": self.no_dashboards_found,
-            "raw_counts": self.raw_counts,
         }

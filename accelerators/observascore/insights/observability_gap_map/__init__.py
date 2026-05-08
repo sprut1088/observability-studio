@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from observascore.insights.observability_gap_map.analyzer import analyze_observability_gap_map
 from observascore.insights.observability_gap_map.models import (
+    ApplicationContext,
     GapRecommendation,
     ObservabilityGapMapResult,
     ServiceGapProfile,
@@ -15,6 +16,7 @@ from observascore.insights.observability_gap_map.report import (
 
 __all__ = [
     "analyze_observability_gap_map",
+    "ApplicationContext",
     "ObservabilityGapMapResult",
     "ServiceGapProfile",
     "SignalCoverage",

@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from observascore.insights.observability_gap_map import analyze_observability_gap_map
+from observascore.insights.observability_gap_map.models import ApplicationContext
 from observascore.model import (
-    AlertClassification,
     AlertRule,
     Dashboard,
     DashboardPanel,
@@ -27,109 +27,95 @@ def _estate(signals: list[Signal], dashboards: list[Dashboard], alerts: list[Ale
     )
 
 
-def test_service_with_full_coverage_is_excellent() -> None:
+def _app(services: list[str], include_auto_discovered: bool = False) -> ApplicationContext:
+    return ApplicationContext(
+        name="Astronomy Shop",
+        environment="prod",
+        services=services,
+        include_auto_discovered=include_auto_discovered,
+    )
+
+
+def test_canonical_services_are_main_rows() -> None:
     signals = [
         Signal(source_tool="prometheus", identifier="http_requests_total", signal_type=SignalType.METRIC, labels={"service": "checkout"}),
         Signal(source_tool="loki", identifier="logs", signal_type=SignalType.LOG, labels={"service": "checkout"}),
-        Signal(source_tool="jaeger", identifier="trace", signal_type=SignalType.TRACE, labels={"service": "checkout"}),
+        Signal(source_tool="loki", identifier="/opt/splunk/var/log/splunk/audit.log", signal_type=SignalType.LOG, labels={"source": "_audit"}),
+    ]
+    result = analyze_observability_gap_map(_estate(signals, [], []), application_context=_app(["checkout", "payment"]))
+
+    services = [profile.service for profile in result.service_profiles]
+    assert services == ["payment", "checkout"] or services == ["checkout", "payment"]
+    assert "_audit" in result.ignored_candidates
+
+
+def test_noisy_candidates_filtered_from_auto_discovery() -> None:
+    signals = [
+        Signal(source_tool="splunk", identifier="_internal", signal_type=SignalType.LOG, labels={"index": "_internal"}),
+        Signal(source_tool="splunk", identifier="splunkd_access", signal_type=SignalType.LOG, labels={"source": "splunkd_access"}),
+        Signal(source_tool="splunk", identifier="/opt/splunk/var/log/splunk/metrics.log", signal_type=SignalType.LOG, labels={"source": "/opt/splunk/var/log/splunk/metrics.log"}),
+    ]
+    result = analyze_observability_gap_map(_estate(signals, [], []), application_context=_app(["checkout"]))
+
+    assert "_internal" not in result.auto_discovered_candidates
+    assert "splunkd_access" not in result.auto_discovered_candidates
+    assert any(item in result.ignored_candidates for item in ["_internal", "splunkd_access"])
+
+
+def test_explicit_noisy_canonical_service_is_retained() -> None:
+    signals = [
+        Signal(source_tool="splunk", identifier="_internal", signal_type=SignalType.LOG, labels={"service": "_internal"}),
+    ]
+    result = analyze_observability_gap_map(_estate(signals, [], []), application_context=_app(["_internal"]))
+
+    services = [profile.service for profile in result.service_profiles]
+    assert "_internal" in services
+
+
+def test_payment_matching_variants() -> None:
+    signals = [
+        Signal(source_tool="prometheus", identifier="payment-service", signal_type=SignalType.METRIC, labels={"svc": "payment"}),
+        Signal(source_tool="tempo", identifier="oteldemo.paymentservice", signal_type=SignalType.TRACE, labels={"service.name": "payment"}),
     ]
     dashboards = [
         Dashboard(
             source_tool="grafana",
             uid="g1",
-            title="Checkout Overview",
-            panels=[
-                DashboardPanel(title="Request Rate", panel_type="timeseries", queries=["sum(rate(http_requests_total{service='checkout'}[5m]))"]),
-                DashboardPanel(title="Error Rate", panel_type="timeseries", queries=["sum(rate(http_requests_total{service='checkout',status=~'5..'}[5m]))"]),
-                DashboardPanel(title="Latency p95", panel_type="timeseries", queries=["histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{service='checkout'}[5m]))"]),
-            ],
-        )
-    ]
-    alerts = [
-        AlertRule(
-            source_tool="prometheus",
-            name="CheckoutHighLatency",
-            expression="service='checkout' and latency > 1",
-            classification=AlertClassification.UNKNOWN,
-            labels={"service": "checkout"},
+            title="payment-service overview",
+            panels=[DashboardPanel(title="payment errors", panel_type="timeseries", queries=["service.name='payment'"])],
         )
     ]
 
-    result = analyze_observability_gap_map(_estate(signals, dashboards, alerts))
+    result = analyze_observability_gap_map(_estate(signals, dashboards, []), application_context=_app(["payment"]))
 
-    assert result.total_services >= 1
-    checkout = next(profile for profile in result.service_profiles if profile.service == "checkout")
-    assert checkout.coverage_score == 100
-    assert checkout.readiness_status == "Excellent"
+    payment = next(profile for profile in result.service_profiles if profile.service == "payment")
+    assert payment.coverage.metrics_present is True
+    assert payment.coverage.traces_present is True
+    assert payment.coverage.dashboards_present is True
 
 
-def test_service_with_logs_only_is_poor() -> None:
+def test_no_canonical_services_falls_back_to_sanitized_discovery() -> None:
     signals = [
-        Signal(source_tool="splunk", identifier="app_logs", signal_type=SignalType.LOG, labels={"service": "billing"}),
+        Signal(source_tool="prometheus", identifier="oteldemo.paymentservice", signal_type=SignalType.METRIC, labels={"service.name": "payment"}),
+        Signal(source_tool="splunk", identifier="_internal", signal_type=SignalType.LOG, labels={"index": "_internal"}),
     ]
 
-    result = analyze_observability_gap_map(_estate(signals, [], []))
+    result = analyze_observability_gap_map(_estate(signals, [], []), application_context=_app([]))
 
-    billing = next(profile for profile in result.service_profiles if profile.service == "billing")
-    assert billing.coverage.logs_present is True
-    assert billing.coverage_score == 20
-    assert billing.readiness_status == "Poor"
+    assert result.discovery_mode is True
+    assert result.canonical_services == []
+    assert "payment" in result.auto_discovered_candidates
+    assert "payment" in [profile.service for profile in result.service_profiles]
+    assert "_internal" not in [profile.service for profile in result.service_profiles]
 
 
-def test_unknown_service_grouping() -> None:
+def test_recommendations_target_report_scope_only() -> None:
     signals = [
-        Signal(source_tool="loki", identifier="raw_log_line", signal_type=SignalType.LOG, labels={}),
+        Signal(source_tool="prometheus", identifier="http_requests_total", signal_type=SignalType.METRIC, labels={"service": "checkout"}),
+        Signal(source_tool="splunk", identifier="_internal", signal_type=SignalType.LOG, labels={"index": "_internal"}),
     ]
+    result = analyze_observability_gap_map(_estate(signals, [], []), application_context=_app(["checkout"]))
 
-    result = analyze_observability_gap_map(_estate(signals, [], []))
-
-    assert any(profile.service == "unknown" for profile in result.service_profiles)
-
-
-def test_recommendations_generated_for_missing_signals() -> None:
-    signals = [
-        Signal(source_tool="prometheus", identifier="reqs", signal_type=SignalType.METRIC, labels={"service": "payments"}),
-    ]
-
-    result = analyze_observability_gap_map(_estate(signals, [], []))
-
-    recs = [r for r in result.top_recommendations if r.service == "payments"]
-    missing = {r.missing_signal for r in recs}
-    assert "logs" in missing
-    assert "traces" in missing
-    assert "dashboards" in missing
-    assert "alerts" in missing
-    assert "red" in missing
-
-
-def test_multiple_tools_aggregate_correctly() -> None:
-    signals = [
-        Signal(source_tool="prometheus", identifier="m", signal_type=SignalType.METRIC, labels={"service": "catalog"}),
-        Signal(source_tool="splunk", identifier="l", signal_type=SignalType.LOG, labels={"service": "catalog"}),
-        Signal(source_tool="tempo", identifier="t", signal_type=SignalType.TRACE, labels={"service": "catalog"}),
-    ]
-    dashboards = [
-        Dashboard(
-            source_tool="grafana",
-            uid="g2",
-            title="Catalog Dashboard",
-            panels=[DashboardPanel(title="Request Rate", panel_type="timeseries", queries=["service='catalog'"])],
-        )
-    ]
-    alerts = [
-        AlertRule(
-            source_tool="prometheus",
-            name="CatalogAlert",
-            expression="service='catalog'",
-            classification=AlertClassification.UNKNOWN,
-            labels={"service": "catalog"},
-        )
-    ]
-
-    result = analyze_observability_gap_map(_estate(signals, dashboards, alerts))
-
-    tools = {summary.tool_name for summary in result.tool_coverage_summary}
-    assert "prometheus" in tools
-    assert "splunk" in tools
-    assert "tempo" in tools
-    assert "grafana" in tools
+    rec_services = {rec.service for rec in result.top_recommendations}
+    assert "checkout" in rec_services
+    assert "_internal" not in rec_services

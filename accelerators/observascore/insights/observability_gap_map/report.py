@@ -26,16 +26,20 @@ def generate_observability_gap_map_report(
     payload = _build_payload(result)
     payload_json = json.dumps(payload)
 
-    no_services_message = ""
-    if result.no_services_inferred:
-        no_services_message = (
-            "<div class='banner banner-warning'>No services could be confidently inferred from the selected tools.</div>"
+    discovery_mode_message = ""
+    if result.discovery_mode:
+        discovery_mode_message = (
+            "<div class='banner banner-warning'>"
+            "No canonical services were provided. Results are based on sanitized auto-discovery and may be less accurate."
+            "</div>"
         )
 
     no_dashboards_message = ""
     if result.no_dashboards_found:
         no_dashboards_message = (
-            "<div class='banner banner-info'>No dashboards were discovered. Dashboard and RED coverage are shown as missing.</div>"
+            "<div class='banner banner-info'>"
+            "No dashboards were discovered. Dashboard and RED coverage are shown as missing."
+            "</div>"
         )
 
     extraction_errors_html = ""
@@ -57,10 +61,6 @@ def generate_observability_gap_map_report(
       --text: #111827;
       --muted: #6b7280;
       --line: #e5e7eb;
-      --good: #10b981;
-      --warn: #f59e0b;
-      --bad: #ef4444;
-      --chip-bg: #f3f4f6;
       --hero: linear-gradient(125deg, #1d4ed8, #0ea5e9 45%, #14b8a6 100%);
       --shadow: 0 12px 30px rgba(17, 24, 39, 0.08);
     }}
@@ -79,10 +79,17 @@ def generate_observability_gap_map_report(
     .banner-warning {{ background: #fff7ed; border: 1px solid #fdba74; color: #9a3412; }}
     .banner-info {{ background: #eff6ff; border: 1px solid #93c5fd; color: #1e3a8a; }}
 
-    .layout {{ margin-top: 20px; display: grid; gap: 16px; grid-template-columns: 2fr 1fr; }}
-    .panel {{ background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 16px; }}
+    .panel {{ margin-top: 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 16px; }}
     .panel h2 {{ margin: 0 0 12px; font-size: 18px; }}
 
+    .scope-grid {{ display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }}
+    .scope-field {{ border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fafcff; }}
+    .scope-label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }}
+    .scope-value {{ margin-top: 4px; font-size: 14px; font-weight: 600; }}
+    .chip-wrap {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }}
+    .chip {{ font-size: 12px; border-radius: 999px; padding: 4px 10px; background: #eef2ff; color: #1e3a8a; border: 1px solid #c7d2fe; }}
+
+    .layout {{ margin-top: 20px; display: grid; gap: 16px; grid-template-columns: 2fr 1fr; }}
     .filters {{ display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 12px; }}
     .filters input, .filters select {{ width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; font: inherit; }}
 
@@ -91,17 +98,16 @@ def generate_observability_gap_map_report(
     th {{ background: #f8fafc; position: sticky; top: 0; z-index: 1; }}
     .matrix-wrap {{ max-height: 520px; overflow: auto; border: 1px solid var(--line); border-radius: 12px; }}
 
-    .chip {{ display: inline-flex; align-items: center; justify-content: center; min-width: 54px; border-radius: 999px; padding: 2px 8px; font-size: 12px; border: 1px solid transparent; }}
-    .chip-present {{ background: #dcfce7; color: #166534; border-color: #86efac; }}
-    .chip-partial {{ background: #fef3c7; color: #92400e; border-color: #fcd34d; }}
-    .chip-missing {{ background: #fee2e2; color: #991b1b; border-color: #fca5a5; }}
-
     .status {{ font-weight: 600; }}
     .status-Excellent {{ color: #047857; }}
     .status-Good {{ color: #0f766e; }}
     .status-Partial {{ color: #b45309; }}
     .status-Poor {{ color: #c2410c; }}
     .status-Blind-Spot {{ color: #b91c1c; }}
+
+    .chip-present {{ background: #dcfce7; color: #166534; border-color: #86efac; }}
+    .chip-partial {{ background: #fef3c7; color: #92400e; border-color: #fcd34d; }}
+    .chip-missing {{ background: #fee2e2; color: #991b1b; border-color: #fca5a5; }}
 
     .radar-list {{ display: flex; flex-direction: column; gap: 10px; }}
     .radar-item {{ border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fafcff; }}
@@ -132,6 +138,7 @@ def generate_observability_gap_map_report(
     .node-chips {{ display: flex; flex-wrap: wrap; gap: 6px; }}
     .node-chip {{ font-size: 11px; background: #eef2ff; color: #3730a3; border-radius: 999px; padding: 3px 8px; }}
 
+    .muted {{ color: var(--muted); font-size: 12px; }}
     .error-list {{ margin: 0; padding-left: 18px; color: #991b1b; font-size: 13px; }}
 
     @media (max-width: 980px) {{
@@ -143,16 +150,40 @@ def generate_observability_gap_map_report(
   <div class='page'>
     <header class='hero'>
       <h1>Observability Gap Map</h1>
-      <p>Interactive service-level blind spot analysis across metrics, logs, traces, dashboards, alerts, and RED coverage.</p>
+      <p>Application-scoped observability coverage across metrics, logs, traces, dashboards, alerts, and RED readiness.</p>
       <div class='hero-grid'>
+        <div class='hero-metric'><div class='label'>Application</div><div class='value' id='heroApp' style='font-size:20px'>n/a</div></div>
+        <div class='hero-metric'><div class='label'>Environment</div><div class='value' id='heroEnv' style='font-size:20px'>n/a</div></div>
+        <div class='hero-metric'><div class='label'>Canonical Services</div><div class='value' id='heroServices'>0</div></div>
         <div class='hero-metric'><div class='label'>Overall Coverage</div><div class='value' id='heroOverall'>0</div></div>
-        <div class='hero-metric'><div class='label'>Service Count</div><div class='value' id='heroServices'>0</div></div>
         <div class='hero-metric'><div class='label'>Blind Spots</div><div class='value' id='heroBlind'>0</div></div>
         <div class='hero-metric'><div class='label'>Highest Risk Service</div><div class='value' id='heroRisk' style='font-size:20px'>n/a</div></div>
       </div>
-      {no_services_message}
+      {discovery_mode_message}
       {no_dashboards_message}
     </header>
+
+    <section class='panel'>
+      <h2>Application Scope</h2>
+      <div class='scope-grid'>
+        <div class='scope-field'>
+          <div class='scope-label'>Application Name</div>
+          <div class='scope-value' id='scopeApp'></div>
+        </div>
+        <div class='scope-field'>
+          <div class='scope-label'>Environment</div>
+          <div class='scope-value' id='scopeEnv'></div>
+        </div>
+        <div class='scope-field'>
+          <div class='scope-label'>Selected Tools</div>
+          <div class='chip-wrap' id='scopeTools'></div>
+        </div>
+      </div>
+      <div class='scope-field' style='margin-top:10px'>
+        <div class='scope-label'>Canonical Services</div>
+        <div class='chip-wrap' id='scopeServices'></div>
+      </div>
+    </section>
 
     <div class='layout'>
       <section class='panel'>
@@ -236,6 +267,20 @@ def generate_observability_gap_map_report(
     </section>
 
     <section class='panel'>
+      <h2>Auto-discovered candidates</h2>
+      <div class='muted'>These were found in telemetry but were not part of the canonical service list. Candidates are not scored unless added to canonical services.</div>
+      <div class='scope-field' style='margin-top:10px'>
+        <div class='scope-label'>Suggested services found in telemetry</div>
+        <div class='chip-wrap' id='autoCandidates'></div>
+      </div>
+      <div class='scope-field' style='margin-top:10px'>
+        <div class='scope-label'>Ignored noisy candidates</div>
+        <div class='scope-value'><span id='ignoredCount'>0</span> ignored</div>
+        <div class='chip-wrap' id='ignoredExamples'></div>
+      </div>
+    </section>
+
+    <section class='panel'>
       <h2>Recommendations Board</h2>
       <div class='rec-grid'>
         <div class='rec-col'><h3>Critical blind spots</h3><div id='recCritical'></div></div>
@@ -255,35 +300,41 @@ def generate_observability_gap_map_report(
   <script>
     const data = {payload_json};
 
-    const state = {{
-      search: '',
-      status: 'all',
-      missing: 'all',
-      tool: 'all',
-    }};
-
+    const state = {{ search: '', status: 'all', missing: 'all', tool: 'all' }};
     const byId = (id) => document.getElementById(id);
 
     function chip(value, uncertain) {{
       let css = 'chip-missing';
-      let text = '❌ Missing';
+      let text = 'Missing';
       if (value) {{
-        if (uncertain) {{
-          css = 'chip-partial';
-          text = '⚠️ Partial';
-        }} else {{
-          css = 'chip-present';
-          text = '✅ Present';
-        }}
+        if (uncertain) {{ css = 'chip-partial'; text = 'Partial'; }}
+        else {{ css = 'chip-present'; text = 'Present'; }}
       }}
       return `<span class='chip ${{css}}'>${{text}}</span>`;
     }}
 
     function renderHero() {{
+      byId('heroApp').textContent = data.application_name || 'n/a';
+      byId('heroEnv').textContent = data.environment || 'n/a';
+      byId('heroServices').textContent = (data.canonical_services || []).length;
       byId('heroOverall').textContent = (data.overall_coverage_score ?? 0).toFixed(1);
-      byId('heroServices').textContent = data.total_services || 0;
       byId('heroBlind').textContent = data.blind_spot_services || 0;
       byId('heroRisk').textContent = (data.weakest_services && data.weakest_services[0]) || 'n/a';
+    }}
+
+    function renderScope() {{
+      byId('scopeApp').textContent = data.application_name || 'n/a';
+      byId('scopeEnv').textContent = data.environment || 'n/a';
+
+      const services = data.canonical_services || [];
+      byId('scopeServices').innerHTML = services.length
+        ? services.map((s) => `<span class='chip'>${{s}}</span>`).join('')
+        : `<span class='muted'>No canonical services provided.</span>`;
+
+      const tools = (data.tool_coverage_summary || []).map((t) => t.tool_name);
+      byId('scopeTools').innerHTML = tools.length
+        ? tools.map((s) => `<span class='chip'>${{s}}</span>`).join('')
+        : `<span class='muted'>No tools summarized.</span>`;
     }}
 
     function filteredServices() {{
@@ -300,44 +351,31 @@ def generate_observability_gap_map_report(
       const rows = filteredServices();
       byId('matrixRows').innerHTML = rows.map((service) => {{
         const c = service.coverage || {{}};
-        const uncertain = service.service === 'unknown' || service.service === 'platform';
         return `
           <tr>
             <td><strong>${{service.service}}</strong><div style='color:#6b7280;font-size:11px;'>${{(service.tools || []).join(', ') || 'n/a'}}</div></td>
             <td><span class='status status-${{service.readiness_status.replace(/\\s+/g, '-')}}'>${{service.readiness_status}}</span></td>
             <td>${{service.coverage_score}}</td>
-            <td>${{chip(c.metrics_present, uncertain && c.metrics_present)}}</td>
-            <td>${{chip(c.logs_present, uncertain && c.logs_present)}}</td>
-            <td>${{chip(c.traces_present, uncertain && c.traces_present)}}</td>
-            <td>${{chip(c.dashboards_present, uncertain && c.dashboards_present)}}</td>
-            <td>${{chip(c.alerts_present, uncertain && c.alerts_present)}}</td>
+            <td>${{chip(c.metrics_present, false)}}</td>
+            <td>${{chip(c.logs_present, false)}}</td>
+            <td>${{chip(c.traces_present, false)}}</td>
+            <td>${{chip(c.dashboards_present, false)}}</td>
+            <td>${{chip(c.alerts_present, false)}}</td>
             <td>${{chip(c.rate_present, false)}}</td>
             <td>${{chip(c.errors_present, false)}}</td>
             <td>${{chip(c.duration_present, false)}}</td>
-          </tr>
-        `;
+          </tr>`;
       }}).join('') || `<tr><td colspan='11' style='text-align:center;color:#6b7280;'>No services match current filters.</td></tr>`;
     }}
 
     function renderRadar() {{
-      const risky = [...(data.services || [])]
-        .sort((a, b) => a.coverage_score - b.coverage_score)
-        .slice(0, 8);
-
-      byId('radarList').innerHTML = risky.map((service) => {{
-        const majorMissing = ['metrics', 'logs', 'traces', 'dashboards', 'alerts']
-          .filter((s) => service.missing_signals.includes(s)).length;
-        return `
-          <div class='radar-item'>
-            <div class='radar-head'>
-              <strong>${{service.service}}</strong>
-              <span>${{service.coverage_score}} / 100</span>
-            </div>
-            <div style='font-size:12px;color:#6b7280;'>Missing major signals: ${{majorMissing}}</div>
-            <div class='bar'><span style='width:${{service.coverage_score}}%'></span></div>
-          </div>
-        `;
-      }}).join('') || `<div style='color:#6b7280;'>No services available.</div>`;
+      const risky = [...(data.services || [])].sort((a, b) => a.coverage_score - b.coverage_score).slice(0, 8);
+      byId('radarList').innerHTML = risky.map((service) => `
+        <div class='radar-item'>
+          <div class='radar-head'><strong>${{service.service}}</strong><span>${{service.coverage_score}} / 100</span></div>
+          <div class='bar'><span style='width:${{service.coverage_score}}%'></span></div>
+        </div>`
+      ).join('') || `<div class='muted'>No services available.</div>`;
     }}
 
     function pct(field) {{
@@ -371,8 +409,7 @@ def generate_observability_gap_map_report(
           <div class='heat-label'>${{label}}</div>
           <div class='heat-value'>${{value}}%</div>
           <div class='bar'><span style='width:${{value}}%'></span></div>
-        </div>
-      `).join('');
+        </div>`).join('');
     }}
 
     function renderToolSummary() {{
@@ -388,8 +425,7 @@ def generate_observability_gap_map_report(
             Alerts: ${{tool.alerts_services}}<br/>
             RED complete: ${{tool.red_complete_services}}
           </div>
-        </div>
-      `).join('') || `<div style='color:#6b7280;'>No tool coverage data.</div>`;
+        </div>`).join('') || `<div class='muted'>No tool coverage data.</div>`;
 
       byId('toolRows').innerHTML = tools.map((tool) => `
         <tr>
@@ -401,13 +437,25 @@ def generate_observability_gap_map_report(
           <td>${{tool.dashboards_services}}</td>
           <td>${{tool.alerts_services}}</td>
           <td>${{tool.red_complete_services}}</td>
-        </tr>
-      `).join('') || `<tr><td colspan='8' style='text-align:center;color:#6b7280;'>No tools found.</td></tr>`;
+        </tr>`).join('') || `<tr><td colspan='8' style='text-align:center;color:#6b7280;'>No tools found.</td></tr>`;
 
       const toolSelect = byId('filterTool');
       const current = toolSelect.value;
       toolSelect.innerHTML = `<option value='all'>Any tool</option>` + tools.map((t) => `<option value='${{t.tool_name}}'>${{t.tool_name}}</option>`).join('');
       if ([...toolSelect.options].some((o) => o.value === current)) toolSelect.value = current;
+    }}
+
+    function renderAutoDiscovered() {{
+      const candidates = data.auto_discovered_candidates || [];
+      byId('autoCandidates').innerHTML = candidates.length
+        ? candidates.map((c) => `<span class='chip'>${{c}}</span>`).join('')
+        : `<span class='muted'>No sanitized candidates discovered.</span>`;
+
+      const ignored = data.ignored_candidates || [];
+      byId('ignoredCount').textContent = ignored.length;
+      byId('ignoredExamples').innerHTML = ignored.length
+        ? ignored.slice(0, 25).map((c) => `<span class='chip chip-missing'>${{c}}</span>`).join('')
+        : `<span class='muted'>No noisy candidates ignored.</span>`;
     }}
 
     function renderRecommendations() {{
@@ -419,11 +467,10 @@ def generate_observability_gap_map_report(
       function block(list) {{
         return list.map((r) => `
           <div class='rec-item'>
-            <div class='rec-service'>${{r.service}} · missing ${{r.missing_signal}}</div>
+            <div class='rec-service'>${{r.service}} - missing ${{r.missing_signal}}</div>
             <div>${{r.action}}</div>
             <div style='color:#6b7280;margin-top:4px;'>Expected value: ${{r.expected_value}}</div>
-          </div>
-        `).join('') || `<div style='color:#6b7280;font-size:12px;'>No recommendations in this group.</div>`;
+          </div>`).join('') || `<div class='muted'>No recommendations in this group.</div>`;
       }}
 
       byId('recCritical').innerHTML = block(critical);
@@ -447,36 +494,25 @@ def generate_observability_gap_map_report(
           <div class='service-node'>
             <div class='node-title'>${{service.service}} <span style='color:#6b7280;font-weight:500;'>(${{service.coverage_score}})</span></div>
             <div class='node-chips'>${{chips.map((chip) => `<span class='node-chip'>${{chip}}</span>`).join('') || `<span class='node-chip' style='background:#fee2e2;color:#991b1b;'>blind spot</span>`}}</div>
-          </div>
-        `;
-      }}).join('') || `<div style='color:#6b7280;'>No services available.</div>`;
+          </div>`;
+      }}).join('') || `<div class='muted'>No services available.</div>`;
     }}
 
     function bindFilters() {{
-      byId('filterSearch').addEventListener('input', (event) => {{
-        state.search = event.target.value.trim().toLowerCase();
-        renderMatrix();
-      }});
-      byId('filterStatus').addEventListener('change', (event) => {{
-        state.status = event.target.value;
-        renderMatrix();
-      }});
-      byId('filterMissing').addEventListener('change', (event) => {{
-        state.missing = event.target.value;
-        renderMatrix();
-      }});
-      byId('filterTool').addEventListener('change', (event) => {{
-        state.tool = event.target.value;
-        renderMatrix();
-      }});
+      byId('filterSearch').addEventListener('input', (event) => {{ state.search = event.target.value.trim().toLowerCase(); renderMatrix(); }});
+      byId('filterStatus').addEventListener('change', (event) => {{ state.status = event.target.value; renderMatrix(); }});
+      byId('filterMissing').addEventListener('change', (event) => {{ state.missing = event.target.value; renderMatrix(); }});
+      byId('filterTool').addEventListener('change', (event) => {{ state.tool = event.target.value; renderMatrix(); }});
     }}
 
     function init() {{
       renderHero();
+      renderScope();
       renderToolSummary();
       renderMatrix();
       renderRadar();
       renderHeatmap();
+      renderAutoDiscovered();
       renderRecommendations();
       renderTopology();
       bindFilters();

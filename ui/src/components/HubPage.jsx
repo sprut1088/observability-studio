@@ -60,12 +60,16 @@ const TILES = [
     id: "observability_gap_map",
     icon: "🧭",
     title: "Observability Gap Map",
-    tagline: "Service Blind Spot Analysis",
+    tagline: "Application Service Coverage",
     description:
-      "Visualize service-level gaps across metrics, logs, traces, dashboards, alerts, and RED coverage. Identify blind spots, weak services, and the fastest path to production readiness.",
+      "Map observability coverage for a specific application and its services across metrics, logs, traces, dashboards, alerts, and RED readiness.",
     accentClass: "tile-cyan",
-    features: ["Interactive service coverage matrix", "Signal heatmap and blind spot radar", "Prioritized remediation roadmap"],
-    badge: "Blind Spot Analysis",
+    features: [
+      "Application-scoped service inventory",
+      "Interactive signal coverage matrix",
+      "Auto-discovery suggestions with noise filtering",
+    ],
+    badge: "BLIND SPOT ANALYSIS",
     badgeClass: "badge-cyan",
   },
 ];
@@ -141,7 +145,7 @@ export default function HubPage() {
 
             {/* CTA */}
             <div className={`hub-tile-cta ${tile.accentClass}-cta`}>
-              Open {tile.title} →
+              {tile.id === "observability_gap_map" ? "Open Gap Map →" : `Open ${tile.title} →`}
             </div>
           </button>
         ))}
