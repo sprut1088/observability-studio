@@ -1,10 +1,10 @@
 from __future__ import annotations
-
 import logging
 from typing import Any
 
 import json
 import xml.etree.ElementTree as ET
+from urllib.parse import quote
 from observascore.model import DashboardPanel
 
 from observascore.adapters.base import BaseAdapter, AdapterError
