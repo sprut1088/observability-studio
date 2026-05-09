@@ -4,7 +4,6 @@ import AssessModal from "./AssessModal";
 import RCAModal from "./RCAModal";
 import RedIntelligenceModal from "./RedIntelligenceModal";
 import GapMapModal from "./GapMapModal";
-import IncidentSimulatorModal from "./IncidentSimulatorModal";
 import { getFeatureFlags } from "../api";
 
 /* ── Tile definitions ───────────────────────────────────── */
@@ -73,18 +72,6 @@ const TILES = [
     badge: "BLIND SPOT ANALYSIS",
     badgeClass: "badge-cyan",
   },
-  {
-    id: "incident_simulator",
-    icon: "🎲",
-    title: "Incident Readiness Simulator",
-    tagline: "Test & Validate",
-    description:
-      "Simulate production incidents for a selected application service and score readiness across detection, visibility, diagnosis, and response capabilities.",
-    accentClass: "tile-amber",
-    features: ["Deterministic readiness scoring", "Detection-to-response timeline", "Optional AI executive summary"],
-    badge: "TEST & VALIDATE",
-    badgeClass: "badge-amber",
-  },
 ];
 
 /* ══════════════════════════════════════════════════════════
@@ -99,7 +86,6 @@ export default function HubPage() {
     rca_agent: true,
     red_panel_intelligence: true,
     observability_gap_map: true,
-    incident_simulator: true,
   });
 
   useEffect(() => {
@@ -180,9 +166,6 @@ export default function HubPage() {
       )}
       {activeTile === "observability_gap_map" && (
         <GapMapModal onClose={() => setActiveTile(null)} />
-      )}
-      {activeTile === "incident_simulator" && (
-        <IncidentSimulatorModal onClose={() => setActiveTile(null)} />
       )}
     </div>
   );

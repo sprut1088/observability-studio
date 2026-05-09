@@ -81,32 +81,6 @@ class RedIntelligenceRequest(BaseModel):
     ai: Optional[AIConfig] = None
 
 
-IncidentType = Literal[
-    "high_latency",
-    "error_spike",
-    "traffic_drop",
-    "traffic_surge",
-    "service_down",
-    "dependency_failure",
-]
-
-
-class IncidentScope(BaseModel):
-    application_name: str
-    environment: str
-    service_name: str
-    incident_type: IncidentType
-    description: Optional[str] = None
-    canonical_services: List[str] = Field(default_factory=list)
-
-
-class IncidentSimulatorRequest(BaseModel):
-    incident: IncidentScope
-    tools: List[ToolConfig]
-    client: Optional[ClientConfig] = None
-    ai: Optional[AIConfig] = None
-
-
 class ValidationResponse(BaseModel):
     system: str
     reachable: bool
