@@ -12,6 +12,7 @@ from observascore.insights.observability_gap_map.models import (
     SignalCoverage,
     ToolCoverageSummary,
 )
+from observascore.insights.observability_gap_map.connectivity_analyzer import analyze_signal_connectivity
 from observascore.insights.red_panel_intelligence.analyzer import (
     DURATION_KEYWORDS,
     ERROR_KEYWORDS,
@@ -555,6 +556,9 @@ def analyze_observability_gap_map(
 
     tool_coverage_summary = _collect_tool_summaries(estate, report_scope, aliases_by_service)
 
+    # Analyze signal connectivity for debugging paths
+    connectivity_results, connectivity_summary = analyze_signal_connectivity(estate, canonical_services)
+
     return ObservabilityGapMapResult(
         application_name=app_name,
         environment=app_env,
@@ -587,4 +591,6 @@ def analyze_observability_gap_map(
         },
         discovery_mode=discovery_mode,
         no_dashboards_found=(len(estate.dashboards) == 0),
+        connectivity_results=connectivity_results,
+        connectivity_summary=connectivity_summary.to_dict(),
     )

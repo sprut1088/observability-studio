@@ -138,6 +138,42 @@ def generate_observability_gap_map_report(
     .node-chips {{ display: flex; flex-wrap: wrap; gap: 6px; }}
     .node-chip {{ font-size: 11px; background: #eef2ff; color: #3730a3; border-radius: 999px; padding: 3px 8px; }}
 
+    /* Signal Connectivity Section */
+    .connectivity-header {{ display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-bottom: 16px; }}
+    .connectivity-metric {{ background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #fff; border-radius: 12px; padding: 14px; text-align: center; }}
+    .connectivity-metric.partial {{ background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }}
+    .connectivity-metric.broken {{ background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }}
+    .connectivity-metric .conn-label {{ font-size: 11px; text-transform: uppercase; letter-spacing: .06em; opacity: 0.9; }}
+    .connectivity-metric .conn-value {{ font-size: 26px; font-weight: 700; margin-top: 4px; }}
+    .connectivity-metric .conn-sublabel {{ font-size: 11px; margin-top: 6px; opacity: 0.85; }}
+
+    .connectivity-table {{ font-size: 12px; }}
+    .connectivity-table thead {{ background: #f8fafc; }}
+    .connectivity-table th {{ padding: 10px; text-align: left; font-weight: 600; }}
+    .connectivity-table td {{ padding: 10px; border-bottom: 1px solid #edf0f5; }}
+    .conn-status {{ display: inline-block; width: 20px; height: 20px; border-radius: 3px; text-align: center; line-height: 20px; font-weight: 700; font-size: 12px; color: #fff; }}
+    .conn-status.pass {{ background: #10b981; }}
+    .conn-status.warn {{ background: #f59e0b; }}
+    .conn-status.fail {{ background: #ef4444; }}
+    .conn-score {{ font-weight: 600; font-size: 13px; }}
+    .conn-risk {{ padding: 2px 8px; border-radius: 4px; font-size: 10px; text-transform: uppercase; font-weight: 600; }}
+    .conn-risk.low {{ background: #dcfce7; color: #166534; }}
+    .conn-risk.medium {{ background: #fef3c7; color: #92400e; }}
+    .conn-risk.high {{ background: #fee2e2; color: #991b1b; }}
+
+    .conn-expandable {{ cursor: pointer; }}
+    .conn-expanded {{ background: #f9fafb; padding: 12px; border-radius: 8px; margin-top: 8px; font-size: 12px; }}
+    .conn-explanation {{ margin-bottom: 10px; color: #374151; }}
+    .conn-evidence-list, .conn-gaps-list {{ list-style: none; padding-left: 0; margin: 0; }}
+    .conn-evidence-list li, .conn-gaps-list li {{ padding: 4px 0; color: #6b7280; }}
+    .conn-evidence-list li:before {{ content: '✓ '; color: #10b981; font-weight: 700; margin-right: 4px; }}
+    .conn-gaps-list li:before {{ content: '✗ '; color: #ef4444; font-weight: 700; margin-right: 4px; }}
+
+    .broken-paths-list {{ list-style: none; padding: 0; margin: 0; }}
+    .broken-path-item {{ border-left: 3px solid #ef4444; padding: 10px; margin-bottom: 8px; background: #fef2f2; border-radius: 4px; }}
+    .broken-path-service {{ font-weight: 600; color: #1f2937; }}
+    .broken-path-reason {{ font-size: 12px; color: #6b7280; margin-top: 4px; }}
+
     .muted {{ color: var(--muted); font-size: 12px; }}
     .error-list {{ margin: 0; padding-left: 18px; color: #991b1b; font-size: 13px; }}
 
@@ -230,6 +266,33 @@ def generate_observability_gap_map_report(
             </thead>
             <tbody id='matrixRows'></tbody>
           </table>
+        </div>
+      </section>
+
+      <section class='panel'>
+        <h2>🔗 Signal Connectivity (Debugging Path)</h2>
+        <div class='connectivity-header' id='connectivityMetrics'></div>
+        <div class='matrix-wrap'>
+          <table class='connectivity-table'>
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th title='Metrics to Logs'>M→L</th>
+                <th title='Logs to Traces'>L→T</th>
+                <th title='Alerts to Dashboards'>A→D</th>
+                <th title='Dashboards to Logs'>D→L</th>
+                <th title='Dashboards to Traces'>D→T</th>
+                <th>Connectivity</th>
+                <th>MTTR Risk</th>
+              </tr>
+            </thead>
+            <tbody id='connectivityRows'></tbody>
+          </table>
+        </div>
+
+        <div id='brokenPaths' style='display:none;margin-top:16px;'>
+          <h3 style='margin:0 0 8px;'>⚠️ Broken Debugging Paths</h3>
+          <ul class='broken-paths-list' id='brokenPathsList'></ul>
         </div>
       </section>
 
@@ -498,6 +561,101 @@ def generate_observability_gap_map_report(
       }}).join('') || `<div class='muted'>No services available.</div>`;
     }}
 
+    function renderConnectivity() {{
+      const connResults = data.connectivity_results || [];
+      const connSummary = data.connectivity_summary || {{}};
+
+      // Render metrics
+      const metrics = [
+        {{
+          label: 'Strong Paths',
+          value: connSummary.services_with_strong_paths || 0,
+          class: '',
+          sublabel: 'Services ready'
+        }},
+        {{
+          label: 'Partial Paths',
+          value: connSummary.services_with_partial_paths || 0,
+          class: 'partial',
+          sublabel: 'Needs work'
+        }},
+        {{
+          label: 'Broken Paths',
+          value: connSummary.services_with_broken_paths || 0,
+          class: 'broken',
+          sublabel: 'High MTTR risk'
+        }},
+        {{
+          label: 'Overall Score',
+          value: (connSummary.overall_connectivity_score || 0).toFixed(0),
+          class: '',
+          sublabel: '/ 100'
+        }}
+      ];
+
+      byId('connectivityMetrics').innerHTML = metrics.map((m) => `
+        <div class='connectivity-metric ${{m.class}}'>
+          <div class='conn-label'>${{m.label}}</div>
+          <div class='conn-value'>${{m.value}}</div>
+          <div class='conn-sublabel'>${{m.sublabel}}</div>
+        </div>
+      `).join('');
+
+      // Render connectivity table
+      const statusIcon = (status) => `<span class='conn-status ${{status}}'>${{status === 'pass' ? '✓' : (status === 'warn' ? '⚠' : '✗')}}</span>`;
+
+      byId('connectivityRows').innerHTML = connResults.map((result, idx) => `
+        <tr class='conn-expandable' onclick='toggleConnExpanded(${{idx}})'>
+          <td><strong>${{result.service_name}}</strong></td>
+          <td>${{statusIcon(result.metrics_to_logs)}}</td>
+          <td>${{statusIcon(result.logs_to_traces)}}</td>
+          <td>${{statusIcon(result.alerts_to_dashboards)}}</td>
+          <td>${{statusIcon(result.dashboards_to_logs)}}</td>
+          <td>${{{statusIcon(result.dashboards_to_traces)}}}</td>
+          <td><span class='conn-score'>${{{(result.overall_connectivity_score || 0).toFixed(0)}}}</span></td>
+          <td><span class='conn-risk ${{result.mttr_risk}}'>${{{result.mttr_risk}}}</span></td>
+        </tr>
+        <tr id='connExp-${{idx}}' style='display:none;'>
+          <td colspan='8'>
+            <div class='conn-expanded'>
+              <div class='conn-explanation'>${{result.explanation}}</div>
+              ${{result.evidence.length > 0 ? `
+                <strong style='color:#374151;'>Evidence:</strong>
+                <ul class='conn-evidence-list'>
+                  ${{result.evidence.map((e) => `<li>${{e.source_type}} → ${{e.target_type}}: ${{e.evidence_items.slice(0, 2).join(', ')}}</li>`).join('')}}
+                </ul>
+              ` : ''}}
+              ${{result.gaps.length > 0 ? `
+                <strong style='color:#374151;margin-top:8px;display:block;'>Gaps:</strong>
+                <ul class='conn-gaps-list'>
+                  ${{result.gaps.map((g) => `<li>${{g}}</li>`).join('')}}
+                </ul>
+              ` : ''}}
+            </div>
+          </td>
+        </tr>
+      `).join('') || `<tr><td colspan='8' class='muted'>No connectivity data available.</td></tr>`;
+
+      // Render broken paths
+      const brokenServices = connResults.filter((r) => r.mttr_risk === 'high' && r.overall_connectivity_score < 50);
+      if (brokenServices.length > 0) {{
+        byId('brokenPaths').style.display = 'block';
+        byId('brokenPathsList').innerHTML = brokenServices.map((r) => `
+          <li class='broken-path-item'>
+            <div class='broken-path-service'>${{r.service_name}}</div>
+            <div class='broken-path-reason'>${{r.explanation}}</div>
+          </li>
+        `).join('');
+      }}
+    }}
+
+    function toggleConnExpanded(idx) {{
+      const row = byId('connExp-' + idx);
+      if (row) {{
+        row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+      }}
+    }}
+
     function bindFilters() {{
       byId('filterSearch').addEventListener('input', (event) => {{ state.search = event.target.value.trim().toLowerCase(); renderMatrix(); }});
       byId('filterStatus').addEventListener('change', (event) => {{ state.status = event.target.value; renderMatrix(); }});
@@ -510,6 +668,7 @@ def generate_observability_gap_map_report(
       renderScope();
       renderToolSummary();
       renderMatrix();
+      renderConnectivity();
       renderRadar();
       renderHeatmap();
       renderAutoDiscovered();

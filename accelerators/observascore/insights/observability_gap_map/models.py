@@ -103,6 +103,8 @@ class ObservabilityGapMapResult:
     missing_signal_counts: dict[str, int] = field(default_factory=dict)
     discovery_mode: bool = False
     no_dashboards_found: bool = False
+    connectivity_results: list[SignalConnectivityResult] = field(default_factory=list)
+    connectivity_summary: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -130,4 +132,60 @@ class ObservabilityGapMapResult:
             "missing_signal_counts": self.missing_signal_counts,
             "discovery_mode": self.discovery_mode,
             "no_dashboards_found": self.no_dashboards_found,
+            "connectivity_results": [r.to_dict() for r in self.connectivity_results],
+            "connectivity_summary": self.connectivity_summary,
         }
+
+
+@dataclass
+class SignalConnectivityEvidence:
+    """Evidence of a signal connection between two types."""
+    source_type: str  # "metrics", "logs", "traces", "dashboards", "alerts"
+    target_type: str
+    evidence_items: list[str] = field(default_factory=list)  # dashboard names, panel titles, keywords matched, etc.
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class SignalConnectivityResult:
+    """Connectivity analysis for a single service."""
+    service_name: str
+    metrics_to_logs: str = "fail"  # "pass", "warn", "fail"
+    logs_to_traces: str = "fail"
+    alerts_to_dashboards: str = "fail"
+    dashboards_to_logs: str = "fail"
+    dashboards_to_traces: str = "fail"
+    overall_connectivity_score: float = 0.0  # 0-100
+    mttr_risk: str = "high"  # "low", "medium", "high"
+    evidence: list[SignalConnectivityEvidence] = field(default_factory=list)
+    gaps: list[str] = field(default_factory=list)
+    explanation: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "service_name": self.service_name,
+            "metrics_to_logs": self.metrics_to_logs,
+            "logs_to_traces": self.logs_to_traces,
+            "alerts_to_dashboards": self.alerts_to_dashboards,
+            "dashboards_to_logs": self.dashboards_to_logs,
+            "dashboards_to_traces": self.dashboards_to_traces,
+            "overall_connectivity_score": self.overall_connectivity_score,
+            "mttr_risk": self.mttr_risk,
+            "evidence": [e.to_dict() for e in self.evidence],
+            "gaps": self.gaps,
+            "explanation": self.explanation,
+        }
+
+
+@dataclass
+class ConnectivitySummary:
+    """Aggregate connectivity statistics."""
+    services_with_strong_paths: int = 0
+    services_with_partial_paths: int = 0
+    services_with_broken_paths: int = 0
+    overall_connectivity_score: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
