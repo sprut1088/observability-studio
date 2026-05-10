@@ -612,8 +612,8 @@ def generate_observability_gap_map_report(
           <td>${{statusIcon(result.alerts_to_dashboards)}}</td>
           <td>${{statusIcon(result.dashboards_to_logs)}}</td>
           <td>${{statusIcon(result.dashboards_to_traces)}}</td>
-          <td><span class='conn-score'>${{{round(result.overall_connectivity_score or 0)}}}</span></td>
-          <td><span class='conn-risk ${{result.mttr_risk}}'>${{{result.mttr_risk}}}</span></td>
+          <td><span class='conn-score'>${{Math.round(result.overall_connectivity_score || 0)}}</span></td>
+          <td><span class='conn-risk ${{result.mttr_risk}}'>${{result.mttr_risk}}</span></td>
         </tr>
         <tr id='connExp-${{idx}}' style='display:none;'>
           <td colspan='8'>
