@@ -1,150 +1,182 @@
-# ObservaScore
+# Observability Studio
 
-**Observability & SRE Maturity Assessment Tool for Financial Institutions**
+Observability Studio is a multi-accelerator platform for observability data extraction, maturity assessment, and operations analysis.
 
-ObservaScore connects read-only to your observability stack, extracts configuration and sample telemetry, runs a catalogue of maturity heuristics, and produces an HTML + JSON maturity report with a heatmap, findings, and a prioritized improvement backlog.
+It combines:
+- A FastAPI backend for extraction and report generation
+- A React Hub UI for module-driven workflows
+- Reusable adapter-based extraction through the ObservaScore Common Observability Model (COM)
 
-This repository is a **working reference implementation** designed for demo use. Point it at your tools via a config file, run one command, get a report.
+## What This Repo Is Today
 
-## Supported Sources (v0.1)
+This repository has evolved from a single CLI assessment tool into a platform with five active modules in the Hub UI:
 
-| Tool | Mode | What's extracted |
-|---|---|---|
-| Prometheus | HTTP API | Targets, rules (alerting + recording), sample series, label cardinality |
-| Grafana | HTTP API | Folders, dashboards (full JSON), datasources, alert rules |
-| Loki | HTTP API | Labels, label cardinality, log volume sample |
-| Jaeger | HTTP API | Services, operations, sample traces |
+1. ObsCrawl: Crawl and export observability estate data to Excel
+2. ObservaScore: Deterministic maturity scoring with optional AI narrative
+3. RCA Agent: Incident investigation and blast-radius analysis
+4. RED Panel Intelligence: Service-centric RED dashboard coverage quality
+5. Observability Gap Map: Application/service coverage mapping with debugging-path connectivity checks
 
-All adapters are **read-only**. ObservaScore never writes to your tools.
+## Core Capabilities
 
-## Quick Start
+- Read-only data extraction from multiple observability tools
+- Deterministic scoring for coverage/readiness workflows
+- Optional AI enrichment for narrative sections (non-required)
+- Offline-shareable HTML reports plus JSON artifacts
+- Feature-flag based accelerator enable/disable at runtime
 
-### 1. Prerequisites
+## Supported Tool Adapters
 
+Current adapter set includes:
+- Prometheus
+- Grafana
+- Loki
+- Jaeger
+- Alertmanager
+- Tempo
+- Elasticsearch
+- Datadog
+- Dynatrace
+- AppDynamics
+- Splunk
+- OTel Collector
+
+## Platform Architecture
+
+Request flow:
+
+React Hub UI
+-> FastAPI routes
+-> Service layer orchestration
+-> ObservaScore extraction (COM)
+-> Accelerator analysis logic
+-> Runtime artifact generation (HTML/JSON/XLSX)
+-> Download/preview endpoints
+
+Backend layers:
+- Routes: request validation and HTTP contract
+- Services: orchestration and runtime folder handling
+- Accelerators: deterministic analysis logic and report generation
+- Adapters: tool-specific read-only extraction
+
+## API Surface
+
+Health and Platform:
+- GET /api/health
+- GET /api/feature-flags
+
+Hub v1 endpoints:
+- POST /api/v1/validate
+- POST /api/v1/crawl
+- POST /api/v1/assess
+- POST /api/v1/rca
+
+Current platform endpoints:
+- POST /api/observability-gap-map
+- POST /api/red-intelligence
+
+Legacy compatibility endpoints:
+- POST /api/export
+- POST /api/assess
+
+Artifacts:
+- GET /api/download/runtime/{path}
+- GET /api/preview/runtime/{path}
+
+## Observability Gap Map: Current Behavior
+
+Gap Map remains focused on service-level signal coverage and now includes a separate debugging-path connectivity layer.
+
+Coverage layer (existing):
+- Metrics, logs, traces, dashboards, alerts, RED readiness per service
+- Coverage scoring, readiness bands, missing signal recommendations
+
+Signal Connectivity layer (new):
+- Separate section in analysis/report, not merged into coverage matrix
+- Service-level connectivity checks:
+  - metrics_to_logs
+  - logs_to_traces
+  - alerts_to_dashboards
+  - dashboards_to_logs
+  - dashboards_to_traces
+- Deterministic scoring:
+  - PASS = 100
+  - WARN = 60
+  - FAIL = 0
+- MTTR risk classification:
+  - low: score >= 80
+  - medium: score >= 50 and < 80
+  - high: score < 50
+- Added JSON fields:
+  - connectivity_results
+  - connectivity_summary
+
+## Frontend Hub
+
+Main Hub tile inventory:
+- obscrawl
+- observascore
+- rca_agent
+- red_panel_intelligence
+- observability_gap_map
+
+Feature flags control tile and API availability through:
+- platform/config/feature_flags.yaml
+- backend middleware enforcement in backend/app/main.py
+
+## Running Locally
+
+Prerequisites:
 - Python 3.10+
-- Network access from wherever you run this to your observability tools
-- Prometheus, Grafana, Loki, Jaeger already installed (you have this)
+- Node.js 18+
 
-### 2. Clone and install
+Install backend dependencies:
 
 ```bash
-git clone https://github.com/<your-username>/observascore.git
-cd observascore
-python -m venv .venv
-source .venv/bin/activate        # on Windows: .venv\Scripts\activate
 pip install -e .
+pip install -r backend/requirements.txt
 ```
 
-### 3. Configure
-
-Copy the example config and edit the URLs:
+Run backend:
 
 ```bash
-cp config/config.example.yaml config/config.yaml
+uvicorn backend.app.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
-Edit `config/config.yaml`:
-
-```yaml
-sources:
-  prometheus:
-    enabled: true
-    url: http://YOUR-VM-IP:9090
-  grafana:
-    enabled: true
-    url: http://YOUR-VM-IP:3000
-    api_key: "YOUR_GRAFANA_API_KEY"   # Service account token, Viewer role
-  loki:
-    enabled: true
-    url: http://YOUR-VM-IP:3100
-  jaeger:
-    enabled: true
-    url: http://YOUR-VM-IP:16686
-```
-
-### 4. Run the assessment
+Run frontend:
 
 ```bash
-observascore assess --config config/config.yaml --output ./reports
+cd ui
+npm install
+npm run dev
 ```
 
-Or without installing:
+## Configuration
 
-```bash
-python -m observascore.cli assess --config config/config.yaml --output ./reports
-```
+Runtime extraction config is generated per execution under runtime/<run_id>/.
 
-### 5. View the report
+Tool connection details are submitted from UI payloads and converted into runtime config files by backend services.
 
-Open `reports/observascore-report.html` in your browser. You'll see:
+Splunk-specific URL derivation and auth mapping are supported in the config builder/service payload path.
 
-- Executive summary with overall maturity level
-- 7-dimension heatmap
-- Findings grouped by severity
-- Improvement backlog prioritized
-- Technical annex with evidence
+## Outputs
 
-A `reports/observascore-report.json` is also produced for programmatic use.
+Generated artifacts are written to runtime/<run_id>/<module>/ and typically include:
+- HTML report (primary preview/download target)
+- JSON report (structured output)
+- XLSX export (for crawl/export workflows)
 
-## Offline Demo (no VM needed)
+## Repository Map (High Level)
 
-To see what the output looks like before pointing at real tools:
+- accelerators/: domain logic for obscrawl, observascore insights, rca-agent
+- backend/app/: FastAPI app, routes, services, schemas
+- ui/src/: Hub UI, modals, API client, styles
+- shared_core/: shared flags and platform internals
+- platform/config/: feature flag configuration
+- runtime/: generated outputs (git-ignored in normal workflows)
 
-```bash
-python examples/demo_offline.py
-```
+## Notes
 
-This generates a report from synthetic data showcasing typical FI findings
-(cause-heavy alerts, missing runbooks, no SLO recording rules, flat folder
-structure, etc). Open `reports/observascore-report.html` to inspect.
-
-## Creating a Grafana API Key
-
-In Grafana:
-1. Administration → Service accounts → Add service account
-2. Name: `observascore`, Role: `Viewer`
-3. Add service account token → copy the token into `config.yaml`
-
-## Architecture
-
-```
-  Config ──> Adapters ──> Common Observability Model (COM) ──> Rules Engine ──> Report
-              │                                                     │
-              ├── Prometheus                                         ├── Signal Coverage
-              ├── Grafana                                            ├── Golden Signals
-              ├── Loki                                               ├── SLO Maturity
-              └── Jaeger                                             ├── Alert Quality
-                                                                     ├── Incident Response
-                                                                     ├── Automation
-                                                                     └── Governance
-```
-
-## Adding Your Own Rules
-
-Rules live in `observascore/rules/packs/` as YAML files. See `core-pack.yaml` for examples. Add a file, rerun the assessment — no code changes needed.
-
-## Project Structure
-
-```
-observascore/
-├── observascore/
-│   ├── adapters/        # Tool-specific read-only clients
-│   ├── model/           # Common Observability Model dataclasses
-│   ├── rules/           # Rules engine + YAML rule packs
-│   ├── engine/          # Scoring engine
-│   ├── report/          # HTML/JSON report generator + Jinja2 templates
-│   └── cli.py           # Command-line interface
-├── config/
-│   └── config.example.yaml
-├── tests/
-├── examples/
-└── pyproject.toml
-```
-
-## License
-
-MIT — use it, fork it, rebrand it
-
-## Disclaimer
-
-This is a reference implementation. Rule weights and thresholds reflect general best practices and should be tuned for your environment.
+- All extraction is read-only toward source tools.
+- Deterministic analysis is the baseline; AI is additive and optional where enabled.
+- Existing legacy APIs are retained for compatibility while Hub v1 endpoints handle streamlined module flows.
