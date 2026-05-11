@@ -557,7 +557,16 @@ def analyze_observability_gap_map(
     tool_coverage_summary = _collect_tool_summaries(estate, report_scope, aliases_by_service)
 
     # Analyze signal connectivity for debugging paths
-    connectivity_results, connectivity_summary = analyze_signal_connectivity(estate, canonical_services)
+    #connectivity_results, connectivity_summary = analyze_signal_connectivity(estate, canonical_services)
+
+    services_for_connectivity = canonical_services or [
+        profile.service for profile in service_profiles
+    ]
+
+    connectivity_results, connectivity_summary = analyze_signal_connectivity(
+        estate,
+        services_for_connectivity,
+    )
 
     return ObservabilityGapMapResult(
         application_name=app_name,
