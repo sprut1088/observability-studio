@@ -2321,6 +2321,10 @@ html[data-theme="dark"] .btn-cyan {
   cursor: pointer;
 }
 
+.mtool-cols-global {
+  grid-template-columns: 32px 130px 1fr 70px 120px;
+}
+
 .module-lock-message {
   max-width: 1180px;
   margin: 0 auto 28px;

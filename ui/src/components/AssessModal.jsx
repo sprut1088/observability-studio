@@ -1,19 +1,5 @@
-import { useState } from "react";
-import { v1Validate, runAssessment, API_HOST } from "../api";
-
-const TOOL_OPTIONS = [
-  { value: "prometheus", label: "🔥 Prometheus" },
-  { value: "grafana", label: "📊 Grafana" },
-  { value: "loki", label: "📋 Loki" },
-  { value: "jaeger", label: "🔍 Jaeger" },
-  { value: "alertmanager", label: "🔔 Alertmanager" },
-  { value: "tempo", label: "⚡ Tempo" },
-  { value: "elasticsearch", label: "🔎 Elasticsearch" },
-  { value: "dynatrace", label: "🛡️ Dynatrace" },
-  { value: "datadog", label: "🐕 Datadog" },
-  { value: "appdynamics", label: "📱 AppDynamics" },
-  { value: "splunk", label: "🌊 Splunk" },
-];
+import { useMemo, useState } from "react";
+import { runAssessment, API_HOST } from "../api";
 
 const AI_PROVIDERS = [
   { value: "anthropic", label: "✨ Anthropic (Claude)" },
@@ -48,14 +34,13 @@ const TOOL_ICONS = {
   splunk: "🌊",
 };
 
-let _uid = 0;
-const nextId = () => ++_uid;
-
 function triggerDownload(downloadPath) {
   if (!downloadPath) return;
+
   const url = downloadPath.startsWith("http")
     ? downloadPath
     : `${API_HOST}${downloadPath}`;
+
   const a = document.createElement("a");
   a.href = url;
   a.download = "";
@@ -70,183 +55,48 @@ function resolveApiUrl(path) {
   return path.startsWith("http") ? path : `${API_HOST}${path}`;
 }
 
-function deriveSplunkUrls(inputUrl) {
-  try {
-    const parsed = new URL(inputUrl);
-    const hostname = parsed.hostname;
+function normalizeValidatedTools(validatedTools = []) {
+  return validatedTools.map((tool) => ({
+    toolName: tool.tool_name || tool.toolName || tool.name,
+    baseUrl: tool.base_url || tool.baseUrl || tool.url,
+    authToken: tool.auth_token || tool.authToken || tool.api_key || null,
+    validation: tool.validation_result || tool.validation || { reachable: true },
 
-    return {
-      splunkBaseUrl: `http://${hostname}:8000`,
-      splunkMgmtUrl: `https://${hostname}:8089`,
-      splunkHecUrl: `https://${hostname}:8088`,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function mapValidatedToolsToRows(validatedTools = []) {
-  return validatedTools.map((tool) => {
-    const toolName = tool.tool_name || tool.toolName;
-    const baseUrl = tool.base_url || tool.baseUrl;
-    const authToken = tool.auth_token || tool.authToken || null;
-
-    const row = {
-      id: tool.id || nextId(),
-      toolName,
-      baseUrl,
-      authToken,
-      validation: {
-        reachable: true,
-        message: "Validated globally",
-        latency_ms: tool.validation_result?.latency_ms ?? null,
-      },
-      source: "global",
-    };
-
-    if (toolName === "splunk") {
-      const derived = deriveSplunkUrls(baseUrl);
-      if (derived) {
-        row.splunkBaseUrl = derived.splunkBaseUrl;
-        row.splunkMgmtUrl = derived.splunkMgmtUrl;
-        row.splunkHecUrl = derived.splunkHecUrl;
-        row.splunkHecToken = authToken;
-        row.splunkVerifySsl = false;
-      }
-    }
-
-    return row;
-  });
+    splunkBaseUrl: tool.splunk_base_url || tool.splunkBaseUrl || null,
+    splunkMgmtUrl: tool.splunk_mgmt_url || tool.splunkMgmtUrl || null,
+    splunkHecUrl: tool.splunk_hec_url || tool.splunkHecUrl || null,
+    splunkHecToken:
+      tool.splunk_hec_token ||
+      tool.splunkHecToken ||
+      tool.auth_token ||
+      tool.authToken ||
+      tool.api_key ||
+      null,
+    splunkVerifySsl:
+      tool.splunk_verify_ssl ??
+      tool.splunkVerifySsl ??
+      false,
+  }));
 }
 
 export default function AssessModal({ onClose, validatedTools = [] }) {
-  const [addTool, setAddTool] = useState("prometheus");
-  const [addUrl, setAddUrl] = useState("");
-  const [addToken, setAddToken] = useState("");
-
-  const [tools, setTools] = useState(() =>
-    mapValidatedToolsToRows(validatedTools)
-  );
-
   const [useAi, setUseAi] = useState(false);
   const [aiProvider, setAiProvider] = useState("anthropic");
   const [aiApiKey, setAiApiKey] = useState("");
   const [azureEndpoint, setAzureEndpoint] = useState("");
   const [azureDeployment, setAzureDeployment] = useState("");
 
-  const [validatingId, setValidatingId] = useState(null);
-  const [validatingAll, setValidatingAll] = useState(false);
   const [assessing, setAssessing] = useState(false);
   const [status, setStatus] = useState(null);
   const [reportLinks, setReportLinks] = useState(null);
   const [previewFailed, setPreviewFailed] = useState(false);
 
-  const busy = validatingId !== null || validatingAll || assessing;
+  const tools = useMemo(
+    () => normalizeValidatedTools(validatedTools),
+    [validatedTools]
+  );
 
-  function handleAdd() {
-    if (!addUrl.trim()) return;
-
-    const row = {
-      id: nextId(),
-      toolName: addTool,
-      baseUrl: addUrl.trim(),
-      authToken: addToken.trim() || null,
-      validation: null,
-      source: "manual",
-    };
-
-    if (addTool === "splunk") {
-      const derived = deriveSplunkUrls(addUrl.trim());
-
-      if (!derived) {
-        setStatus({
-          type: "error",
-          title: "Invalid URL",
-          msg: "Invalid Splunk URL",
-        });
-        return;
-      }
-
-      row.splunkBaseUrl = derived.splunkBaseUrl;
-      row.splunkMgmtUrl = derived.splunkMgmtUrl;
-      row.splunkHecUrl = derived.splunkHecUrl;
-      row.splunkHecToken = addToken.trim() || null;
-      row.splunkVerifySsl = false;
-    }
-
-    setTools((prev) => [...prev, row]);
-    setAddUrl("");
-    setAddToken("");
-    setStatus(null);
-  }
-
-  function handleRemove(id) {
-    setTools((prev) => prev.filter((t) => t.id !== id));
-  }
-
-  function setToolValidation(id, result) {
-    setTools((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, validation: result } : t))
-    );
-  }
-
-  async function handleValidate(tool) {
-    setValidatingId(tool.id);
-
-    try {
-      const res = await v1Validate({
-        tool_name: tool.toolName,
-        base_url: tool.baseUrl,
-        auth_token: tool.authToken,
-        splunk_base_url: tool.splunkBaseUrl ?? null,
-        splunk_mgmt_url: tool.splunkMgmtUrl ?? null,
-        splunk_hec_url: tool.splunkHecUrl ?? null,
-        splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
-        splunk_verify_ssl: tool.splunkVerifySsl ?? false,
-      });
-
-      setToolValidation(tool.id, res.data);
-    } catch (err) {
-      setToolValidation(tool.id, {
-        reachable: false,
-        message: err?.response?.data?.detail || err.message,
-      });
-    } finally {
-      setValidatingId(null);
-    }
-  }
-
-  async function handleValidateAll() {
-    setValidatingAll(true);
-    setStatus(null);
-
-    for (const tool of tools) {
-      setValidatingId(tool.id);
-
-      try {
-        const res = await v1Validate({
-          tool_name: tool.toolName,
-          base_url: tool.baseUrl,
-          auth_token: tool.authToken,
-          splunk_base_url: tool.splunkBaseUrl ?? null,
-          splunk_mgmt_url: tool.splunkMgmtUrl ?? null,
-          splunk_hec_url: tool.splunkHecUrl ?? null,
-          splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
-          splunk_verify_ssl: tool.splunkVerifySsl ?? false,
-        });
-
-        setToolValidation(tool.id, res.data);
-      } catch (err) {
-        setToolValidation(tool.id, {
-          reachable: false,
-          message: err?.response?.data?.detail || err.message,
-        });
-      }
-    }
-
-    setValidatingId(null);
-    setValidatingAll(false);
-  }
+  const busy = assessing;
 
   async function handleAssess() {
     if (tools.length === 0) return;
@@ -286,17 +136,17 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
     try {
       const payload = {
         client: { name: "ObservaScore Hub", environment: "hub" },
-        tools: tools.map((t) => ({
-          name: t.toolName,
+        tools: tools.map((tool) => ({
+          name: tool.toolName,
           enabled: true,
-          usages: DEFAULT_USAGES[t.toolName] ?? ["metrics"],
-          url: t.baseUrl,
-          api_key: t.authToken ?? null,
-          splunk_base_url: t.splunkBaseUrl ?? null,
-          splunk_mgmt_url: t.splunkMgmtUrl ?? null,
-          splunk_hec_url: t.splunkHecUrl ?? null,
-          splunk_hec_token: t.splunkHecToken ?? t.authToken ?? null,
-          splunk_verify_ssl: t.splunkVerifySsl ?? false,
+          usages: DEFAULT_USAGES[tool.toolName] ?? ["metrics"],
+          url: tool.baseUrl,
+          api_key: tool.authToken ?? null,
+          splunk_base_url: tool.splunkBaseUrl ?? null,
+          splunk_mgmt_url: tool.splunkMgmtUrl ?? null,
+          splunk_hec_url: tool.splunkHecUrl ?? null,
+          splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
+          splunk_verify_ssl: tool.splunkVerifySsl ?? false,
         })),
         ai: {
           enabled: useAi,
@@ -334,9 +184,6 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
     }
   }
 
-  const reachableCount = tools.filter((t) => t.validation?.reachable).length;
-  const validatedCount = tools.filter((t) => t.validation !== null).length;
-
   return (
     <div
       className="modal-overlay"
@@ -354,111 +201,50 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
             <div>
               <div className="modal-title">ObservaScore</div>
               <div className="modal-subtitle">
-                Global validated tools are preloaded. You can add more tools if needed.
+                Run maturity assessment using globally validated observability tools.
               </div>
             </div>
           </div>
+
           <button className="modal-close" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
 
         <div className="modal-body">
-          {validatedTools.length > 0 && (
-            <div className="modal-alert modal-alert-success animate-in">
-              <span className="modal-alert-icon">✓</span>
-              <div>
-                <div className="modal-alert-title">
-                  {validatedTools.length} global tool
-                  {validatedTools.length !== 1 ? "s" : ""} loaded
-                </div>
-                <div className="modal-alert-msg">
-                  These tools were validated from the Hub and are ready for assessment.
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="mtool-add-bar">
-            <div className="form-group mtool-add-tool">
-              <label className="form-label">Tool</label>
-              <select
-                className="form-select"
-                value={addTool}
-                onChange={(e) => setAddTool(e.target.value)}
-                disabled={busy}
-              >
-                {TOOL_OPTIONS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="form-group mtool-add-url">
-              <label className="form-label">Base URL</label>
-              <input
-                className="form-input"
-                type="url"
-                value={addUrl}
-                onChange={(e) => setAddUrl(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-                placeholder="https://host:port"
-                disabled={busy}
-              />
-            </div>
-
-            <div className="form-group mtool-add-token">
-              <label className="form-label">
-                Auth Token <span className="form-label-opt">(opt)</span>
-              </label>
-              <input
-                className="form-input"
-                type="password"
-                value={addToken}
-                onChange={(e) => setAddToken(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-                placeholder="••••••••"
-                disabled={busy}
-              />
-            </div>
-
-            <button
-              className="btn btn-primary mtool-add-btn"
-              onClick={handleAdd}
-              disabled={busy || !addUrl.trim()}
-              title="Add tool to list"
-            >
-              + Add
-            </button>
-          </div>
-
           {tools.length > 0 ? (
-            <div className="mtool-table-wrap animate-in">
-              <div className="mtool-cols mtool-header">
-                <span>#</span>
-                <span>Tool</span>
-                <span>URL</span>
-                <span>Auth</span>
-                <span>Validation</span>
-                <span>Actions</span>
+            <>
+              <div className="modal-alert modal-alert-success animate-in">
+                <span className="modal-alert-icon">✓</span>
+                <div>
+                  <div className="modal-alert-title">
+                    {tools.length} validated tool{tools.length !== 1 ? "s" : ""} loaded
+                  </div>
+                  <div className="modal-alert-msg">
+                    These connections were validated from the Hub and will be reused by ObservaScore.
+                  </div>
+                </div>
               </div>
 
-              {tools.map((tool, i) => {
-                const isValidating = validatingId === tool.id;
-                const v = tool.validation;
+              <div className="mtool-table-wrap animate-in">
+                <div className="mtool-cols mtool-cols-global mtool-header">
+                  <span>#</span>
+                  <span>Tool</span>
+                  <span>URL</span>
+                  <span>Auth</span>
+                  <span>Status</span>
+                </div>
 
-                return (
-                  <div key={tool.id} className="mtool-cols mtool-row">
-                    <span className="mtool-num">{i + 1}</span>
+                {tools.map((tool, index) => (
+                  <div
+                    key={`${tool.toolName}-${tool.baseUrl}`}
+                    className="mtool-cols mtool-cols-global mtool-row"
+                  >
+                    <span className="mtool-num">{index + 1}</span>
 
                     <span className="mtool-name">
                       <span>{TOOL_ICONS[tool.toolName] ?? "🔧"}</span>
                       {tool.toolName}
-                      {tool.source === "global" && (
-                        <span className="mtool-none"> · global</span>
-                      )}
                     </span>
 
                     <span className="mtool-url" title={tool.baseUrl}>
@@ -470,82 +256,29 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
                     </span>
 
                     <span className="mtool-status">
-                      {isValidating ? (
-                        <span className="mtool-validating">
-                          <span
-                            className="spinner"
-                            style={{
-                              width: 12,
-                              height: 12,
-                              borderTopColor: "var(--accent)",
-                            }}
-                          />
-                          Checking…
-                        </span>
-                      ) : v ? (
-                        <span
-                          className={`validation-badge ${
-                            v.reachable ? "ok" : "fail"
-                          }`}
-                        >
-                          {v.reachable
-                            ? `✓ ${
-                                v.latency_ms != null
-                                  ? v.latency_ms + " ms"
-                                  : "Connected"
-                              }`
-                            : "✗ Failed"}
-                        </span>
-                      ) : (
-                        <span className="mtool-pending">Not validated</span>
-                      )}
-                    </span>
-
-                    <span className="mtool-actions">
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => handleValidate(tool)}
-                        disabled={busy}
-                        title="Validate this tool"
-                      >
-                        {isValidating ? "…" : "Validate"}
-                      </button>
-                      <button
-                        className="btn btn-danger btn-sm"
-                        onClick={() => handleRemove(tool.id)}
-                        disabled={busy}
-                        title="Remove"
-                      >
-                        ✕
-                      </button>
+                      <span className="validation-badge ok">✓ Global</span>
                     </span>
                   </div>
-                );
-              })}
+                ))}
 
-              <div className="mtool-summary-bar">
-                <span>
-                  {tools.length} tool{tools.length !== 1 ? "s" : ""} added
-                </span>
-                {validatedCount > 0 && (
-                  <span>
-                    {reachableCount}/{validatedCount} validated reachable
-                  </span>
-                )}
+                <div className="mtool-summary-bar">
+                  <span>{tools.length} tool{tools.length !== 1 ? "s" : ""} ready</span>
+                  <span>Source: Hub connectivity</span>
+                </div>
               </div>
-            </div>
+            </>
           ) : (
             <div className="empty-state">
               <span className="empty-icon">🎯</span>
               <span className="empty-text">
-                No tools added yet — use the form above to add one or more tools.
+                No globally validated tools found. Close this modal and validate at least one tool from Tool Connectivity.
               </span>
             </div>
           )}
 
           <div
             className={`toggle-row${useAi ? " toggle-row-active" : ""}`}
-            onClick={() => !busy && setUseAi((v) => !v)}
+            onClick={() => !busy && setUseAi((value) => !value)}
             style={{ marginTop: 16 }}
           >
             <div className="toggle-label">
@@ -553,10 +286,11 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
               <div>
                 <div className="toggle-title">Enable AI-Powered Scoring</div>
                 <div className="toggle-desc">
-                  Enrich results with LLM gap analysis and trend insights
+                  Enrich results with LLM gap analysis and trend insights.
                 </div>
               </div>
             </div>
+
             <label className="switch" onClick={(e) => e.stopPropagation()}>
               <input
                 type="checkbox"
@@ -579,9 +313,9 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
                     onChange={(e) => setAiProvider(e.target.value)}
                     disabled={busy}
                   >
-                    {AI_PROVIDERS.map((p) => (
-                      <option key={p.value} value={p.value}>
-                        {p.label}
+                    {AI_PROVIDERS.map((provider) => (
+                      <option key={provider.value} value={provider.value}>
+                        {provider.label}
                       </option>
                     ))}
                   </select>
@@ -711,32 +445,13 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
           </button>
 
           <button
-            className="btn btn-secondary"
-            onClick={handleValidateAll}
-            disabled={busy || tools.length === 0}
-            title="Validate all tools sequentially"
-          >
-            {validatingAll ? (
-              <>
-                <span
-                  className="spinner"
-                  style={{ borderTopColor: "var(--accent)" }}
-                />{" "}
-                Validating…
-              </>
-            ) : (
-              "🔌 Validate All"
-            )}
-          </button>
-
-          <button
             className="btn btn-primary btn-lg"
             onClick={handleAssess}
             disabled={busy || tools.length === 0}
           >
             {assessing ? (
               <>
-                <span className="spinner" />{" "}
+                <span className="spinner" />
                 {useAi ? "Analysing with AI…" : "Scoring…"}
               </>
             ) : (
