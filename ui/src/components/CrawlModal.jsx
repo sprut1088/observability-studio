@@ -1,43 +1,46 @@
 import { useState } from "react";
 import { v1Validate, exportExcel, API_HOST } from "../api";
 
-
-
-/* ── Shared constants ───────────────────────────────────── */
 const TOOL_OPTIONS = [
-  { value: "prometheus",    label: "🔥 Prometheus"    },
-  { value: "grafana",       label: "📊 Grafana"       },
-  { value: "loki",          label: "📋 Loki"          },
-  { value: "jaeger",        label: "🔍 Jaeger"        },
-  { value: "alertmanager",  label: "🔔 Alertmanager"  },
-  { value: "tempo",         label: "⚡ Tempo"         },
+  { value: "prometheus", label: "🔥 Prometheus" },
+  { value: "grafana", label: "📊 Grafana" },
+  { value: "loki", label: "📋 Loki" },
+  { value: "jaeger", label: "🔍 Jaeger" },
+  { value: "alertmanager", label: "🔔 Alertmanager" },
+  { value: "tempo", label: "⚡ Tempo" },
   { value: "elasticsearch", label: "🔎 Elasticsearch" },
-  { value: "dynatrace",     label: "🛡️ Dynatrace"    },
-  { value: "datadog",       label: "🐕 Datadog"       },
-  { value: "appdynamics",   label: "📱 AppDynamics"   },
-  { value: "splunk",        label: "🌊 Splunk"        },
+  { value: "dynatrace", label: "🛡️ Dynatrace" },
+  { value: "datadog", label: "🐕 Datadog" },
+  { value: "appdynamics", label: "📱 AppDynamics" },
+  { value: "splunk", label: "🌊 Splunk" },
 ];
 
-// Sensible default usages per tool (used when building RunRequest payload)
 const DEFAULT_USAGES = {
-  prometheus:    ["metrics", "alerts"],
-  grafana:       ["dashboards", "alerts"],
-  loki:          ["logs"],
-  jaeger:        ["traces"],
-  alertmanager:  ["alerts"],
-  tempo:         ["traces"],
+  prometheus: ["metrics", "alerts"],
+  grafana: ["dashboards", "alerts"],
+  loki: ["logs"],
+  jaeger: ["traces"],
+  alertmanager: ["alerts"],
+  tempo: ["traces"],
   elasticsearch: ["logs"],
-  dynatrace:     ["metrics", "traces", "logs", "dashboards", "alerts"],
-  datadog:       ["metrics", "traces", "logs", "dashboards", "alerts"],
-  appdynamics:   ["metrics", "traces", "dashboards", "alerts"],
-  splunk:        ["logs", "alerts", "dashboards"],
+  dynatrace: ["metrics", "traces", "logs", "dashboards", "alerts"],
+  datadog: ["metrics", "traces", "logs", "dashboards", "alerts"],
+  appdynamics: ["metrics", "traces", "dashboards", "alerts"],
+  splunk: ["logs", "alerts", "dashboards"],
 };
 
 const TOOL_ICONS = {
-  prometheus: "🔥", grafana: "📊", loki: "📋",
-  jaeger: "🔍", alertmanager: "🔔", tempo: "⚡",
-  elasticsearch: "🔎", dynatrace: "🛡️", datadog: "🐕",
-  appdynamics: "📱", splunk: "🌊",
+  prometheus: "🔥",
+  grafana: "📊",
+  loki: "📋",
+  jaeger: "🔍",
+  alertmanager: "🔔",
+  tempo: "⚡",
+  elasticsearch: "🔎",
+  dynatrace: "🛡️",
+  datadog: "🐕",
+  appdynamics: "📱",
+  splunk: "🌊",
 };
 
 let _uid = 0;
@@ -45,10 +48,16 @@ const nextId = () => ++_uid;
 
 function triggerDownload(downloadPath) {
   if (!downloadPath) return;
-  const url = downloadPath.startsWith("http") ? downloadPath : `${API_HOST}${downloadPath}`;
+  const url = downloadPath.startsWith("http")
+    ? downloadPath
+    : `${API_HOST}${downloadPath}`;
   const a = document.createElement("a");
-  a.href = url; a.download = ""; a.style.display = "none";
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  a.href = url;
+  a.download = "";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 function deriveSplunkUrls(inputUrl) {
@@ -59,36 +68,63 @@ function deriveSplunkUrls(inputUrl) {
     return {
       splunkBaseUrl: `http://${hostname}:8000`,
       splunkMgmtUrl: `https://${hostname}:8089`,
-      splunkHecUrl: `http://${hostname}:8088`,
+      splunkHecUrl: `https://${hostname}:8088`,
     };
   } catch {
     return null;
   }
 }
 
-/* ══════════════════════════════════════════════════════════
-   CrawlModal — multi-tool ObsCrawl modal
-══════════════════════════════════════════════════════════ */
-export default function CrawlModal({ onClose }) {
+function mapValidatedToolsToRows(validatedTools = []) {
+  return validatedTools.map((tool) => {
+    const toolName = tool.tool_name || tool.toolName;
+    const baseUrl = tool.base_url || tool.baseUrl;
+    const authToken = tool.auth_token || tool.authToken || null;
 
-  /* ── Add-form state ────────────────────────────────────── */
+    const row = {
+      id: tool.id || nextId(),
+      toolName,
+      baseUrl,
+      authToken,
+      validation: {
+        reachable: true,
+        message: "Validated globally",
+        latency_ms: tool.validation_result?.latency_ms ?? null,
+      },
+      source: "global",
+    };
+
+    if (toolName === "splunk") {
+      const derived = deriveSplunkUrls(baseUrl);
+      if (derived) {
+        row.splunkBaseUrl = derived.splunkBaseUrl;
+        row.splunkMgmtUrl = derived.splunkMgmtUrl;
+        row.splunkHecUrl = derived.splunkHecUrl;
+        row.splunkHecToken = authToken;
+        row.splunkVerifySsl = false;
+      }
+    }
+
+    return row;
+  });
+}
+
+export default function CrawlModal({ onClose, validatedTools = [] }) {
   const [addTool, setAddTool] = useState("prometheus");
   const [addUrl, setAddUrl] = useState("");
   const [addToken, setAddToken] = useState("");
 
-  /* ── Tools table state ─────────────────────────────────── */
-  // [{ id, toolName, baseUrl, authToken, validation: null | {reachable, message, latency_ms} }]
-  const [tools, setTools] = useState([]);
+  const [tools, setTools] = useState(() =>
+    mapValidatedToolsToRows(validatedTools)
+  );
 
-  /* ── Operation state ───────────────────────────────────── */
-  const [validatingId, setValidatingId]   = useState(null); // id of tool being validated
+  const [validatingId, setValidatingId] = useState(null);
   const [validatingAll, setValidatingAll] = useState(false);
-  const [crawling, setCrawling]           = useState(false);
-  const [status, setStatus]               = useState(null); // { type, title, msg }
+  const [crawling, setCrawling] = useState(false);
+  const [status, setStatus] = useState(null);
 
   const busy = validatingId !== null || validatingAll || crawling;
 
-  /* ── Add tool row ──────────────────────────────────────── */
   function handleAdd() {
     if (!addUrl.trim()) return;
 
@@ -98,13 +134,18 @@ export default function CrawlModal({ onClose }) {
       baseUrl: addUrl.trim(),
       authToken: addToken.trim() || null,
       validation: null,
+      source: "manual",
     };
 
     if (addTool === "splunk") {
       const derived = deriveSplunkUrls(addUrl.trim());
 
       if (!derived) {
-        setStatus({ type: "error", title: "Invalid URL", msg: "Invalid Splunk URL" });
+        setStatus({
+          type: "error",
+          title: "Invalid URL",
+          msg: "Invalid Splunk URL",
+        });
         return;
       }
 
@@ -115,24 +156,22 @@ export default function CrawlModal({ onClose }) {
       row.splunkVerifySsl = false;
     }
 
-    setTools(prev => [...prev, row]);
-
+    setTools((prev) => [...prev, row]);
     setAddUrl("");
     setAddToken("");
     setStatus(null);
   }
 
-  /* ── Remove tool row ───────────────────────────────────── */
   function handleRemove(id) {
-    setTools(prev => prev.filter(t => t.id !== id));
+    setTools((prev) => prev.filter((t) => t.id !== id));
   }
 
-  /* ── Update a single tool's validation result ──────────── */
   function setToolValidation(id, result) {
-    setTools(prev => prev.map(t => t.id === id ? { ...t, validation: result } : t));
+    setTools((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, validation: result } : t))
+    );
   }
 
-  /* ── Validate single tool ──────────────────────────────── */
   async function handleValidate(tool) {
     setValidatingId(tool.id);
     try {
@@ -157,10 +196,10 @@ export default function CrawlModal({ onClose }) {
     }
   }
 
-  /* ── Validate all tools (sequential) ──────────────────── */
   async function handleValidateAll() {
     setValidatingAll(true);
     setStatus(null);
+
     for (const tool of tools) {
       setValidatingId(tool.id);
       try {
@@ -182,19 +221,21 @@ export default function CrawlModal({ onClose }) {
         });
       }
     }
+
     setValidatingId(null);
     setValidatingAll(false);
   }
 
-  /* ── Generate Report (all tools → /api/export) ─────────── */
   async function handleCrawl() {
     if (tools.length === 0) return;
+
     setCrawling(true);
     setStatus(null);
+
     try {
       const payload = {
         client: { name: "ObsCrawl Hub", environment: "hub" },
-        tools: tools.map(t => ({
+        tools: tools.map((t) => ({
           name: t.toolName,
           enabled: true,
           usages: DEFAULT_USAGES[t.toolName] ?? ["metrics"],
@@ -208,54 +249,83 @@ export default function CrawlModal({ onClose }) {
         })),
         ai: { enabled: false, provider: null, model: null, api_key: null },
       };
+
       const res = await exportExcel(payload);
-      setStatus({ type: "success", title: "Report ready", msg: res.data.message });
+      setStatus({
+        type: "success",
+        title: "Report ready",
+        msg: res.data.message,
+      });
       triggerDownload(res.data.download_url);
     } catch (err) {
-      setStatus({ type: "error", title: "Crawl failed", msg: err?.response?.data?.detail || err.message });
+      setStatus({
+        type: "error",
+        title: "Crawl failed",
+        msg: err?.response?.data?.detail || err.message,
+      });
     } finally {
       setCrawling(false);
     }
   }
 
-  /* ── Derived ────────────────────────────────────────────── */
-  const reachableCount = tools.filter(t => t.validation?.reachable).length;
-  const validatedCount = tools.filter(t => t.validation !== null).length;
+  const reachableCount = tools.filter((t) => t.validation?.reachable).length;
+  const validatedCount = tools.filter((t) => t.validation !== null).length;
 
-  /* ── Render ─────────────────────────────────────────────── */
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal modal-wide" role="dialog" aria-modal="true" aria-label="ObsCrawl">
-
-        {/* ── Header ── */}
+    <div
+      className="modal-overlay"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="modal modal-wide"
+        role="dialog"
+        aria-modal="true"
+        aria-label="ObsCrawl"
+      >
         <div className="modal-header modal-header-teal">
           <div className="modal-header-left">
             <span className="modal-icon">🕷️</span>
             <div>
               <div className="modal-title">ObsCrawl</div>
               <div className="modal-subtitle">
-                Add tools below, validate connections, then generate a combined Excel report
+                Global validated tools are preloaded. You can add more tools if needed.
               </div>
             </div>
           </div>
-          <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
+          <button className="modal-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
         </div>
 
-        {/* ── Body ── */}
         <div className="modal-body">
+          {validatedTools.length > 0 && (
+            <div className="modal-alert modal-alert-success animate-in">
+              <span className="modal-alert-icon">✓</span>
+              <div>
+                <div className="modal-alert-title">
+                  {validatedTools.length} global tool
+                  {validatedTools.length !== 1 ? "s" : ""} loaded
+                </div>
+                <div className="modal-alert-msg">
+                  These tools were validated from the Hub and are ready for crawling.
+                </div>
+              </div>
+            </div>
+          )}
 
-          {/* ── Add-tool bar ── */}
           <div className="mtool-add-bar">
             <div className="form-group mtool-add-tool">
               <label className="form-label">Tool</label>
               <select
                 className="form-select"
                 value={addTool}
-                onChange={e => setAddTool(e.target.value)}
+                onChange={(e) => setAddTool(e.target.value)}
                 disabled={busy}
               >
-                {TOOL_OPTIONS.map(t => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
+                {TOOL_OPTIONS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -266,8 +336,8 @@ export default function CrawlModal({ onClose }) {
                 className="form-input"
                 type="url"
                 value={addUrl}
-                onChange={e => setAddUrl(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleAdd()}
+                onChange={(e) => setAddUrl(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAdd()}
                 placeholder="https://host:port"
                 disabled={busy}
               />
@@ -281,12 +351,11 @@ export default function CrawlModal({ onClose }) {
                 className="form-input"
                 type="password"
                 value={addToken}
-                onChange={e => setAddToken(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleAdd()}
+                onChange={(e) => setAddToken(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAdd()}
                 placeholder="••••••••"
                 disabled={busy}
               />
-
             </div>
 
             <button
@@ -299,10 +368,8 @@ export default function CrawlModal({ onClose }) {
             </button>
           </div>
 
-          {/* ── Tools table ── */}
           {tools.length > 0 ? (
             <div className="mtool-table-wrap animate-in">
-              {/* Header row */}
               <div className="mtool-cols mtool-header">
                 <span>#</span>
                 <span>Tool</span>
@@ -312,10 +379,10 @@ export default function CrawlModal({ onClose }) {
                 <span>Actions</span>
               </div>
 
-              {/* Data rows */}
               {tools.map((tool, i) => {
                 const isValidating = validatingId === tool.id;
                 const v = tool.validation;
+
                 return (
                   <div key={tool.id} className="mtool-cols mtool-row">
                     <span className="mtool-num">{i + 1}</span>
@@ -323,9 +390,14 @@ export default function CrawlModal({ onClose }) {
                     <span className="mtool-name">
                       <span>{TOOL_ICONS[tool.toolName] ?? "🔧"}</span>
                       {tool.toolName}
+                      {tool.source === "global" && (
+                        <span className="mtool-none"> · global</span>
+                      )}
                     </span>
 
-                    <span className="mtool-url" title={tool.baseUrl}>{tool.baseUrl}</span>
+                    <span className="mtool-url" title={tool.baseUrl}>
+                      {tool.baseUrl}
+                    </span>
 
                     <span className="mtool-auth">
                       {tool.authToken ? "•••••" : <span className="mtool-none">—</span>}
@@ -334,13 +406,28 @@ export default function CrawlModal({ onClose }) {
                     <span className="mtool-status">
                       {isValidating ? (
                         <span className="mtool-validating">
-                          <span className="spinner" style={{ width: 12, height: 12, borderTopColor: "var(--teal)" }} />
+                          <span
+                            className="spinner"
+                            style={{
+                              width: 12,
+                              height: 12,
+                              borderTopColor: "var(--teal)",
+                            }}
+                          />
                           Checking…
                         </span>
                       ) : v ? (
-                        <span className={`validation-badge ${v.reachable ? "ok" : "fail"}`}>
+                        <span
+                          className={`validation-badge ${
+                            v.reachable ? "ok" : "fail"
+                          }`}
+                        >
                           {v.reachable
-                            ? `✓ ${v.latency_ms != null ? v.latency_ms + " ms" : "Connected"}`
+                            ? `✓ ${
+                                v.latency_ms != null
+                                  ? v.latency_ms + " ms"
+                                  : "Connected"
+                              }`
                             : "✗ Failed"}
                         </span>
                       ) : (
@@ -370,9 +457,10 @@ export default function CrawlModal({ onClose }) {
                 );
               })}
 
-              {/* Summary bar */}
               <div className="mtool-summary-bar">
-                <span>{tools.length} tool{tools.length !== 1 ? "s" : ""} added</span>
+                <span>
+                  {tools.length} tool{tools.length !== 1 ? "s" : ""} added
+                </span>
                 {validatedCount > 0 && (
                   <span>
                     {reachableCount}/{validatedCount} validated reachable
@@ -389,10 +477,11 @@ export default function CrawlModal({ onClose }) {
             </div>
           )}
 
-          {/* Status alert */}
           {status && (
             <div className={`modal-alert modal-alert-${status.type} animate-in`}>
-              <span className="modal-alert-icon">{status.type === "success" ? "✓" : "✗"}</span>
+              <span className="modal-alert-icon">
+                {status.type === "success" ? "✓" : "✗"}
+              </span>
               <div>
                 <div className="modal-alert-title">{status.title}</div>
                 <div className="modal-alert-msg">{status.msg}</div>
@@ -401,7 +490,6 @@ export default function CrawlModal({ onClose }) {
           )}
         </div>
 
-        {/* ── Footer ── */}
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose} disabled={busy}>
             Cancel
@@ -413,9 +501,17 @@ export default function CrawlModal({ onClose }) {
             disabled={busy || tools.length === 0}
             title="Validate all tools sequentially"
           >
-            {validatingAll
-              ? <><span className="spinner" style={{ borderTopColor: "var(--accent)" }} /> Validating…</>
-              : "🔌 Validate All"}
+            {validatingAll ? (
+              <>
+                <span
+                  className="spinner"
+                  style={{ borderTopColor: "var(--accent)" }}
+                />{" "}
+                Validating…
+              </>
+            ) : (
+              "🔌 Validate All"
+            )}
           </button>
 
           <button
@@ -423,12 +519,17 @@ export default function CrawlModal({ onClose }) {
             onClick={handleCrawl}
             disabled={busy || tools.length === 0}
           >
-            {crawling
-              ? <><span className="spinner" /> Generating…</>
-              : `⬇ Generate Report (${tools.length} tool${tools.length !== 1 ? "s" : ""})`}
+            {crawling ? (
+              <>
+                <span className="spinner" /> Generating…
+              </>
+            ) : (
+              `⬇ Generate Report (${tools.length} tool${
+                tools.length !== 1 ? "s" : ""
+              })`
+            )}
           </button>
         </div>
-
       </div>
     </div>
   );

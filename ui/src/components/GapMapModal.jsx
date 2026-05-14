@@ -71,7 +71,7 @@ function deriveSplunkUrls(inputUrl) {
     return {
       splunkBaseUrl: `http://${hostname}:8000`,
       splunkMgmtUrl: `https://${hostname}:8089`,
-      splunkHecUrl: `http://${hostname}:8088`,
+      splunkHecUrl: `https://${hostname}:8088`,
     };
   } catch {
     return null;
@@ -86,16 +86,60 @@ function parseServiceList(rawText) {
 
   const unique = [];
   const seen = new Set();
+
   for (const token of tokens) {
     if (!seen.has(token)) {
       seen.add(token);
       unique.push(token);
     }
   }
+
   return unique;
 }
 
-export default function GapMapModal({ onClose }) {
+function normalizeValidatedTool(tool) {
+  const toolName = tool.tool_name || tool.toolName || tool.name;
+  const baseUrl = tool.base_url || tool.baseUrl || tool.url;
+  const authToken = tool.auth_token || tool.authToken || tool.api_key || null;
+
+  if (!toolName || !baseUrl) return null;
+
+  const row = {
+    id: tool.id || nextId(),
+    toolName,
+    baseUrl,
+    authToken,
+    validation: {
+      reachable: true,
+      message: "Validated globally",
+      latency_ms: tool.validation_result?.latency_ms ?? tool.latency_ms ?? null,
+    },
+    source: "global",
+  };
+
+  if (toolName === "splunk") {
+    const derived = deriveSplunkUrls(baseUrl);
+
+    if (derived) {
+      row.splunkBaseUrl = derived.splunkBaseUrl;
+      row.splunkMgmtUrl = derived.splunkMgmtUrl;
+      row.splunkHecUrl = derived.splunkHecUrl;
+      row.splunkHecToken = authToken;
+      row.splunkVerifySsl = false;
+    }
+  }
+
+  return row;
+}
+
+function mapValidatedToolsToRows(validatedTools = []) {
+  return validatedTools
+    .map(normalizeValidatedTool)
+    .filter(Boolean)
+    .filter((tool) => DEFAULT_USAGES[tool.toolName]);
+}
+
+export default function GapMapModal({ onClose, validatedTools = [] }) {
   const [applicationName, setApplicationName] = useState("");
   const [environment, setEnvironment] = useState("prod");
   const [serviceText, setServiceText] = useState("");
@@ -104,7 +148,7 @@ export default function GapMapModal({ onClose }) {
   const [addTool, setAddTool] = useState("grafana");
   const [addUrl, setAddUrl] = useState("");
   const [addToken, setAddToken] = useState("");
-  const [tools, setTools] = useState([]);
+  const [tools, setTools] = useState(() => mapValidatedToolsToRows(validatedTools));
 
   const [validatingId, setValidatingId] = useState(null);
   const [validatingAll, setValidatingAll] = useState(false);
@@ -125,14 +169,17 @@ export default function GapMapModal({ onClose }) {
       baseUrl: addUrl.trim(),
       authToken: addToken.trim() || null,
       validation: null,
+      source: "manual",
     };
 
     if (addTool === "splunk") {
       const derived = deriveSplunkUrls(addUrl.trim());
+
       if (!derived) {
         setStatus({ type: "error", title: "Invalid URL", msg: "Invalid Splunk URL" });
         return;
       }
+
       row.splunkBaseUrl = derived.splunkBaseUrl;
       row.splunkMgmtUrl = derived.splunkMgmtUrl;
       row.splunkHecUrl = derived.splunkHecUrl;
@@ -151,11 +198,14 @@ export default function GapMapModal({ onClose }) {
   }
 
   function setToolValidation(id, result) {
-    setTools((prev) => prev.map((tool) => (tool.id === id ? { ...tool, validation: result } : tool)));
+    setTools((prev) =>
+      prev.map((tool) => (tool.id === id ? { ...tool, validation: result } : tool))
+    );
   }
 
   async function handleValidate(tool) {
     setValidatingId(tool.id);
+
     try {
       const res = await v1Validate({
         tool_name: tool.toolName,
@@ -167,6 +217,7 @@ export default function GapMapModal({ onClose }) {
         splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
         splunk_verify_ssl: tool.splunkVerifySsl ?? false,
       });
+
       setToolValidation(tool.id, res.data);
     } catch (err) {
       setToolValidation(tool.id, {
@@ -184,6 +235,7 @@ export default function GapMapModal({ onClose }) {
 
     for (const tool of tools) {
       setValidatingId(tool.id);
+
       try {
         const res = await v1Validate({
           tool_name: tool.toolName,
@@ -195,6 +247,7 @@ export default function GapMapModal({ onClose }) {
           splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
           splunk_verify_ssl: tool.splunkVerifySsl ?? false,
         });
+
         setToolValidation(tool.id, res.data);
       } catch (err) {
         setToolValidation(tool.id, {
@@ -210,11 +263,20 @@ export default function GapMapModal({ onClose }) {
 
   async function handleRun() {
     if (!applicationName.trim()) {
-      setStatus({ type: "error", title: "Validation error", msg: "Application name is required." });
+      setStatus({
+        type: "error",
+        title: "Validation error",
+        msg: "Application name is required.",
+      });
       return;
     }
+
     if (tools.length === 0) {
-      setStatus({ type: "error", title: "Validation error", msg: "Add at least one tool connection." });
+      setStatus({
+        type: "error",
+        title: "Validation error",
+        msg: "Add at least one tool connection.",
+      });
       return;
     }
 
@@ -256,23 +318,27 @@ export default function GapMapModal({ onClose }) {
       };
 
       const res = await runObservabilityGapMap(payload);
+
       setReportLinks({
         previewUrl: resolveApiUrl(res.data.preview_url),
         downloadUrl: resolveApiUrl(res.data.download_url),
         jsonUrl: resolveApiUrl(res.data.json_url),
       });
-      if (!services.length) {
-        setStatus({
-          type: "success",
-          title: "Gap map generated",
-          msg: "No canonical services provided; report used sanitized auto-discovery mode.",
-        });
-      } else {
-        setStatus({ type: "success", title: "Gap map generated", msg: res.data.message });
-      }
+
+      setStatus({
+        type: "success",
+        title: "Gap map generated",
+        msg: !services.length
+          ? "No canonical services provided; report used sanitized auto-discovery mode."
+          : res.data.message,
+      });
     } catch (err) {
       setReportLinks(null);
-      setStatus({ type: "error", title: "Gap map failed", msg: err?.response?.data?.detail || err.message });
+      setStatus({
+        type: "error",
+        title: "Gap map failed",
+        msg: err?.response?.data?.detail || err.message,
+      });
     } finally {
       setRunning(false);
     }
@@ -294,7 +360,10 @@ export default function GapMapModal({ onClose }) {
               </div>
             </div>
           </div>
-          <button className="modal-close" onClick={onClose} aria-label="Close">X</button>
+
+          <button className="modal-close" onClick={onClose} aria-label="Close">
+            X
+          </button>
         </div>
 
         <div className="modal-body">
@@ -309,15 +378,22 @@ export default function GapMapModal({ onClose }) {
                 disabled={busy}
               />
             </div>
+
             <div className="form-group">
               <label className="form-label">Environment</label>
-              <select className="form-select" value={environment} onChange={(e) => setEnvironment(e.target.value)} disabled={busy}>
+              <select
+                className="form-select"
+                value={environment}
+                onChange={(e) => setEnvironment(e.target.value)}
+                disabled={busy}
+              >
                 <option value="prod">prod</option>
                 <option value="staging">staging</option>
                 <option value="dev">dev</option>
                 <option value="test">test</option>
               </select>
             </div>
+
             <div className="form-group" style={{ gridColumn: "1 / span 2" }}>
               <label className="form-label">Canonical Service List</label>
               <textarea
@@ -325,11 +401,16 @@ export default function GapMapModal({ onClose }) {
                 rows={5}
                 value={serviceText}
                 onChange={(e) => setServiceText(e.target.value)}
-                placeholder={"frontend\ncart\ncheckout\npayment\nproduct-catalog\nrecommendation\nshipping\ncurrency\nemail\nad\nquote"}
+                placeholder={
+                  "frontend\ncart\ncheckout\npayment\nproduct-catalog\nrecommendation\nshipping\ncurrency\nemail\nad\nquote"
+                }
                 disabled={busy}
               />
-              <div className="form-help" style={{ marginTop: 6 }}>One service per line, or comma-separated.</div>
+              <div className="form-help" style={{ marginTop: 6 }}>
+                One service per line, or comma-separated.
+              </div>
             </div>
+
             <div className="form-group" style={{ gridColumn: "1 / span 2" }}>
               <label className="checkbox-inline" style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <input
@@ -348,7 +429,9 @@ export default function GapMapModal({ onClose }) {
               <span className="modal-alert-icon">!</span>
               <div>
                 <div className="modal-alert-title">Discovery mode warning</div>
-                <div className="modal-alert-msg">No canonical services provided; report will use sanitized auto-discovery mode.</div>
+                <div className="modal-alert-msg">
+                  No canonical services provided; report will use sanitized auto-discovery mode.
+                </div>
               </div>
             </div>
           )}
@@ -356,9 +439,16 @@ export default function GapMapModal({ onClose }) {
           <div className="mtool-add-bar">
             <div className="form-group mtool-add-tool">
               <label className="form-label">Tool</label>
-              <select className="form-select" value={addTool} onChange={(e) => setAddTool(e.target.value)} disabled={busy}>
+              <select
+                className="form-select"
+                value={addTool}
+                onChange={(e) => setAddTool(e.target.value)}
+                disabled={busy}
+              >
                 {TOOL_OPTIONS.map((tool) => (
-                  <option key={tool.value} value={tool.value}>{tool.label}</option>
+                  <option key={tool.value} value={tool.value}>
+                    {tool.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -377,7 +467,9 @@ export default function GapMapModal({ onClose }) {
             </div>
 
             <div className="form-group mtool-add-token">
-              <label className="form-label">Auth Token <span className="form-label-opt">(opt)</span></label>
+              <label className="form-label">
+                Auth Token <span className="form-label-opt">(opt)</span>
+              </label>
               <input
                 className="form-input"
                 type="password"
@@ -389,7 +481,12 @@ export default function GapMapModal({ onClose }) {
               />
             </div>
 
-            <button className="btn btn-primary mtool-add-btn" onClick={handleAdd} disabled={busy || !addUrl.trim()} title="Add tool to list">
+            <button
+              className="btn btn-primary mtool-add-btn"
+              onClick={handleAdd}
+              disabled={busy || !addUrl.trim()}
+              title="Add tool to list"
+            >
               + Add
             </button>
           </div>
@@ -408,42 +505,85 @@ export default function GapMapModal({ onClose }) {
               {tools.map((tool, i) => {
                 const isValidating = validatingId === tool.id;
                 const validation = tool.validation;
+
                 return (
                   <div key={tool.id} className="mtool-cols mtool-row">
                     <span className="mtool-num">{i + 1}</span>
-                    <span className="mtool-name"><span>{TOOL_ICONS[tool.toolName] ?? "TL"}</span>{tool.toolName}</span>
-                    <span className="mtool-url" title={tool.baseUrl}>{tool.baseUrl}</span>
-                    <span className="mtool-auth">{tool.authToken ? "*****" : <span className="mtool-none">-</span>}</span>
+
+                    <span className="mtool-name">
+                      <span>{TOOL_ICONS[tool.toolName] ?? "TL"}</span>
+                      {tool.toolName}
+                      {tool.source === "global" && <span className="mtool-none"> · global</span>}
+                    </span>
+
+                    <span className="mtool-url" title={tool.baseUrl}>
+                      {tool.baseUrl}
+                    </span>
+
+                    <span className="mtool-auth">
+                      {tool.authToken ? "*****" : <span className="mtool-none">-</span>}
+                    </span>
+
                     <span className="mtool-status">
                       {isValidating ? (
-                        <span className="mtool-validating"><span className="spinner" style={{ width: 12, height: 12, borderTopColor: "var(--accent)" }} />Checking...</span>
+                        <span className="mtool-validating">
+                          <span
+                            className="spinner"
+                            style={{ width: 12, height: 12, borderTopColor: "var(--accent)" }}
+                          />
+                          Checking...
+                        </span>
                       ) : validation ? (
                         <span className={`validation-badge ${validation.reachable ? "ok" : "fail"}`}>
-                          {validation.reachable ? `OK ${validation.latency_ms != null ? validation.latency_ms + " ms" : "Connected"}` : "Failed"}
+                          {validation.reachable
+                            ? `OK ${validation.latency_ms != null ? validation.latency_ms + " ms" : "Connected"}`
+                            : "Failed"}
                         </span>
                       ) : (
                         <span className="mtool-pending">Not validated</span>
                       )}
                     </span>
+
                     <span className="mtool-actions">
-                      <button className="btn btn-secondary btn-sm" onClick={() => handleValidate(tool)} disabled={busy} title="Validate this tool">
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => handleValidate(tool)}
+                        disabled={busy}
+                        title="Validate this tool"
+                      >
                         {isValidating ? "..." : "Validate"}
                       </button>
-                      <button className="btn btn-danger btn-sm" onClick={() => handleRemove(tool.id)} disabled={busy} title="Remove">X</button>
+
+                      <button
+                        className="btn btn-danger btn-sm"
+                        onClick={() => handleRemove(tool.id)}
+                        disabled={busy}
+                        title="Remove"
+                      >
+                        X
+                      </button>
                     </span>
                   </div>
                 );
               })}
 
               <div className="mtool-summary-bar">
-                <span>{tools.length} tool{tools.length !== 1 ? "s" : ""} added</span>
-                {validatedCount > 0 && <span>{reachableCount}/{validatedCount} validated reachable</span>}
+                <span>
+                  {tools.length} tool{tools.length !== 1 ? "s" : ""} added
+                </span>
+                {validatedCount > 0 && (
+                  <span>
+                    {reachableCount}/{validatedCount} validated reachable
+                  </span>
+                )}
               </div>
             </div>
           ) : (
             <div className="empty-state">
               <span className="empty-icon">GM</span>
-              <span className="empty-text">No tools added yet. Add one or more tools above to build the coverage map.</span>
+              <span className="empty-text">
+                No tools added yet. Add one or more tools above to build the coverage map.
+              </span>
             </div>
           )}
 
@@ -462,33 +602,83 @@ export default function GapMapModal({ onClose }) {
               <div className="report-preview-header">
                 <div>
                   <div className="report-preview-title">Observability Gap Map Preview</div>
-                  <div className="report-preview-subtitle">Review the generated interactive report inline, then download HTML/JSON artifacts.</div>
+                  <div className="report-preview-subtitle">
+                    Review the generated interactive report inline, then download HTML/JSON artifacts.
+                  </div>
                 </div>
+
                 <div className="report-preview-actions">
-                  {reportLinks.downloadUrl && <button className="btn btn-secondary btn-sm" onClick={() => triggerDownload(reportLinks.downloadUrl)}>Download Report</button>}
-                  {reportLinks.jsonUrl && <button className="btn btn-secondary btn-sm" onClick={() => triggerDownload(reportLinks.jsonUrl)}>Download JSON</button>}
+                  {reportLinks.downloadUrl && (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => triggerDownload(reportLinks.downloadUrl)}
+                    >
+                      Download Report
+                    </button>
+                  )}
+
+                  {reportLinks.jsonUrl && (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => triggerDownload(reportLinks.jsonUrl)}
+                    >
+                      Download JSON
+                    </button>
+                  )}
                 </div>
               </div>
 
               {previewFailed || !reportLinks.previewUrl ? (
                 <div className="report-preview-fallback">
                   <div className="report-preview-fallback-title">Preview unavailable</div>
-                  <div className="report-preview-fallback-msg">Gap map generation completed, but HTML preview could not be displayed. Download is still available.</div>
+                  <div className="report-preview-fallback-msg">
+                    Gap map generation completed, but HTML preview could not be displayed. Download is still available.
+                  </div>
                 </div>
               ) : (
-                <iframe className="report-preview-frame" title="Observability gap map report" src={reportLinks.previewUrl} onError={() => setPreviewFailed(true)} />
+                <iframe
+                  className="report-preview-frame"
+                  title="Observability gap map report"
+                  src={reportLinks.previewUrl}
+                  onError={() => setPreviewFailed(true)}
+                />
               )}
             </div>
           )}
         </div>
 
         <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="btn btn-secondary" onClick={handleValidateAll} disabled={busy || tools.length === 0} title="Validate all tools sequentially">
-            {validatingAll ? <><span className="spinner" style={{ borderTopColor: "var(--accent)" }} /> Validating...</> : "Validate All"}
+          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>
+            Cancel
           </button>
-          <button className="btn btn-cyan btn-lg" onClick={handleRun} disabled={busy || tools.length === 0 || !applicationName.trim()}>
-            {running ? <><span className="spinner" /> Generating Gap Map...</> : "Generate Gap Map"}
+
+          <button
+            className="btn btn-secondary"
+            onClick={handleValidateAll}
+            disabled={busy || tools.length === 0}
+            title="Validate all tools sequentially"
+          >
+            {validatingAll ? (
+              <>
+                <span className="spinner" style={{ borderTopColor: "var(--accent)" }} /> Validating...
+              </>
+            ) : (
+              "Validate All"
+            )}
+          </button>
+
+          <button
+            className="btn btn-cyan btn-lg"
+            onClick={handleRun}
+            disabled={busy || tools.length === 0 || !applicationName.trim()}
+          >
+            {running ? (
+              <>
+                <span className="spinner" /> Generating Gap Map...
+              </>
+            ) : (
+              "Generate Gap Map"
+            )}
           </button>
         </div>
       </div>

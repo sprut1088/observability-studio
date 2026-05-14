@@ -53,7 +53,11 @@ function resolveApiUrl(path) {
 
 function triggerDownload(downloadPath) {
   if (!downloadPath) return;
-  const url = downloadPath.startsWith("http") ? downloadPath : `${API_HOST}${downloadPath}`;
+
+  const url = downloadPath.startsWith("http")
+    ? downloadPath
+    : `${API_HOST}${downloadPath}`;
+
   const a = document.createElement("a");
   a.href = url;
   a.download = "";
@@ -71,14 +75,56 @@ function deriveSplunkUrls(inputUrl) {
     return {
       splunkBaseUrl: `http://${hostname}:8000`,
       splunkMgmtUrl: `https://${hostname}:8089`,
-      splunkHecUrl: `http://${hostname}:8088`,
+      splunkHecUrl: `https://${hostname}:8088`,
     };
   } catch {
     return null;
   }
 }
 
-export default function RedIntelligenceModal({ onClose }) {
+function normalizeValidatedTool(tool) {
+  const toolName = tool.tool_name || tool.toolName || tool.name;
+  const baseUrl = tool.base_url || tool.baseUrl || tool.url;
+  const authToken = tool.auth_token || tool.authToken || tool.api_key || null;
+
+  if (!toolName || !baseUrl) return null;
+
+  const row = {
+    id: tool.id || nextId(),
+    toolName,
+    baseUrl,
+    authToken,
+    validation: {
+      reachable: true,
+      message: "Validated globally",
+      latency_ms: tool.validation_result?.latency_ms ?? tool.latency_ms ?? null,
+    },
+    source: "global",
+  };
+
+  if (toolName === "splunk") {
+    const derived = deriveSplunkUrls(baseUrl);
+
+    if (derived) {
+      row.splunkBaseUrl = derived.splunkBaseUrl;
+      row.splunkMgmtUrl = derived.splunkMgmtUrl;
+      row.splunkHecUrl = derived.splunkHecUrl;
+      row.splunkHecToken = authToken;
+      row.splunkVerifySsl = false;
+    }
+  }
+
+  return row;
+}
+
+function mapValidatedToolsToRows(validatedTools = []) {
+  return validatedTools
+    .map(normalizeValidatedTool)
+    .filter(Boolean)
+    .filter((tool) => DEFAULT_USAGES[tool.toolName]);
+}
+
+export default function RedIntelligenceModal({ onClose, validatedTools = [] }) {
   const [applicationName, setApplicationName] = useState("");
   const [environment, setEnvironment] = useState("prod");
   const [canonicalInput, setCanonicalInput] = useState("");
@@ -88,7 +134,9 @@ export default function RedIntelligenceModal({ onClose }) {
   const [addUrl, setAddUrl] = useState("");
   const [addToken, setAddToken] = useState("");
 
-  const [tools, setTools] = useState([]);
+  const [tools, setTools] = useState(() =>
+    mapValidatedToolsToRows(validatedTools)
+  );
 
   const [validatingId, setValidatingId] = useState(null);
   const [validatingAll, setValidatingAll] = useState(false);
@@ -108,14 +156,21 @@ export default function RedIntelligenceModal({ onClose }) {
       baseUrl: addUrl.trim(),
       authToken: addToken.trim() || null,
       validation: null,
+      source: "manual",
     };
 
     if (addTool === "splunk") {
       const derived = deriveSplunkUrls(addUrl.trim());
+
       if (!derived) {
-        setStatus({ type: "error", title: "Invalid URL", msg: "Invalid Splunk URL" });
+        setStatus({
+          type: "error",
+          title: "Invalid URL",
+          msg: "Invalid Splunk URL",
+        });
         return;
       }
+
       row.splunkBaseUrl = derived.splunkBaseUrl;
       row.splunkMgmtUrl = derived.splunkMgmtUrl;
       row.splunkHecUrl = derived.splunkHecUrl;
@@ -134,11 +189,16 @@ export default function RedIntelligenceModal({ onClose }) {
   }
 
   function setToolValidation(id, result) {
-    setTools((prev) => prev.map((tool) => (tool.id === id ? { ...tool, validation: result } : tool)));
+    setTools((prev) =>
+      prev.map((tool) =>
+        tool.id === id ? { ...tool, validation: result } : tool
+      )
+    );
   }
 
   async function handleValidate(tool) {
     setValidatingId(tool.id);
+
     try {
       const res = await v1Validate({
         tool_name: tool.toolName,
@@ -150,6 +210,7 @@ export default function RedIntelligenceModal({ onClose }) {
         splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
         splunk_verify_ssl: tool.splunkVerifySsl ?? false,
       });
+
       setToolValidation(tool.id, res.data);
     } catch (err) {
       setToolValidation(tool.id, {
@@ -167,6 +228,7 @@ export default function RedIntelligenceModal({ onClose }) {
 
     for (const tool of tools) {
       setValidatingId(tool.id);
+
       try {
         const res = await v1Validate({
           tool_name: tool.toolName,
@@ -178,6 +240,7 @@ export default function RedIntelligenceModal({ onClose }) {
           splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
           splunk_verify_ssl: tool.splunkVerifySsl ?? false,
         });
+
         setToolValidation(tool.id, res.data);
       } catch (err) {
         setToolValidation(tool.id, {
@@ -225,37 +288,64 @@ export default function RedIntelligenceModal({ onClose }) {
       };
 
       const res = await runRedIntelligence(payload);
+
       setReportLinks({
         previewUrl: resolveApiUrl(res.data.preview_url),
         downloadUrl: resolveApiUrl(res.data.download_url),
         jsonUrl: resolveApiUrl(res.data.json_url),
       });
-      setStatus({ type: "success", title: "RED analysis complete", msg: res.data.message });
+
+      setStatus({
+        type: "success",
+        title: "RED analysis complete",
+        msg: res.data.message,
+      });
     } catch (err) {
       setReportLinks(null);
-      setStatus({ type: "error", title: "RED analysis failed", msg: err?.response?.data?.detail || err.message });
+      setStatus({
+        type: "error",
+        title: "RED analysis failed",
+        msg: err?.response?.data?.detail || err.message,
+      });
     } finally {
       setRunning(false);
     }
   }
 
-  const reachableCount = tools.filter((tool) => tool.validation?.reachable).length;
-  const validatedCount = tools.filter((tool) => tool.validation !== null).length;
+  const reachableCount = tools.filter(
+    (tool) => tool.validation?.reachable
+  ).length;
+
+  const validatedCount = tools.filter(
+    (tool) => tool.validation !== null
+  ).length;
 
   return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal modal-wide" role="dialog" aria-modal="true" aria-label="RED Panel Intelligence">
+    <div
+      className="modal-overlay"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="modal modal-wide"
+        role="dialog"
+        aria-modal="true"
+        aria-label="RED Panel Intelligence"
+      >
         <div className="modal-header modal-header-rose">
           <div className="modal-header-left">
             <span className="modal-icon">📉</span>
             <div>
               <div className="modal-title">RED Panel Intelligence</div>
               <div className="modal-subtitle">
-                Measure service-centric RED coverage with explicit evidence mapping
+                Measure service-centric RED coverage with explicit evidence
+                mapping
               </div>
             </div>
           </div>
-          <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
+
+          <button className="modal-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
         </div>
 
         <div className="modal-body">
@@ -286,7 +376,9 @@ export default function RedIntelligenceModal({ onClose }) {
           </div>
 
           <div className="form-group" style={{ marginBottom: 12 }}>
-            <label className="form-label">Canonical Services (comma-separated)</label>
+            <label className="form-label">
+              Canonical Services (comma-separated)
+            </label>
             <input
               className="form-input"
               type="text"
@@ -297,7 +389,15 @@ export default function RedIntelligenceModal({ onClose }) {
             />
           </div>
 
-          <label className="checkbox" style={{ marginBottom: 12, display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <label
+            className="checkbox"
+            style={{
+              marginBottom: 12,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
             <input
               type="checkbox"
               checked={autoDiscoverServices}
@@ -310,9 +410,16 @@ export default function RedIntelligenceModal({ onClose }) {
           <div className="mtool-add-bar">
             <div className="form-group mtool-add-tool">
               <label className="form-label">Tool</label>
-              <select className="form-select" value={addTool} onChange={(e) => setAddTool(e.target.value)} disabled={busy}>
+              <select
+                className="form-select"
+                value={addTool}
+                onChange={(e) => setAddTool(e.target.value)}
+                disabled={busy}
+              >
                 {TOOL_OPTIONS.map((tool) => (
-                  <option key={tool.value} value={tool.value}>{tool.label}</option>
+                  <option key={tool.value} value={tool.value}>
+                    {tool.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -369,38 +476,79 @@ export default function RedIntelligenceModal({ onClose }) {
               {tools.map((tool, i) => {
                 const isValidating = validatingId === tool.id;
                 const validation = tool.validation;
+
                 return (
                   <div key={tool.id} className="mtool-cols mtool-row">
                     <span className="mtool-num">{i + 1}</span>
+
                     <span className="mtool-name">
                       <span>{TOOL_ICONS[tool.toolName] ?? "🔧"}</span>
                       {tool.toolName}
+                      {tool.source === "global" && (
+                        <span className="mtool-none"> · global</span>
+                      )}
                     </span>
-                    <span className="mtool-url" title={tool.baseUrl}>{tool.baseUrl}</span>
+
+                    <span className="mtool-url" title={tool.baseUrl}>
+                      {tool.baseUrl}
+                    </span>
+
                     <span className="mtool-auth">
-                      {tool.authToken ? "•••••" : <span className="mtool-none">—</span>}
+                      {tool.authToken ? (
+                        "•••••"
+                      ) : (
+                        <span className="mtool-none">—</span>
+                      )}
                     </span>
+
                     <span className="mtool-status">
                       {isValidating ? (
                         <span className="mtool-validating">
-                          <span className="spinner" style={{ width: 12, height: 12, borderTopColor: "var(--accent)" }} />
+                          <span
+                            className="spinner"
+                            style={{
+                              width: 12,
+                              height: 12,
+                              borderTopColor: "var(--accent)",
+                            }}
+                          />
                           Checking…
                         </span>
                       ) : validation ? (
-                        <span className={`validation-badge ${validation.reachable ? "ok" : "fail"}`}>
+                        <span
+                          className={`validation-badge ${
+                            validation.reachable ? "ok" : "fail"
+                          }`}
+                        >
                           {validation.reachable
-                            ? `✓ ${validation.latency_ms != null ? validation.latency_ms + " ms" : "Connected"}`
+                            ? `✓ ${
+                                validation.latency_ms != null
+                                  ? validation.latency_ms + " ms"
+                                  : "Connected"
+                              }`
                             : "✗ Failed"}
                         </span>
                       ) : (
                         <span className="mtool-pending">Not validated</span>
                       )}
                     </span>
+
                     <span className="mtool-actions">
-                      <button className="btn btn-secondary btn-sm" onClick={() => handleValidate(tool)} disabled={busy} title="Validate this tool">
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => handleValidate(tool)}
+                        disabled={busy}
+                        title="Validate this tool"
+                      >
                         {isValidating ? "…" : "Validate"}
                       </button>
-                      <button className="btn btn-danger btn-sm" onClick={() => handleRemove(tool.id)} disabled={busy} title="Remove">
+
+                      <button
+                        className="btn btn-danger btn-sm"
+                        onClick={() => handleRemove(tool.id)}
+                        disabled={busy}
+                        title="Remove"
+                      >
                         ✕
                       </button>
                     </span>
@@ -409,20 +557,33 @@ export default function RedIntelligenceModal({ onClose }) {
               })}
 
               <div className="mtool-summary-bar">
-                <span>{tools.length} tool{tools.length !== 1 ? "s" : ""} added</span>
-                {validatedCount > 0 && <span>{reachableCount}/{validatedCount} validated reachable</span>}
+                <span>
+                  {tools.length} tool{tools.length !== 1 ? "s" : ""} added
+                </span>
+
+                {validatedCount > 0 && (
+                  <span>
+                    {reachableCount}/{validatedCount} validated reachable
+                  </span>
+                )}
               </div>
             </div>
           ) : (
             <div className="empty-state">
               <span className="empty-icon">📉</span>
-              <span className="empty-text">No tools added yet. Add one or more dashboard-capable tools above.</span>
+              <span className="empty-text">
+                No tools added yet. Add one or more dashboard-capable tools
+                above.
+              </span>
             </div>
           )}
 
           {status && (
             <div className={`modal-alert modal-alert-${status.type} animate-in`}>
-              <span className="modal-alert-icon">{status.type === "success" ? "✓" : "✗"}</span>
+              <span className="modal-alert-icon">
+                {status.type === "success" ? "✓" : "✗"}
+              </span>
+
               <div>
                 <div className="modal-alert-title">{status.title}</div>
                 <div className="modal-alert-msg">{status.msg}</div>
@@ -434,19 +595,30 @@ export default function RedIntelligenceModal({ onClose }) {
             <div className="report-preview-card animate-in">
               <div className="report-preview-header">
                 <div>
-                  <div className="report-preview-title">RED Panel Intelligence Preview</div>
+                  <div className="report-preview-title">
+                    RED Panel Intelligence Preview
+                  </div>
                   <div className="report-preview-subtitle">
-                    Review the generated report inline, then download HTML/JSON artifacts.
+                    Review the generated report inline, then download HTML/JSON
+                    artifacts.
                   </div>
                 </div>
+
                 <div className="report-preview-actions">
                   {reportLinks.downloadUrl && (
-                    <button className="btn btn-secondary btn-sm" onClick={() => triggerDownload(reportLinks.downloadUrl)}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => triggerDownload(reportLinks.downloadUrl)}
+                    >
                       Download Report
                     </button>
                   )}
+
                   {reportLinks.jsonUrl && (
-                    <button className="btn btn-secondary btn-sm" onClick={() => triggerDownload(reportLinks.jsonUrl)}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => triggerDownload(reportLinks.jsonUrl)}
+                    >
                       Download JSON
                     </button>
                   )}
@@ -455,9 +627,12 @@ export default function RedIntelligenceModal({ onClose }) {
 
               {previewFailed || !reportLinks.previewUrl ? (
                 <div className="report-preview-fallback">
-                  <div className="report-preview-fallback-title">Preview unavailable</div>
+                  <div className="report-preview-fallback-title">
+                    Preview unavailable
+                  </div>
                   <div className="report-preview-fallback-msg">
-                    RED analysis completed, but HTML preview could not be displayed. Download is still available.
+                    RED analysis completed, but HTML preview could not be
+                    displayed. Download is still available.
                   </div>
                 </div>
               ) : (
@@ -473,7 +648,9 @@ export default function RedIntelligenceModal({ onClose }) {
         </div>
 
         <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
 
           <button
             className="btn btn-secondary"
@@ -483,20 +660,30 @@ export default function RedIntelligenceModal({ onClose }) {
           >
             {validatingAll ? (
               <>
-                <span className="spinner" style={{ borderTopColor: "var(--accent)" }} /> Validating…
+                <span
+                  className="spinner"
+                  style={{ borderTopColor: "var(--accent)" }}
+                />{" "}
+                Validating…
               </>
             ) : (
               "🔌 Validate All"
             )}
           </button>
 
-          <button className="btn btn-rose btn-lg" onClick={handleRun} disabled={busy || tools.length === 0}>
+          <button
+            className="btn btn-rose btn-lg"
+            onClick={handleRun}
+            disabled={busy || tools.length === 0}
+          >
             {running ? (
               <>
                 <span className="spinner" /> Running RED analysis…
               </>
             ) : (
-              `▶ Run RED Intelligence (${tools.length} tool${tools.length !== 1 ? "s" : ""})`
+              `▶ Run RED Intelligence (${tools.length} tool${
+                tools.length !== 1 ? "s" : ""
+              })`
             )}
           </button>
         </div>

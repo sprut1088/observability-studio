@@ -1,45 +1,51 @@
 import { useState } from "react";
 import { v1Validate, runAssessment, API_HOST } from "../api";
 
-/* ── Shared constants ───────────────────────────────────── */
 const TOOL_OPTIONS = [
-  { value: "prometheus",    label: "🔥 Prometheus"    },
-  { value: "grafana",       label: "📊 Grafana"       },
-  { value: "loki",          label: "📋 Loki"          },
-  { value: "jaeger",        label: "🔍 Jaeger"        },
-  { value: "alertmanager",  label: "🔔 Alertmanager"  },
-  { value: "tempo",         label: "⚡ Tempo"         },
+  { value: "prometheus", label: "🔥 Prometheus" },
+  { value: "grafana", label: "📊 Grafana" },
+  { value: "loki", label: "📋 Loki" },
+  { value: "jaeger", label: "🔍 Jaeger" },
+  { value: "alertmanager", label: "🔔 Alertmanager" },
+  { value: "tempo", label: "⚡ Tempo" },
   { value: "elasticsearch", label: "🔎 Elasticsearch" },
-  { value: "dynatrace",     label: "🛡️ Dynatrace"    },
-  { value: "datadog",       label: "🐕 Datadog"       },
-  { value: "appdynamics",   label: "📱 AppDynamics"   },
-  { value: "splunk",        label: "🌊 Splunk"        },
+  { value: "dynatrace", label: "🛡️ Dynatrace" },
+  { value: "datadog", label: "🐕 Datadog" },
+  { value: "appdynamics", label: "📱 AppDynamics" },
+  { value: "splunk", label: "🌊 Splunk" },
 ];
 
 const AI_PROVIDERS = [
   { value: "anthropic", label: "✨ Anthropic (Claude)" },
-  { value: "azure",     label: "🧠 Azure OpenAI"       },
+  { value: "azure", label: "🧠 Azure OpenAI" },
 ];
 
 const DEFAULT_USAGES = {
-  prometheus:    ["metrics", "alerts"],
-  grafana:       ["dashboards", "alerts"],
-  loki:          ["logs"],
-  jaeger:        ["traces"],
-  alertmanager:  ["alerts"],
-  tempo:         ["traces"],
+  prometheus: ["metrics", "alerts"],
+  grafana: ["dashboards", "alerts"],
+  loki: ["logs"],
+  jaeger: ["traces"],
+  alertmanager: ["alerts"],
+  tempo: ["traces"],
   elasticsearch: ["logs"],
-  dynatrace:     ["metrics", "traces", "logs", "dashboards", "alerts"],
-  datadog:       ["metrics", "traces", "logs", "dashboards", "alerts"],
-  appdynamics:   ["metrics", "traces", "dashboards", "alerts"],
-  splunk:        ["logs", "alerts", "dashboards"],
+  dynatrace: ["metrics", "traces", "logs", "dashboards", "alerts"],
+  datadog: ["metrics", "traces", "logs", "dashboards", "alerts"],
+  appdynamics: ["metrics", "traces", "dashboards", "alerts"],
+  splunk: ["logs", "alerts", "dashboards"],
 };
 
 const TOOL_ICONS = {
-  prometheus: "🔥", grafana: "📊", loki: "📋",
-  jaeger: "🔍", alertmanager: "🔔", tempo: "⚡",
-  elasticsearch: "🔎", dynatrace: "🛡️", datadog: "🐕",
-  appdynamics: "📱", splunk: "🌊",
+  prometheus: "🔥",
+  grafana: "📊",
+  loki: "📋",
+  jaeger: "🔍",
+  alertmanager: "🔔",
+  tempo: "⚡",
+  elasticsearch: "🔎",
+  dynatrace: "🛡️",
+  datadog: "🐕",
+  appdynamics: "📱",
+  splunk: "🌊",
 };
 
 let _uid = 0;
@@ -47,10 +53,16 @@ const nextId = () => ++_uid;
 
 function triggerDownload(downloadPath) {
   if (!downloadPath) return;
-  const url = downloadPath.startsWith("http") ? downloadPath : `${API_HOST}${downloadPath}`;
+  const url = downloadPath.startsWith("http")
+    ? downloadPath
+    : `${API_HOST}${downloadPath}`;
   const a = document.createElement("a");
-  a.href = url; a.download = ""; a.style.display = "none";
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  a.href = url;
+  a.download = "";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 function resolveApiUrl(path) {
@@ -66,45 +78,71 @@ function deriveSplunkUrls(inputUrl) {
     return {
       splunkBaseUrl: `http://${hostname}:8000`,
       splunkMgmtUrl: `https://${hostname}:8089`,
-      splunkHecUrl: `http://${hostname}:8088`,
+      splunkHecUrl: `https://${hostname}:8088`,
     };
   } catch {
     return null;
   }
 }
 
-/* ══════════════════════════════════════════════════════════
-   AssessModal — multi-tool ObservaScore assessment modal
-══════════════════════════════════════════════════════════ */
-export default function AssessModal({ onClose }) {
+function mapValidatedToolsToRows(validatedTools = []) {
+  return validatedTools.map((tool) => {
+    const toolName = tool.tool_name || tool.toolName;
+    const baseUrl = tool.base_url || tool.baseUrl;
+    const authToken = tool.auth_token || tool.authToken || null;
 
-  /* ── Add-form state ────────────────────────────────────── */
-  const [addTool,  setAddTool]  = useState("prometheus");
-  const [addUrl,   setAddUrl]   = useState("");
+    const row = {
+      id: tool.id || nextId(),
+      toolName,
+      baseUrl,
+      authToken,
+      validation: {
+        reachable: true,
+        message: "Validated globally",
+        latency_ms: tool.validation_result?.latency_ms ?? null,
+      },
+      source: "global",
+    };
+
+    if (toolName === "splunk") {
+      const derived = deriveSplunkUrls(baseUrl);
+      if (derived) {
+        row.splunkBaseUrl = derived.splunkBaseUrl;
+        row.splunkMgmtUrl = derived.splunkMgmtUrl;
+        row.splunkHecUrl = derived.splunkHecUrl;
+        row.splunkHecToken = authToken;
+        row.splunkVerifySsl = false;
+      }
+    }
+
+    return row;
+  });
+}
+
+export default function AssessModal({ onClose, validatedTools = [] }) {
+  const [addTool, setAddTool] = useState("prometheus");
+  const [addUrl, setAddUrl] = useState("");
   const [addToken, setAddToken] = useState("");
 
-  /* ── Tools table state ─────────────────────────────────── */
-  // [{ id, toolName, baseUrl, authToken, validation: null | {reachable, message, latency_ms} }]
-  const [tools, setTools] = useState([]);
+  const [tools, setTools] = useState(() =>
+    mapValidatedToolsToRows(validatedTools)
+  );
 
-  /* ── AI config state ───────────────────────────────────── */
-  const [useAi,           setUseAi]           = useState(false);
-  const [aiProvider,      setAiProvider]      = useState("anthropic");
-  const [aiApiKey,        setAiApiKey]        = useState("");
-  const [azureEndpoint,   setAzureEndpoint]   = useState("");
+  const [useAi, setUseAi] = useState(false);
+  const [aiProvider, setAiProvider] = useState("anthropic");
+  const [aiApiKey, setAiApiKey] = useState("");
+  const [azureEndpoint, setAzureEndpoint] = useState("");
   const [azureDeployment, setAzureDeployment] = useState("");
 
-  /* ── Operation state ───────────────────────────────────── */
-  const [validatingId,  setValidatingId]  = useState(null);
+  const [validatingId, setValidatingId] = useState(null);
   const [validatingAll, setValidatingAll] = useState(false);
-  const [assessing,     setAssessing]     = useState(false);
-  const [status,        setStatus]        = useState(null); // { type, title, msg }
-  const [reportLinks,   setReportLinks]   = useState(null); // { previewUrl, downloadUrl, jsonUrl }
+  const [assessing, setAssessing] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [reportLinks, setReportLinks] = useState(null);
   const [previewFailed, setPreviewFailed] = useState(false);
 
   const busy = validatingId !== null || validatingAll || assessing;
 
-  /* ── Add tool row ──────────────────────────────────────── */
   function handleAdd() {
     if (!addUrl.trim()) return;
 
@@ -114,13 +152,18 @@ export default function AssessModal({ onClose }) {
       baseUrl: addUrl.trim(),
       authToken: addToken.trim() || null,
       validation: null,
+      source: "manual",
     };
 
     if (addTool === "splunk") {
       const derived = deriveSplunkUrls(addUrl.trim());
 
       if (!derived) {
-        setStatus({ type: "error", title: "Invalid URL", msg: "Invalid Splunk URL" });
+        setStatus({
+          type: "error",
+          title: "Invalid URL",
+          msg: "Invalid Splunk URL",
+        });
         return;
       }
 
@@ -131,26 +174,25 @@ export default function AssessModal({ onClose }) {
       row.splunkVerifySsl = false;
     }
 
-    setTools(prev => [...prev, row]);
-
+    setTools((prev) => [...prev, row]);
     setAddUrl("");
     setAddToken("");
     setStatus(null);
   }
 
-  /* ── Remove tool row ───────────────────────────────────── */
   function handleRemove(id) {
-    setTools(prev => prev.filter(t => t.id !== id));
+    setTools((prev) => prev.filter((t) => t.id !== id));
   }
 
-  /* ── Update a single tool's validation result ──────────── */
   function setToolValidation(id, result) {
-    setTools(prev => prev.map(t => t.id === id ? { ...t, validation: result } : t));
+    setTools((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, validation: result } : t))
+    );
   }
 
-  /* ── Validate single tool ──────────────────────────────── */
   async function handleValidate(tool) {
     setValidatingId(tool.id);
+
     try {
       const res = await v1Validate({
         tool_name: tool.toolName,
@@ -162,6 +204,7 @@ export default function AssessModal({ onClose }) {
         splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
         splunk_verify_ssl: tool.splunkVerifySsl ?? false,
       });
+
       setToolValidation(tool.id, res.data);
     } catch (err) {
       setToolValidation(tool.id, {
@@ -173,12 +216,13 @@ export default function AssessModal({ onClose }) {
     }
   }
 
-  /* ── Validate all tools (sequential) ──────────────────── */
   async function handleValidateAll() {
     setValidatingAll(true);
     setStatus(null);
+
     for (const tool of tools) {
       setValidatingId(tool.id);
+
       try {
         const res = await v1Validate({
           tool_name: tool.toolName,
@@ -190,6 +234,7 @@ export default function AssessModal({ onClose }) {
           splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
           splunk_verify_ssl: tool.splunkVerifySsl ?? false,
         });
+
         setToolValidation(tool.id, res.data);
       } catch (err) {
         setToolValidation(tool.id, {
@@ -198,105 +243,155 @@ export default function AssessModal({ onClose }) {
         });
       }
     }
+
     setValidatingId(null);
     setValidatingAll(false);
   }
 
-  /* ── Execute Assessment (all tools → /api/assess) ──────── */
   async function handleAssess() {
     if (tools.length === 0) return;
+
     if (useAi && !aiApiKey.trim()) {
-      setStatus({ type: "error", title: "Missing API key", msg: "An AI API key is required when AI scoring is enabled." });
+      setStatus({
+        type: "error",
+        title: "Missing API key",
+        msg: "An AI API key is required when AI scoring is enabled.",
+      });
       return;
     }
+
     if (useAi && aiProvider === "azure" && !azureEndpoint.trim()) {
-      setStatus({ type: "error", title: "Missing Azure endpoint", msg: "Azure OpenAI endpoint URL is required (e.g. https://your-resource.openai.azure.com/)." });
+      setStatus({
+        type: "error",
+        title: "Missing Azure endpoint",
+        msg: "Azure OpenAI endpoint URL is required.",
+      });
       return;
     }
+
     if (useAi && aiProvider === "azure" && !azureDeployment.trim()) {
-      setStatus({ type: "error", title: "Missing deployment name", msg: "Azure OpenAI deployment name is required (e.g. gpt-4o)." });
+      setStatus({
+        type: "error",
+        title: "Missing deployment name",
+        msg: "Azure OpenAI deployment name is required.",
+      });
       return;
     }
+
     setAssessing(true);
     setStatus(null);
     setReportLinks(null);
     setPreviewFailed(false);
+
     try {
       const payload = {
         client: { name: "ObservaScore Hub", environment: "hub" },
-        tools: tools.map(t => ({
-        name: t.toolName,
-        enabled: true,
-        usages: DEFAULT_USAGES[t.toolName] ?? ["metrics"],
-        url: t.baseUrl,
-        api_key: t.authToken ?? null,
-        splunk_base_url: t.splunkBaseUrl ?? null,
-        splunk_mgmt_url: t.splunkMgmtUrl ?? null,
-        splunk_hec_url: t.splunkHecUrl ?? null,
-        splunk_hec_token: t.splunkHecToken ?? t.authToken ?? null,
-        splunk_verify_ssl: t.splunkVerifySsl ?? false,
-      })),
+        tools: tools.map((t) => ({
+          name: t.toolName,
+          enabled: true,
+          usages: DEFAULT_USAGES[t.toolName] ?? ["metrics"],
+          url: t.baseUrl,
+          api_key: t.authToken ?? null,
+          splunk_base_url: t.splunkBaseUrl ?? null,
+          splunk_mgmt_url: t.splunkMgmtUrl ?? null,
+          splunk_hec_url: t.splunkHecUrl ?? null,
+          splunk_hec_token: t.splunkHecToken ?? t.authToken ?? null,
+          splunk_verify_ssl: t.splunkVerifySsl ?? false,
+        })),
         ai: {
-          enabled:           useAi,
-          provider:          useAi ? aiProvider                              : null,
-          api_key:           useAi ? aiApiKey                                : null,
-          azure_endpoint:    useAi && aiProvider === "azure" ? azureEndpoint    : null,
-          azure_deployment:  useAi && aiProvider === "azure" ? azureDeployment  : null,
+          enabled: useAi,
+          provider: useAi ? aiProvider : null,
+          api_key: useAi ? aiApiKey : null,
+          azure_endpoint:
+            useAi && aiProvider === "azure" ? azureEndpoint : null,
+          azure_deployment:
+            useAi && aiProvider === "azure" ? azureDeployment : null,
         },
       };
+
       const res = await runAssessment(payload);
+
       setReportLinks({
         previewUrl: resolveApiUrl(res.data.preview_url),
         downloadUrl: resolveApiUrl(res.data.download_url),
         jsonUrl: resolveApiUrl(res.data.json_url),
       });
-      setStatus({ type: "success", title: "Assessment complete", msg: res.data.message });
+
+      setStatus({
+        type: "success",
+        title: "Assessment complete",
+        msg: res.data.message,
+      });
     } catch (err) {
       setReportLinks(null);
-      setStatus({ type: "error", title: "Assessment failed", msg: err?.response?.data?.detail || err.message });
+      setStatus({
+        type: "error",
+        title: "Assessment failed",
+        msg: err?.response?.data?.detail || err.message,
+      });
     } finally {
       setAssessing(false);
     }
   }
 
-  /* ── Derived ────────────────────────────────────────────── */
-  const reachableCount = tools.filter(t => t.validation?.reachable).length;
-  const validatedCount = tools.filter(t => t.validation !== null).length;
+  const reachableCount = tools.filter((t) => t.validation?.reachable).length;
+  const validatedCount = tools.filter((t) => t.validation !== null).length;
 
-  /* ── Render ─────────────────────────────────────────────── */
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal modal-wide" role="dialog" aria-modal="true" aria-label="ObservaScore Assessment">
-
-        {/* ── Header ── */}
+    <div
+      className="modal-overlay"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="modal modal-wide"
+        role="dialog"
+        aria-modal="true"
+        aria-label="ObservaScore Assessment"
+      >
         <div className="modal-header modal-header-indigo">
           <div className="modal-header-left">
             <span className="modal-icon">🎯</span>
             <div>
               <div className="modal-title">ObservaScore</div>
               <div className="modal-subtitle">
-                Add tools below, validate connections, then execute a combined maturity assessment
+                Global validated tools are preloaded. You can add more tools if needed.
               </div>
             </div>
           </div>
-          <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
+          <button className="modal-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
         </div>
 
-        {/* ── Body ── */}
         <div className="modal-body">
+          {validatedTools.length > 0 && (
+            <div className="modal-alert modal-alert-success animate-in">
+              <span className="modal-alert-icon">✓</span>
+              <div>
+                <div className="modal-alert-title">
+                  {validatedTools.length} global tool
+                  {validatedTools.length !== 1 ? "s" : ""} loaded
+                </div>
+                <div className="modal-alert-msg">
+                  These tools were validated from the Hub and are ready for assessment.
+                </div>
+              </div>
+            </div>
+          )}
 
-          {/* ── Add-tool bar ── */}
           <div className="mtool-add-bar">
             <div className="form-group mtool-add-tool">
               <label className="form-label">Tool</label>
               <select
                 className="form-select"
                 value={addTool}
-                onChange={e => setAddTool(e.target.value)}
+                onChange={(e) => setAddTool(e.target.value)}
                 disabled={busy}
               >
-                {TOOL_OPTIONS.map(t => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
+                {TOOL_OPTIONS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -307,8 +402,8 @@ export default function AssessModal({ onClose }) {
                 className="form-input"
                 type="url"
                 value={addUrl}
-                onChange={e => setAddUrl(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleAdd()}
+                onChange={(e) => setAddUrl(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAdd()}
                 placeholder="https://host:port"
                 disabled={busy}
               />
@@ -322,12 +417,11 @@ export default function AssessModal({ onClose }) {
                 className="form-input"
                 type="password"
                 value={addToken}
-                onChange={e => setAddToken(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleAdd()}
+                onChange={(e) => setAddToken(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAdd()}
                 placeholder="••••••••"
                 disabled={busy}
               />
-
             </div>
 
             <button
@@ -340,10 +434,8 @@ export default function AssessModal({ onClose }) {
             </button>
           </div>
 
-          {/* ── Tools table ── */}
           {tools.length > 0 ? (
             <div className="mtool-table-wrap animate-in">
-              {/* Header row */}
               <div className="mtool-cols mtool-header">
                 <span>#</span>
                 <span>Tool</span>
@@ -353,10 +445,10 @@ export default function AssessModal({ onClose }) {
                 <span>Actions</span>
               </div>
 
-              {/* Data rows */}
               {tools.map((tool, i) => {
                 const isValidating = validatingId === tool.id;
                 const v = tool.validation;
+
                 return (
                   <div key={tool.id} className="mtool-cols mtool-row">
                     <span className="mtool-num">{i + 1}</span>
@@ -364,9 +456,14 @@ export default function AssessModal({ onClose }) {
                     <span className="mtool-name">
                       <span>{TOOL_ICONS[tool.toolName] ?? "🔧"}</span>
                       {tool.toolName}
+                      {tool.source === "global" && (
+                        <span className="mtool-none"> · global</span>
+                      )}
                     </span>
 
-                    <span className="mtool-url" title={tool.baseUrl}>{tool.baseUrl}</span>
+                    <span className="mtool-url" title={tool.baseUrl}>
+                      {tool.baseUrl}
+                    </span>
 
                     <span className="mtool-auth">
                       {tool.authToken ? "•••••" : <span className="mtool-none">—</span>}
@@ -375,13 +472,28 @@ export default function AssessModal({ onClose }) {
                     <span className="mtool-status">
                       {isValidating ? (
                         <span className="mtool-validating">
-                          <span className="spinner" style={{ width: 12, height: 12, borderTopColor: "var(--accent)" }} />
+                          <span
+                            className="spinner"
+                            style={{
+                              width: 12,
+                              height: 12,
+                              borderTopColor: "var(--accent)",
+                            }}
+                          />
                           Checking…
                         </span>
                       ) : v ? (
-                        <span className={`validation-badge ${v.reachable ? "ok" : "fail"}`}>
+                        <span
+                          className={`validation-badge ${
+                            v.reachable ? "ok" : "fail"
+                          }`}
+                        >
                           {v.reachable
-                            ? `✓ ${v.latency_ms != null ? v.latency_ms + " ms" : "Connected"}`
+                            ? `✓ ${
+                                v.latency_ms != null
+                                  ? v.latency_ms + " ms"
+                                  : "Connected"
+                              }`
                             : "✗ Failed"}
                         </span>
                       ) : (
@@ -411,9 +523,10 @@ export default function AssessModal({ onClose }) {
                 );
               })}
 
-              {/* Summary bar */}
               <div className="mtool-summary-bar">
-                <span>{tools.length} tool{tools.length !== 1 ? "s" : ""} added</span>
+                <span>
+                  {tools.length} tool{tools.length !== 1 ? "s" : ""} added
+                </span>
                 {validatedCount > 0 && (
                   <span>
                     {reachableCount}/{validatedCount} validated reachable
@@ -430,10 +543,9 @@ export default function AssessModal({ onClose }) {
             </div>
           )}
 
-          {/* ── AI toggle ── */}
           <div
             className={`toggle-row${useAi ? " toggle-row-active" : ""}`}
-            onClick={() => !busy && setUseAi(v => !v)}
+            onClick={() => !busy && setUseAi((v) => !v)}
             style={{ marginTop: 16 }}
           >
             <div className="toggle-label">
@@ -445,18 +557,17 @@ export default function AssessModal({ onClose }) {
                 </div>
               </div>
             </div>
-            <label className="switch" onClick={e => e.stopPropagation()}>
+            <label className="switch" onClick={(e) => e.stopPropagation()}>
               <input
                 type="checkbox"
                 checked={useAi}
-                onChange={e => setUseAi(e.target.checked)}
+                onChange={(e) => setUseAi(e.target.checked)}
                 disabled={busy}
               />
               <span className="switch-track" />
             </label>
           </div>
 
-          {/* ── AI config (conditional) ── */}
           {useAi && (
             <div className="modal-ai-fields animate-in">
               <div className="form-grid form-grid-2">
@@ -465,14 +576,17 @@ export default function AssessModal({ onClose }) {
                   <select
                     className="form-select"
                     value={aiProvider}
-                    onChange={e => setAiProvider(e.target.value)}
+                    onChange={(e) => setAiProvider(e.target.value)}
                     disabled={busy}
                   >
-                    {AI_PROVIDERS.map(p => (
-                      <option key={p.value} value={p.value}>{p.label}</option>
+                    {AI_PROVIDERS.map((p) => (
+                      <option key={p.value} value={p.value}>
+                        {p.label}
+                      </option>
                     ))}
                   </select>
                 </div>
+
                 <div className="form-group">
                   <label className="form-label">
                     {aiProvider === "azure" ? "Azure API Key" : "API Key"}
@@ -481,34 +595,41 @@ export default function AssessModal({ onClose }) {
                     className="form-input"
                     type="password"
                     value={aiApiKey}
-                    onChange={e => setAiApiKey(e.target.value)}
-                    placeholder={aiProvider === "azure" ? "Azure OpenAI key" : "sk-••••••••••••••••••"}
+                    onChange={(e) => setAiApiKey(e.target.value)}
+                    placeholder={
+                      aiProvider === "azure"
+                        ? "Azure OpenAI key"
+                        : "sk-••••••••••••••••••"
+                    }
                     disabled={busy}
                   />
                 </div>
               </div>
 
-              {/* Azure-specific fields */}
               {aiProvider === "azure" && (
-                <div className="form-grid form-grid-2 animate-in" style={{ marginTop: 12 }}>
+                <div
+                  className="form-grid form-grid-2 animate-in"
+                  style={{ marginTop: 12 }}
+                >
                   <div className="form-group">
                     <label className="form-label">Azure Endpoint URL</label>
                     <input
                       className="form-input"
                       type="url"
                       value={azureEndpoint}
-                      onChange={e => setAzureEndpoint(e.target.value)}
+                      onChange={(e) => setAzureEndpoint(e.target.value)}
                       placeholder="https://your-resource.openai.azure.com/"
                       disabled={busy}
                     />
                   </div>
+
                   <div className="form-group">
                     <label className="form-label">Deployment Name</label>
                     <input
                       className="form-input"
                       type="text"
                       value={azureDeployment}
-                      onChange={e => setAzureDeployment(e.target.value)}
+                      onChange={(e) => setAzureDeployment(e.target.value)}
                       placeholder="e.g. gpt-4o"
                       disabled={busy}
                     />
@@ -518,10 +639,11 @@ export default function AssessModal({ onClose }) {
             </div>
           )}
 
-          {/* Status alert */}
           {status && (
             <div className={`modal-alert modal-alert-${status.type} animate-in`}>
-              <span className="modal-alert-icon">{status.type === "success" ? "✓" : "✗"}</span>
+              <span className="modal-alert-icon">
+                {status.type === "success" ? "✓" : "✗"}
+              </span>
               <div>
                 <div className="modal-alert-title">{status.title}</div>
                 <div className="modal-alert-msg">{status.msg}</div>
@@ -533,11 +655,14 @@ export default function AssessModal({ onClose }) {
             <div className="report-preview-card animate-in">
               <div className="report-preview-header">
                 <div>
-                  <div className="report-preview-title">Assessment Report Preview</div>
+                  <div className="report-preview-title">
+                    Assessment Report Preview
+                  </div>
                   <div className="report-preview-subtitle">
                     The generated HTML report is rendered inline. Download remains available separately.
                   </div>
                 </div>
+
                 <div className="report-preview-actions">
                   {reportLinks.downloadUrl && (
                     <button
@@ -547,6 +672,7 @@ export default function AssessModal({ onClose }) {
                       Download Report
                     </button>
                   )}
+
                   {reportLinks.jsonUrl && (
                     <button
                       className="btn btn-secondary btn-sm"
@@ -560,7 +686,9 @@ export default function AssessModal({ onClose }) {
 
               {previewFailed || !reportLinks.previewUrl ? (
                 <div className="report-preview-fallback">
-                  <div className="report-preview-fallback-title">Preview unavailable</div>
+                  <div className="report-preview-fallback-title">
+                    Preview unavailable
+                  </div>
                   <div className="report-preview-fallback-msg">
                     The assessment finished, but the HTML preview could not be displayed in the UI. You can still download the generated report.
                   </div>
@@ -577,7 +705,6 @@ export default function AssessModal({ onClose }) {
           )}
         </div>
 
-        {/* ── Footer ── */}
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose} disabled={busy}>
             Cancel
@@ -589,9 +716,17 @@ export default function AssessModal({ onClose }) {
             disabled={busy || tools.length === 0}
             title="Validate all tools sequentially"
           >
-            {validatingAll
-              ? <><span className="spinner" style={{ borderTopColor: "var(--accent)" }} /> Validating…</>
-              : "🔌 Validate All"}
+            {validatingAll ? (
+              <>
+                <span
+                  className="spinner"
+                  style={{ borderTopColor: "var(--accent)" }}
+                />{" "}
+                Validating…
+              </>
+            ) : (
+              "🔌 Validate All"
+            )}
           </button>
 
           <button
@@ -599,49 +734,19 @@ export default function AssessModal({ onClose }) {
             onClick={handleAssess}
             disabled={busy || tools.length === 0}
           >
-            {assessing
-              ? <><span className="spinner" /> {useAi ? "Analysing with AI…" : "Scoring…"}</>
-              : `▶ Execute Assessment${useAi ? " + AI" : ""} (${tools.length} tool${tools.length !== 1 ? "s" : ""})`}
+            {assessing ? (
+              <>
+                <span className="spinner" />{" "}
+                {useAi ? "Analysing with AI…" : "Scoring…"}
+              </>
+            ) : (
+              `▶ Execute Assessment${useAi ? " + AI" : ""} (${tools.length} tool${
+                tools.length !== 1 ? "s" : ""
+              })`
+            )}
           </button>
         </div>
-
       </div>
-    </div>
-  );
-}
-
-export function ReportDisplay({ htmlContent }) {
-  const [reportPopup, setReportPopup] = useState(null);
-
-  function handleReportDisplay(htmlContent) {
-    setReportPopup(
-      <div className="modal-overlay">
-        <div className="modal">
-          <div className="modal-header">
-            <h2>Assessment Report</h2>
-            <button onClick={() => setReportPopup(null)}>Close</button>
-          </div>
-          <div className="modal-body">
-            <iframe srcDoc={htmlContent} style={{ width: "100%", height: "400px" }} />
-          </div>
-          <div className="modal-footer">
-            <button onClick={() => triggerDownload(htmlContent)}>Download HTML</button>
-            <button onClick={() => setReportPopup(null)}>Close</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  async function handleAssessment() {
-    const result = await runAssessment(tools);
-    handleReportDisplay(result.htmlContent);
-  }
-
-  return (
-    <div>
-      {reportPopup}
-      <button onClick={handleAssessment}>Run Assessment</button>
     </div>
   );
 }

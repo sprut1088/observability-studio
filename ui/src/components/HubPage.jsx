@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import CrawlModal from "./CrawlModal";
 import AssessModal from "./AssessModal";
 import RCAModal from "./RCAModal";
 import RedIntelligenceModal from "./RedIntelligenceModal";
 import GapMapModal from "./GapMapModal";
+import GlobalToolConnectivity from "./GlobalToolConnectivity";
 import { getFeatureFlags } from "../api";
 
 /* ── Tile definitions ───────────────────────────────────── */
@@ -74,12 +75,10 @@ const TILES = [
   },
 ];
 
-/* ══════════════════════════════════════════════════════════
-   HubPage
-══════════════════════════════════════════════════════════ */
 export default function HubPage() {
-  const [activeTile, setActiveTile] = useState(null); // "obscrawl" | "observascore" | null
-  // Feature flags — default all true so tiles show during initial load
+  const [activeTile, setActiveTile] = useState(null);
+  const [tools, setTools] = useState([]);
+
   const [flags, setFlags] = useState({
     observascore: true,
     obscrawl: true,
@@ -88,84 +87,115 @@ export default function HubPage() {
     observability_gap_map: true,
   });
 
+  const validatedTools = useMemo(
+    () => tools.filter((tool) => tool.validated),
+    [tools]
+  );
+
+  const hasValidatedTools = validatedTools.length > 0;
+
   useEffect(() => {
     getFeatureFlags()
       .then((res) => setFlags(res.data || {}))
-      .catch(() => {
-        // If the endpoint is unreachable, keep defaults (show everything)
-      });
+      .catch(() => {});
   }, []);
 
-  // Only render tiles whose feature flag is enabled
   const visibleTiles = TILES.filter((tile) => flags[tile.id] !== false);
-
 
   return (
     <div className="hub-wrapper">
-      {/* ── Section label ─────────────────────────────── */}
-      <div className="hub-section-label">
-        <span className="hub-section-line" />
-        <span className="hub-section-text">Choose a module</span>
-        <span className="hub-section-line" />
-      </div>
+      <GlobalToolConnectivity onChange={setTools} />
 
-      {/* ── Tile grid ─────────────────────────────────── */}
-      <div className="hub-grid">
-        {visibleTiles.map((tile) => (
-          <button
-            key={tile.id}
-            className={`hub-tile ${tile.accentClass}`}
-            onClick={() => setActiveTile(tile.id)}
-            aria-label={`Open ${tile.title}`}
-          >
-            {/* Top row */}
-            <div className="hub-tile-top">
-              <span className={`hub-tile-badge ${tile.badgeClass}`}>{tile.badge}</span>
-            </div>
+      {!hasValidatedTools && (
+        <div className="module-lock-message">
+          Validate at least one observability tool to unlock modules.
+        </div>
+      )}
 
-            {/* Icon + title */}
-            <div className="hub-tile-icon-wrap">
-              <span className="hub-tile-icon">{tile.icon}</span>
-            </div>
-            <div className="hub-tile-title">{tile.title}</div>
-            <div className="hub-tile-tagline">{tile.tagline}</div>
+      {hasValidatedTools && (
+        <>
+          <div className="hub-section-label">
+            <span className="hub-section-line" />
+            <span className="hub-section-text">Choose a module</span>
+            <span className="hub-section-line" />
+          </div>
 
-            {/* Description */}
-            <p className="hub-tile-desc">{tile.description}</p>
+          <div className="hub-grid">
+            {visibleTiles.map((tile) => (
+              <button
+                key={tile.id}
+                className={`hub-tile ${tile.accentClass}`}
+                onClick={() => setActiveTile(tile.id)}
+                aria-label={`Open ${tile.title}`}
+              >
+                <div className="hub-tile-top">
+                  <span className={`hub-tile-badge ${tile.badgeClass}`}>
+                    {tile.badge}
+                  </span>
+                </div>
 
-            {/* Feature list */}
-            <ul className="hub-tile-features">
-              {tile.features.map((f) => (
-                <li key={f}>
-                  <span className="hub-feature-dot" />
-                  {f}
-                </li>
-              ))}
-            </ul>
+                <div className="hub-tile-icon-wrap">
+                  <span className="hub-tile-icon">{tile.icon}</span>
+                </div>
 
-            {/* CTA */}
-            <div className={`hub-tile-cta ${tile.accentClass}-cta`}>
-              {tile.id === "observability_gap_map" ? "Open Gap Map →" : `Open ${tile.title} →`}
-            </div>
-          </button>
-        ))}
-      </div>
+                <div className="hub-tile-title">{tile.title}</div>
+                <div className="hub-tile-tagline">{tile.tagline}</div>
 
-      {/* ── Modals ────────────────────────────────────── */}
+                <p className="hub-tile-desc">{tile.description}</p>
+
+                <ul className="hub-tile-features">
+                  {tile.features.map((f) => (
+                    <li key={f}>
+                      <span className="hub-feature-dot" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+
+                <div className={`hub-tile-cta ${tile.accentClass}-cta`}>
+                  {tile.id === "observability_gap_map"
+                    ? "Open Gap Map →"
+                    : `Open ${tile.title} →`}
+                </div>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
       {activeTile === "obscrawl" && (
-        <CrawlModal onClose={() => setActiveTile(null)} />
+        <CrawlModal
+          onClose={() => setActiveTile(null)}
+          validatedTools={validatedTools}
+        />
       )}
+
       {activeTile === "observascore" && (
-        <AssessModal onClose={() => setActiveTile(null)} />
+        <AssessModal
+          onClose={() => setActiveTile(null)}
+          validatedTools={validatedTools}
+        />
       )}
+
       {activeTile === "rca_agent" && (
-        <RCAModal onClose={() => setActiveTile(null)} />
+        <RCAModal
+          onClose={() => setActiveTile(null)}
+          validatedTools={validatedTools}
+        />
       )}
+
       {activeTile === "red_panel_intelligence" && (
-        <RedIntelligenceModal onClose={() => setActiveTile(null)} />
+        <RedIntelligenceModal
+          onClose={() => setActiveTile(null)}
+          validatedTools={validatedTools}
+        />
       )}
+
       {activeTile === "observability_gap_map" && (
-        <GapMapModal onClose={() => setActiveTile(null)} />
+        <GapMapModal
+          onClose={() => setActiveTile(null)}
+          validatedTools={validatedTools}
+        />
       )}
     </div>
   );
