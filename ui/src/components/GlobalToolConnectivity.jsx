@@ -115,10 +115,11 @@ export default function GlobalToolConnectivity({ onChange }) {
     <section className="global-tool-connectivity">
       <div className="connectivity-header">
         <div>
-          <h2>Tool Connectivity</h2>
-          <p>
-            Add and validate your observability tools once. Modules will reuse
-            these connections.
+          <div className="connectivity-kicker">🔌 Shared Tool Layer</div>
+          <h2 className="connectivity-title">Tool Connectivity</h2>
+          <p className="connectivity-subtitle">
+            Add and validate observability tools once. ObsCrawl, ObservaScore,
+            RCA, RED Intelligence, and Gap Map will reuse these saved connections.
           </p>
         </div>
 

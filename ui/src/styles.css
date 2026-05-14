@@ -2118,3 +2118,244 @@ html[data-theme="dark"] .btn-rose {
 html[data-theme="dark"] .btn-cyan {
   box-shadow: 0 6px 18px rgba(8, 145, 178, 0.45);
 }
+
+/* ============================================
+   GLOBAL TOOL CONNECTIVITY
+   ============================================ */
+
+.global-tool-connectivity {
+  max-width: 1180px;
+  margin: 0 auto 36px;
+  padding: 26px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(99, 102, 241, 0.16);
+  border-radius: 28px;
+  box-shadow: var(--shadow-card), 0 24px 60px rgba(99, 102, 241, 0.08);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.connectivity-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 22px;
+}
+
+.connectivity-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  background: var(--accent-glow);
+  border: 1px solid var(--border-focus);
+  color: var(--accent-bright);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.connectivity-title {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--text-heading);
+}
+
+.connectivity-subtitle {
+  max-width: 680px;
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.connectivity-form {
+  display: grid;
+  grid-template-columns: 220px 1fr 280px auto;
+  gap: 14px;
+  align-items: end;
+  padding: 18px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+}
+
+.connectivity-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+.connectivity-form input,
+.connectivity-form select {
+  height: 42px;
+  width: 100%;
+  padding: 0 14px;
+  border-radius: 13px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+}
+
+.connectivity-form input:focus,
+.connectivity-form select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.connectivity-form button,
+.connectivity-header .secondary-btn {
+  height: 42px;
+  border-radius: 13px;
+  border: none;
+  padding: 0 18px;
+  font-size: 13px;
+  font-weight: 800;
+  font-family: var(--font);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.connectivity-form button {
+  background: var(--grad-accent);
+  color: #fff;
+  box-shadow: var(--shadow-btn);
+}
+
+.connectivity-form button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.connectivity-header .secondary-btn {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.connectivity-message {
+  margin-top: 14px;
+  padding: 11px 14px;
+  border-radius: 14px;
+  background: var(--accent-glow);
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  color: var(--accent-bright);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.validated-tools {
+  margin-top: 18px;
+  display: grid;
+  gap: 10px;
+}
+
+.empty-tools {
+  padding: 24px;
+  text-align: center;
+  border: 1px dashed var(--border-hover);
+  border-radius: 18px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.validated-tool {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--green-border);
+  background: var(--green-bg);
+}
+
+.validated-tool strong {
+  display: block;
+  color: var(--text-heading);
+  text-transform: capitalize;
+  font-size: 14px;
+}
+
+.validated-tool span {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: var(--mono);
+  margin-top: 2px;
+}
+
+.validated-tool .status-ok {
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid var(--green-border);
+  color: var(--green);
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.validated-tool button {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--red-border);
+  background: transparent;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.module-lock-message {
+  max-width: 1180px;
+  margin: 0 auto 28px;
+  padding: 15px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(217, 119, 6, 0.25);
+  background: var(--yellow-bg);
+  color: var(--yellow);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+}
+
+html[data-theme="dark"] .global-tool-connectivity {
+  background: rgba(20, 24, 42, 0.82);
+}
+
+html[data-theme="dark"] .empty-tools {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html[data-theme="dark"] .validated-tool .status-ok {
+  background: rgba(16, 185, 129, 0.08);
+}
+
+@media (max-width: 960px) {
+  .connectivity-form {
+    grid-template-columns: 1fr;
+  }
+
+  .validated-tool {
+    grid-template-columns: 1fr;
+  }
+
+  .connectivity-header {
+    flex-direction: column;
+  }
+}
