@@ -1,16 +1,5 @@
-import { useState } from "react";
-import { v1Validate, v1Rca, API_HOST } from "../api";
-
-/* ── Shared constants ───────────────────────────────────── */
-const TOOL_OPTIONS = [
-  { value: "prometheus",    label: "🔥 Prometheus"     },
-  { value: "grafana",       label: "📊 Grafana"        },
-  { value: "jaeger",        label: "🔍 Jaeger"         },
-  { value: "opensearch",    label: "🔎 OpenSearch"     },
-  { value: "elasticsearch", label: "🔎 Elasticsearch"  },
-  { value: "alertmanager",  label: "🔔 Alertmanager"   },
-  { value: "loki",          label: "📋 Loki"           },
-];
+import { useMemo, useState } from "react";
+import { v1Rca, API_HOST } from "../api";
 
 const RCA_SUPPORTED_TOOLS = [
   "prometheus",
@@ -32,11 +21,9 @@ const TOOL_ICONS = {
   loki: "📋",
 };
 
-let _uid = 0;
-const nextId = () => ++_uid;
-
 function triggerDownload(downloadPath) {
   if (!downloadPath) return;
+
   const url = downloadPath.startsWith("http")
     ? downloadPath
     : `${API_HOST}${downloadPath}`;
@@ -50,35 +37,26 @@ function triggerDownload(downloadPath) {
   document.body.removeChild(a);
 }
 
-function mapValidatedToolsToRows(validatedTools = []) {
+function normalizeValidatedTools(validatedTools = []) {
   return validatedTools
-    .filter((tool) =>
-      RCA_SUPPORTED_TOOLS.includes(tool.tool_name || tool.toolName)
-    )
     .map((tool) => ({
-      id: tool.id || nextId(),
-      toolName: tool.tool_name || tool.toolName,
-      baseUrl: tool.base_url || tool.baseUrl,
-      authToken: tool.auth_token || tool.authToken || null,
-      validation: {
-        reachable: true,
-        message: "Validated globally",
-        latency_ms: tool.validation_result?.latency_ms ?? null,
-      },
-      source: "global",
-    }));
+      toolName: tool.tool_name || tool.toolName || tool.name,
+      baseUrl: tool.base_url || tool.baseUrl || tool.url,
+      authToken: tool.auth_token || tool.authToken || tool.api_key || null,
+      validation: tool.validation_result || tool.validation || { reachable: true },
+    }))
+    .filter(
+      (tool) =>
+        tool.toolName &&
+        tool.baseUrl &&
+        RCA_SUPPORTED_TOOLS.includes(tool.toolName)
+    );
 }
 
-/* ══════════════════════════════════════════════════════════
-   RCAModal — multi-tool Root Cause Analysis modal
-══════════════════════════════════════════════════════════ */
 export default function RCAModal({ onClose, validatedTools = [] }) {
-  const [addTool, setAddTool] = useState("prometheus");
-  const [addUrl, setAddUrl] = useState("");
-  const [addToken, setAddToken] = useState("");
-
-  const [tools, setTools] = useState(() =>
-    mapValidatedToolsToRows(validatedTools)
+  const tools = useMemo(
+    () => normalizeValidatedTools(validatedTools),
+    [validatedTools]
   );
 
   const [service, setService] = useState("");
@@ -93,100 +71,30 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
   const [azureDeployment, setAzureDeployment] = useState("");
   const [azureApiVersion, setAzureApiVersion] = useState("");
 
-  const [validatingId, setValidatingId] = useState(null);
-  const [validatingAll, setValidatingAll] = useState(false);
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState(null);
 
-  const busy = validatingId !== null || validatingAll || running;
-  const globalToolCount = tools.filter((tool) => tool.source === "global").length;
-
-  function handleAdd() {
-    if (!addUrl.trim()) return;
-
-    setTools((prev) => [
-      ...prev,
-      {
-        id: nextId(),
-        toolName: addTool,
-        baseUrl: addUrl.trim(),
-        authToken: addToken.trim() || null,
-        validation: null,
-        source: "manual",
-      },
-    ]);
-
-    setAddUrl("");
-    setAddToken("");
-    setStatus(null);
-  }
-
-  function handleRemove(id) {
-    setTools((prev) => prev.filter((t) => t.id !== id));
-  }
-
-  function setToolValidation(id, result) {
-    setTools((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, validation: result } : t))
-    );
-  }
-
-  async function handleValidate(tool) {
-    setValidatingId(tool.id);
-
-    try {
-      const res = await v1Validate({
-        tool_name: tool.toolName,
-        base_url: tool.baseUrl,
-        auth_token: tool.authToken,
-      });
-
-      setToolValidation(tool.id, res.data);
-    } catch (err) {
-      setToolValidation(tool.id, {
-        reachable: false,
-        message: err?.response?.data?.detail || err.message,
-      });
-    } finally {
-      setValidatingId(null);
-    }
-  }
-
-  async function handleValidateAll() {
-    setValidatingAll(true);
-    setStatus(null);
-
-    for (const tool of tools) {
-      setValidatingId(tool.id);
-
-      try {
-        const res = await v1Validate({
-          tool_name: tool.toolName,
-          base_url: tool.baseUrl,
-          auth_token: tool.authToken,
-        });
-
-        setToolValidation(tool.id, res.data);
-      } catch (err) {
-        setToolValidation(tool.id, {
-          reachable: false,
-          message: err?.response?.data?.detail || err.message,
-        });
-      }
-    }
-
-    setValidatingId(null);
-    setValidatingAll(false);
-  }
+  const busy = running;
 
   async function handleRunRCA() {
-    if (tools.length === 0) return;
+    if (tools.length === 0) {
+      setStatus({
+        type: "error",
+        title: "Validation error",
+        msg: "No RCA-compatible globally validated tools found. Validate Prometheus, Grafana, Jaeger, OpenSearch, Elasticsearch, Alertmanager, or Loki from Tool Connectivity.",
+        stats: [],
+        url: null,
+      });
+      return;
+    }
 
     if (useAI && !apiKey.trim()) {
       setStatus({
         type: "error",
         title: "Missing API key",
         msg: "An API key is required when AI narrative is enabled.",
+        stats: [],
+        url: null,
       });
       return;
     }
@@ -196,6 +104,8 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
         type: "error",
         title: "Missing Azure endpoint",
         msg: "Azure OpenAI endpoint URL is required.",
+        stats: [],
+        url: null,
       });
       return;
     }
@@ -205,6 +115,8 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
         type: "error",
         title: "Missing deployment name",
         msg: "Azure OpenAI deployment name is required.",
+        stats: [],
+        url: null,
       });
       return;
     }
@@ -214,10 +126,10 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
 
     try {
       const payload = {
-        tools: tools.map((t) => ({
-          tool_name: t.toolName,
-          base_url: t.baseUrl,
-          auth_token: t.authToken ?? null,
+        tools: tools.map((tool) => ({
+          tool_name: tool.toolName,
+          base_url: tool.baseUrl,
+          auth_token: tool.authToken ?? null,
         })),
         incident: {
           service: service.trim() || "all",
@@ -278,9 +190,6 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
     }
   }
 
-  const reachableCount = tools.filter((t) => t.validation?.reachable).length;
-  const validatedCount = tools.filter((t) => t.validation !== null).length;
-
   return (
     <div
       className="modal-overlay"
@@ -298,116 +207,55 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
             <div>
               <div className="modal-title">RCA Agent</div>
               <div className="modal-subtitle">
-                Reuse globally validated tools, describe the incident, and
-                generate a Root Cause Analysis report.
+                Reuse globally validated tools, describe the incident, and generate a Root Cause Analysis report.
               </div>
             </div>
           </div>
+
           <button className="modal-close" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
 
         <div className="modal-body">
-          {globalToolCount > 0 && (
-            <div className="modal-alert modal-alert-success animate-in">
-              <span className="modal-alert-icon">✓</span>
-              <div>
-                <div className="modal-alert-title">
-                  {globalToolCount} global tool
-                  {globalToolCount !== 1 ? "s" : ""} preloaded
-                </div>
-                <div className="modal-alert-msg">
-                  RCA-compatible tools were loaded from Hub validation.
-                </div>
-              </div>
-            </div>
-          )}
-
           <div className="rca-step-label">
             <span className="rca-step-num">1</span>
-            <span>Connect observability tools</span>
-          </div>
-
-          <div className="mtool-add-bar">
-            <div className="form-group mtool-add-tool">
-              <label className="form-label">Tool</label>
-              <select
-                className="form-select"
-                value={addTool}
-                onChange={(e) => setAddTool(e.target.value)}
-                disabled={busy}
-              >
-                {TOOL_OPTIONS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="form-group mtool-add-url">
-              <label className="form-label">Base URL</label>
-              <input
-                className="form-input"
-                type="url"
-                value={addUrl}
-                onChange={(e) => setAddUrl(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-                placeholder="https://host:port"
-                disabled={busy}
-              />
-            </div>
-
-            <div className="form-group mtool-add-token">
-              <label className="form-label">
-                Auth Token <span className="form-label-opt">(opt)</span>
-              </label>
-              <input
-                className="form-input"
-                type="password"
-                value={addToken}
-                onChange={(e) => setAddToken(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-                placeholder="••••••••"
-                disabled={busy}
-              />
-            </div>
-
-            <button
-              className="btn btn-amber mtool-add-btn"
-              onClick={handleAdd}
-              disabled={busy || !addUrl.trim()}
-            >
-              + Add
-            </button>
+            <span>Validated RCA tools</span>
           </div>
 
           {tools.length > 0 ? (
-            <div className="mtool-table-wrap animate-in">
-              <div className="mtool-cols mtool-header">
-                <span>#</span>
-                <span>Tool</span>
-                <span>URL</span>
-                <span>Auth</span>
-                <span>Validation</span>
-                <span>Actions</span>
+            <>
+              <div className="modal-alert modal-alert-success animate-in">
+                <span className="modal-alert-icon">✓</span>
+                <div>
+                  <div className="modal-alert-title">
+                    {tools.length} RCA-compatible tool{tools.length !== 1 ? "s" : ""} loaded
+                  </div>
+                  <div className="modal-alert-msg">
+                    These connections were validated from the Hub and will be reused by RCA Agent.
+                  </div>
+                </div>
               </div>
 
-              {tools.map((tool, i) => {
-                const isValidating = validatingId === tool.id;
-                const v = tool.validation;
+              <div className="mtool-table-wrap animate-in">
+                <div className="mtool-cols mtool-cols-global mtool-header">
+                  <span>#</span>
+                  <span>Tool</span>
+                  <span>URL</span>
+                  <span>Auth</span>
+                  <span>Status</span>
+                </div>
 
-                return (
-                  <div key={tool.id} className="mtool-cols mtool-row">
-                    <span className="mtool-num">{i + 1}</span>
+                {tools.map((tool, index) => (
+                  <div
+                    key={`${tool.toolName}-${tool.baseUrl}`}
+                    className="mtool-cols mtool-cols-global mtool-row"
+                  >
+                    <span className="mtool-num">{index + 1}</span>
 
                     <span className="mtool-name">
                       <span>{TOOL_ICONS[tool.toolName] ?? "🔧"}</span>
                       {tool.toolName}
-                      {tool.source === "global" && (
-                        <span className="mtool-none"> · global</span>
-                      )}
                     </span>
 
                     <span className="mtool-url" title={tool.baseUrl}>
@@ -419,74 +267,22 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
                     </span>
 
                     <span className="mtool-status">
-                      {isValidating ? (
-                        <span className="mtool-validating">
-                          <span
-                            className="spinner"
-                            style={{
-                              width: 12,
-                              height: 12,
-                              borderTopColor: "var(--amber, #f59e0b)",
-                            }}
-                          />
-                          Checking…
-                        </span>
-                      ) : v ? (
-                        <span
-                          className={`validation-badge ${
-                            v.reachable ? "ok" : "fail"
-                          }`}
-                        >
-                          {v.reachable
-                            ? `✓ ${
-                                v.latency_ms != null
-                                  ? v.latency_ms + " ms"
-                                  : "Connected"
-                              }`
-                            : "✗ Failed"}
-                        </span>
-                      ) : (
-                        <span className="mtool-pending">Not validated</span>
-                      )}
-                    </span>
-
-                    <span className="mtool-actions">
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => handleValidate(tool)}
-                        disabled={busy}
-                      >
-                        {isValidating ? "…" : "Validate"}
-                      </button>
-                      <button
-                        className="btn btn-danger btn-sm"
-                        onClick={() => handleRemove(tool.id)}
-                        disabled={busy}
-                      >
-                        ✕
-                      </button>
+                      <span className="validation-badge ok">✓ Global</span>
                     </span>
                   </div>
-                );
-              })}
+                ))}
 
-              <div className="mtool-summary-bar">
-                <span>
-                  {tools.length} tool{tools.length !== 1 ? "s" : ""} added
-                </span>
-                {validatedCount > 0 && (
-                  <span>
-                    {reachableCount}/{validatedCount} validated reachable
-                  </span>
-                )}
+                <div className="mtool-summary-bar">
+                  <span>{tools.length} tool{tools.length !== 1 ? "s" : ""} ready</span>
+                  <span>Source: Hub connectivity</span>
+                </div>
               </div>
-            </div>
+            </>
           ) : (
             <div className="empty-state">
               <span className="empty-icon">🔌</span>
               <span className="empty-text">
-                Add at least one tool above — Prometheus, Grafana, Jaeger, or
-                OpenSearch.
+                No RCA-compatible globally validated tools found. Validate Prometheus, Grafana, Jaeger, OpenSearch, Elasticsearch, Alertmanager, or Loki from Tool Connectivity.
               </span>
             </div>
           )}
@@ -566,12 +362,12 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
             <label className="toggle-label">
               <span
                 className={`toggle-switch ${useAI ? "active" : ""}`}
-                onClick={() => !busy && setUseAI((v) => !v)}
+                onClick={() => !busy && setUseAI((value) => !value)}
                 role="switch"
                 aria-checked={useAI}
                 tabIndex={0}
                 onKeyDown={(e) =>
-                  e.key === " " && !busy && setUseAI((v) => !v)
+                  e.key === " " && !busy && setUseAI((value) => !value)
                 }
               >
                 <span className="toggle-thumb" />
@@ -602,9 +398,7 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
 
               <div className="form-group">
                 <label className="form-label">
-                  {aiProvider === "azure"
-                    ? "Azure API Key"
-                    : "Anthropic API Key"}
+                  {aiProvider === "azure" ? "Azure API Key" : "Anthropic API Key"}
                 </label>
                 <input
                   className="form-input"
@@ -681,9 +475,9 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
                       gap: ".4rem",
                     }}
                   >
-                    {status.stats.map((s, i) => (
+                    {status.stats.map((item, index) => (
                       <span
-                        key={i}
+                        key={index}
                         style={{
                           display: "inline-block",
                           padding: ".15rem .55rem",
@@ -694,7 +488,7 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
                           color: "inherit",
                         }}
                       >
-                        {s}
+                        {item}
                       </span>
                     ))}
                   </div>
@@ -720,24 +514,6 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
           </button>
 
           <button
-            className="btn btn-secondary"
-            onClick={handleValidateAll}
-            disabled={busy || tools.length === 0}
-          >
-            {validatingAll ? (
-              <>
-                <span
-                  className="spinner"
-                  style={{ borderTopColor: "var(--accent)" }}
-                />{" "}
-                Validating…
-              </>
-            ) : (
-              "🔌 Validate All"
-            )}
-          </button>
-
-          <button
             className="btn btn-amber"
             onClick={handleRunRCA}
             disabled={busy || tools.length === 0}
@@ -747,9 +523,7 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
                 <span className="spinner" /> Analysing…
               </>
             ) : (
-              `🔍 Run RCA (${tools.length} tool${
-                tools.length !== 1 ? "s" : ""
-              })`
+              `🔍 Run RCA (${tools.length} tool${tools.length !== 1 ? "s" : ""})`
             )}
           </button>
         </div>
