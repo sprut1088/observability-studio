@@ -42,10 +42,25 @@ class BaseAdapter:
 
         self._configure_auth()
 
+    #def _configure_auth(self) -> None:
+        #"""Override in subclasses to set auth headers/credentials."""
+        #username = self.config.get("username")
+        #password = self.config.get("password")
+        #if username and password:
+        #   self.session.auth = (username, password)
+
     def _configure_auth(self) -> None:
-        """Override in subclasses to set auth headers/credentials."""
+        api_key = self.config.get("api_key")
+
+        if api_key:
+            self.session.headers.update({
+                "Authorization": f"Bearer {api_key}"
+            })
+            return
+
         username = self.config.get("username")
         password = self.config.get("password")
+
         if username and password:
             self.session.auth = (username, password)
 
