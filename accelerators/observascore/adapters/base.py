@@ -50,6 +50,7 @@ class BaseAdapter:
         #   self.session.auth = (username, password)
 
     def _configure_auth(self) -> None:
+        print("DEBUG AUTH api_key_present=", bool(api_key), "headers=", dict(self.session.headers), flush=True)
         api_key = self.config.get("api_key")
 
         if api_key:
@@ -60,6 +61,7 @@ class BaseAdapter:
 
         username = self.config.get("username")
         password = self.config.get("password")
+        print("DEBUG AUTH api_key_present=", bool(api_key), "headers=", dict(self.session.headers), flush=True)
 
         if username and password:
             self.session.auth = (username, password)
