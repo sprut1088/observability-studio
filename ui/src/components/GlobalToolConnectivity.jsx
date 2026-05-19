@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { v1Validate } from "../api";
 
 const TOOL_OPTIONS = [
@@ -15,7 +15,21 @@ const TOOL_OPTIONS = [
   { value: "splunk", label: "🌊 Splunk" },
 ];
 
-const STORAGE_KEY = "observability_studio_validated_tools";
+function deriveSplunkUrls(inputUrl) {
+  try {
+    const parsed = new URL(inputUrl);
+    const hostname = parsed.hostname;
+
+    return {
+      splunk_base_url: `http://${hostname}:8000`,
+      splunk_mgmt_url: `https://${hostname}:8089`,
+      splunk_hec_url: `http://${hostname}:8088`,
+      splunk_verify_ssl: false,
+    };
+  } catch {
+    return {};
+  }
+}
 
 export default function GlobalToolConnectivity({ onChange }) {
   const [toolName, setToolName] = useState("prometheus");
@@ -25,27 +39,13 @@ export default function GlobalToolConnectivity({ onChange }) {
   const [validating, setValidating] = useState(false);
   const [message, setMessage] = useState("");
 
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setTools(parsed);
-        onChange?.(parsed);
-      } catch {
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    }
-  }, [onChange]);
-
   const validatedTools = useMemo(
     () => tools.filter((tool) => tool.validated),
     [tools]
   );
 
-  const persist = (nextTools) => {
+  const persistInMemory = (nextTools) => {
     setTools(nextTools);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextTools));
     onChange?.(nextTools);
   };
 
@@ -58,20 +58,26 @@ export default function GlobalToolConnectivity({ onChange }) {
     setValidating(true);
     setMessage("");
 
+    const splunkFields =
+      toolName === "splunk" ? deriveSplunkUrls(baseUrl.trim()) : {};
+
     const candidate = {
       tool_name: toolName,
       base_url: baseUrl.trim(),
       auth_token: authToken.trim() || null,
+      ...splunkFields,
+      splunk_hec_token:
+        toolName === "splunk" ? authToken.trim() || null : undefined,
     };
 
     try {
-      const result = await v1Validate(candidate);
+      const res = await v1Validate(candidate);
 
       const nextTool = {
         ...candidate,
         id: `${toolName}-${Date.now()}`,
         validated: true,
-        validation_result: result,
+        validation_result: res.data,
         validated_at: new Date().toISOString(),
       };
 
@@ -86,10 +92,10 @@ export default function GlobalToolConnectivity({ onChange }) {
         nextTool,
       ];
 
-      persist(nextTools);
+      persistInMemory(nextTools);
       setBaseUrl("");
       setAuthToken("");
-      setMessage("Tool validated and saved.");
+      setMessage("Tool validated and saved for this browser session.");
     } catch (error) {
       setMessage(
         error?.response?.data?.detail ||
@@ -103,23 +109,22 @@ export default function GlobalToolConnectivity({ onChange }) {
 
   const removeTool = (id) => {
     const nextTools = tools.filter((tool) => tool.id !== id);
-    persist(nextTools);
+    persistInMemory(nextTools);
   };
 
   const clearAll = () => {
-    localStorage.removeItem(STORAGE_KEY);
-    persist([]);
+    persistInMemory([]);
+    setMessage("All session tools cleared.");
   };
 
   return (
     <section className="global-tool-connectivity">
       <div className="connectivity-header">
         <div>
-          <div className="connectivity-kicker">🔌 Shared Tool Layer</div>
-          <h2 className="connectivity-title">Tool Connectivity</h2>
-          <p className="connectivity-subtitle">
-            Add and validate observability tools once. ObsCrawl, ObservaScore,
-            RCA, RED Intelligence, and Gap Map will reuse these saved connections.
+          <h2>Tool Connectivity</h2>
+          <p>
+            Add and validate tools for this session. Reloading the page clears
+            them.
           </p>
         </div>
 
