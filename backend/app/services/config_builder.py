@@ -56,19 +56,26 @@ def build_runtime_config(payload: dict, workdir: Path) -> Path:
 
         # Splunk-specific fields
         if name == "splunk":
-            urls = derive_splunk_urls(tool.get("url", ""))
-            if tool.get("splunk_base_url"):
-                source_cfg["splunk_base_url"] = tool.get("splunk_base_url") or urls["base"]
-            if tool.get("splunk_mgmt_url"):
-                source_cfg["splunk_mgmt_url"] = tool.get("splunk_mgmt_url") or urls["mgmt"]
-            if tool.get("splunk_hec_url"):
-                source_cfg["splunk_hec_url"] = tool.get("splunk_hec_url") or urls["hec"]
+            #urls = derive_splunk_urls(tool.get("url", ""))
+            #if tool.get("splunk_base_url"):
+            #    source_cfg["splunk_base_url"] = tool.get("splunk_base_url") or urls["base"]
+            #if tool.get("splunk_mgmt_url"):
+            #    source_cfg["splunk_mgmt_url"] = tool.get("splunk_mgmt_url") or urls["mgmt"]
+            #if tool.get("splunk_hec_url"):
+            #    source_cfg["splunk_hec_url"] = tool.get("splunk_hec_url") or urls["hec"]
+
+            source_cfg["splunk_base_url"] = tool.get("splunk_base_url") or urls["base"]
+            source_cfg["splunk_mgmt_url"] = tool.get("splunk_mgmt_url") or urls["mgmt"]
+            source_cfg["splunk_hec_url"] = tool.get("splunk_hec_url") or urls["hec"]
+            source_cfg["splunk_hec_token"] = tool.get("splunk_hec_token") or tool.get("api_key")
+            source_cfg["splunk_verify_ssl"] = tool.get("splunk_verify_ssl", False)
+
 
             # Existing Auth Token field becomes Splunk HEC token
-            source_cfg["splunk_hec_token"] = (
-                tool.get("splunk_hec_token")
-                or tool.get("api_key")
-            )
+            #source_cfg["splunk_hec_token"] = (
+            #    tool.get("splunk_hec_token")
+            #    or tool.get("api_key")
+            #)
 
             # Private values come from local config/config.yaml
             source_cfg["username"] = splunk_config.get("username")
