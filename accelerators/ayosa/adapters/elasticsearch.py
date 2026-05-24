@@ -19,17 +19,37 @@ class ElasticsearchAdapter:
         if service:
             query_text = f'({query_text}) AND "{service}"'
 
+        must = [
+            {
+                "multi_match": {
+                    "query": "error exception timeout failed",
+                    "fields": ["body", "message", "log", "severity", "service.name", "service_name"],
+                    "operator": "or"
+                }
+            }
+        ]
+
+        if service:
+            must.append({
+                "multi_match": {
+                    "query": service,
+                    "fields": ["service.name", "service_name", "resource.service.name", "body", "message"],
+                    "operator": "and"
+                }
+            })
+
         body = {
             "size": 20,
             "query": {
-                "query_string": {
-                    "query": query_text
+                "bool": {
+                    "must": must
                 }
             },
             "sort": [
                 {
                     "@timestamp": {
-                        "order": "desc"
+                        "order": "desc",
+                        "unmapped_type": "date"
                     }
                 }
             ]
