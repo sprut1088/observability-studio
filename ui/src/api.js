@@ -30,5 +30,5 @@ export const getFeatureFlags = () => api.get("/feature-flags");
 export default api;
 
 export function runAyosaInvestigation(payload) {
-  return api.post("/api/ayosa/chat", payload);
+  return api.post("/ayosa/chat", payload);
 }
