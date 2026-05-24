@@ -9,6 +9,7 @@ from backend.app.routes.download import router as download_router
 from backend.app.routes.v1 import router as v1_router
 from backend.app.routes.feature_flags import router as feature_flags_router
 from shared_core.feature_flags import load_feature_flags
+from accelerators.ayosa.router import router as ayosa_router
 
 app = FastAPI(title="Observability Studio API", version="0.3.0")
 
@@ -32,6 +33,7 @@ app.include_router(observability_gap_map_router, prefix="/api")
 app.include_router(download_router, prefix="/api")
 app.include_router(v1_router, prefix="/api")            # Hub v1 — /api/v1/{validate,crawl,assess}
 app.include_router(feature_flags_router, prefix="/api") # GET /api/feature-flags
+app.include_router(ayosa_router, prefix="/api/ayosa", tags=["AYOSA"])   # AYOSA endpoints under /api/ayosa/*
 
 
 def _require_flag(name: str) -> None:
