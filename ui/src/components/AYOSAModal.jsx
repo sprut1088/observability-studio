@@ -1,10 +1,23 @@
 import { useState } from "react";
 
-const DEFAULT_TOOLS = [
+const FALLBACK_TOOLS = [
   { tool: "prometheus", base_url: "http://10.235.21.132:9090" },
   { tool: "alertmanager", base_url: "http://10.235.21.132:9093" },
   { tool: "elasticsearch", base_url: "http://10.235.21.132:9200" },
 ];
+
+function mapValidatedTools(validatedTools = []) {
+  const mapped = validatedTools
+    .filter((tool) => tool?.status === "success" || tool?.ok === true || tool?.validated === true)
+    .map((tool) => ({
+      tool: String(tool.tool || tool.name || tool.type || "").toLowerCase(),
+      base_url: tool.base_url || tool.baseUrl || tool.url || tool.endpoint,
+      auth_token: tool.auth_token || tool.authToken || tool.token || undefined,
+    }))
+    .filter((tool) => tool.tool && tool.base_url);
+
+  return mapped.length ? mapped : FALLBACK_TOOLS;
+}
 
 export default function AYOSAModal({ onClose, validatedTools = [] }) {
   const [message, setMessage] = useState("Investigate checkout latency and errors");
@@ -13,6 +26,9 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+
+  const ayosaTools = mapValidatedTools(validatedTools);
+  
 
   async function runInvestigation() {
     setLoading(true);
@@ -29,7 +45,7 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
           message,
           service,
           time_range: timeRange,
-          tools: DEFAULT_TOOLS,
+          tools: ayosaTools,
         }),
       });
 
@@ -89,9 +105,9 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
 
               <div className="ayosa-tools">
                 <strong>Live tools:</strong>
-                <span>Prometheus</span>
-                <span>Alertmanager</span>
-                <span>OpenSearch</span>
+                {ayosaTools.map((tool) => (
+                    <span key={`${tool.tool}-${tool.base_url}`}>{tool.tool}</span>
+                ))}
               </div>
 
               {error && <div className="error-box">{error}</div>}
