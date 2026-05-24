@@ -6,6 +6,7 @@ import RedIntelligenceModal from "./RedIntelligenceModal";
 import GapMapModal from "./GapMapModal";
 import GlobalToolConnectivity from "./GlobalToolConnectivity";
 import { getFeatureFlags } from "../api";
+import AYOSAModal from "./AYOSAModal";
 
 /* ── Tile definitions ───────────────────────────────────── */
 const TILES = [
@@ -73,6 +74,22 @@ const TILES = [
     badge: "BLIND SPOT ANALYSIS",
     badgeClass: "badge-cyan",
   },
+  {
+    id: "ayosa",
+    icon: "🧠",
+    title: "AYOSA",
+    tagline: "Ask Your Observability Stack Anything",
+    description:
+      "Investigate live metrics, logs, traces, alerts, and dashboards across your connected observability tools. AYOSA provides RCA summaries, impact analysis, evidence timelines, and suggested actions.",
+    accentClass: "tile-violet",
+    features: [
+      "Live cross-signal RCA",
+      "Metrics + logs + alerts correlation",
+      "Evidence-backed investigation timeline",
+    ],
+    badge: "GENAI COPILOT",
+    badgeClass: "badge-violet",
+  }
 ];
 
 export default function HubPage() {
@@ -82,9 +99,10 @@ export default function HubPage() {
   const [flags, setFlags] = useState({
     observascore: true,
     obscrawl: true,
-    rca_agent: true,
+    rca_agent: false, // Hide RCA Agent until ready
     red_panel_intelligence: true,
     observability_gap_map: true,
+    ayosa: true,
   });
 
   const validatedTools = useMemo(
@@ -193,6 +211,13 @@ export default function HubPage() {
 
       {activeTile === "observability_gap_map" && (
         <GapMapModal
+          onClose={() => setActiveTile(null)}
+          validatedTools={validatedTools}
+        />
+      )}
+
+      {activeTile === "ayosa" && (
+        <AYOSAModal 
           onClose={() => setActiveTile(null)}
           validatedTools={validatedTools}
         />
