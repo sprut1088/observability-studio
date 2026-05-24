@@ -1,190 +1,348 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { runAyosaInvestigation } from "../api";
 
-const FALLBACK_TOOLS = [
-  { tool: "prometheus", base_url: "http://10.235.21.132:9090" },
-  { tool: "alertmanager", base_url: "http://10.235.21.132:9093" },
-  { tool: "elasticsearch", base_url: "http://10.235.21.132:9200" },
-];
+const DEFAULT_USAGES = {
+  prometheus: ["metrics"],
+  grafana: ["dashboards", "alerts"],
+  loki: ["logs"],
+  jaeger: ["traces"],
+  alertmanager: ["alerts"],
+  tempo: ["traces"],
+  elasticsearch: ["logs"],
+  dynatrace: ["metrics", "traces", "logs", "dashboards", "alerts"],
+  datadog: ["metrics", "traces", "logs", "dashboards", "alerts"],
+  appdynamics: ["metrics", "traces", "dashboards", "alerts"],
+  splunk: ["logs", "alerts", "dashboards"],
+};
 
-function mapValidatedTools(validatedTools = []) {
-  const mapped = validatedTools
-    .filter((tool) => tool?.status === "success" || tool?.ok === true || tool?.validated === true)
+const TOOL_ICONS = {
+  prometheus: "🔥",
+  grafana: "📊",
+  loki: "📋",
+  jaeger: "🔍",
+  alertmanager: "🔔",
+  tempo: "⚡",
+  elasticsearch: "🔎",
+  dynatrace: "🛡️",
+  datadog: "🐕",
+  appdynamics: "📱",
+  splunk: "🌊",
+};
+
+function normalizeValidatedTools(validatedTools = []) {
+  return validatedTools
     .map((tool) => ({
-      tool: String(tool.tool || tool.name || tool.type || "").toLowerCase(),
-      base_url: tool.base_url || tool.baseUrl || tool.url || tool.endpoint,
-      auth_token: tool.auth_token || tool.authToken || tool.token || undefined,
+      toolName: tool.tool_name || tool.toolName || tool.name || tool.tool,
+      baseUrl: tool.base_url || tool.baseUrl || tool.url || tool.endpoint,
+      authToken: tool.auth_token || tool.authToken || tool.api_key || tool.token || null,
+      validation: tool.validation_result || tool.validation || { reachable: true },
     }))
-    .filter((tool) => tool.tool && tool.base_url);
-
-  return mapped.length ? mapped : FALLBACK_TOOLS;
+    .filter((tool) => tool.toolName && tool.baseUrl && DEFAULT_USAGES[tool.toolName]);
 }
 
 export default function AYOSAModal({ onClose, validatedTools = [] }) {
   const [message, setMessage] = useState("Investigate checkout latency and errors");
   const [service, setService] = useState("checkout");
   const [timeRange, setTimeRange] = useState("30m");
-  const [loading, setLoading] = useState(false);
+
+  const [running, setRunning] = useState(false);
+  const [status, setStatus] = useState(null);
   const [result, setResult] = useState(null);
-  const [error, setError] = useState("");
 
-  const ayosaTools = mapValidatedTools(validatedTools);
-  
+  const tools = useMemo(
+    () => normalizeValidatedTools(validatedTools),
+    [validatedTools]
+  );
 
-  async function runInvestigation() {
-    setLoading(true);
-    setError("");
+  const busy = running;
+
+  async function handleRun() {
+    if (tools.length === 0) {
+      setStatus({
+        type: "error",
+        title: "Validation error",
+        msg: "No globally validated tools found. Close this modal and validate at least one tool from Tool Connectivity.",
+      });
+      return;
+    }
+
+    setRunning(true);
+    setStatus(null);
     setResult(null);
 
     try {
-      const response = await fetch("/api/ayosa/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message,
-          service,
-          time_range: timeRange,
-          tools: ayosaTools,
-        }),
+      const payload = {
+        message: message.trim() || "Investigate service health",
+        service: service.trim() || null,
+        time_range: timeRange.trim() || "30m",
+        tools: tools.map((tool) => ({
+          tool: tool.toolName,
+          base_url: tool.baseUrl,
+          auth_token: tool.authToken ?? null,
+        })),
+      };
+
+      const res = await runAyosaInvestigation(payload);
+      setResult(res.data);
+
+      setStatus({
+        type: "success",
+        title: "AYOSA investigation complete",
+        msg: `Investigation completed with ${Math.round((res.data.confidence || 0) * 100)}% confidence.`,
       });
-
-      if (!response.ok) {
-        throw new Error(`AYOSA request failed with HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      setResult(data);
     } catch (err) {
-      setError(err.message || "AYOSA investigation failed");
+      setStatus({
+        type: "error",
+        title: "AYOSA investigation failed",
+        msg: err?.response?.data?.detail || err.message,
+      });
     } finally {
-      setLoading(false);
+      setRunning(false);
     }
   }
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal ayosa-modal">
-        <div className="modal-header">
-          <div>
-            <div className="modal-title">AYOSA</div>
-            <div className="modal-subtitle">Ask Your Observability Stack Anything</div>
+    <div
+      className="modal-overlay"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="modal modal-wide"
+        role="dialog"
+        aria-modal="true"
+        aria-label="AYOSA"
+      >
+        <div className="modal-header modal-header-violet">
+          <div className="modal-header-left">
+            <span className="modal-icon">🧠</span>
+            <div>
+              <div className="modal-title">AYOSA</div>
+              <div className="modal-subtitle">
+                Ask Your Observability Stack Anything using globally validated tools.
+              </div>
+            </div>
           </div>
-          <button className="icon-button" onClick={onClose}>×</button>
+
+          <button className="modal-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
         </div>
 
         <div className="modal-body">
-          <div className="ayosa-grid">
-            <section className="ayosa-panel">
-              <h3>Investigation</h3>
-
-              <label>Question</label>
-              <textarea
+          <div className="mtool-add-bar" style={{ marginBottom: 12 }}>
+            <div className="form-group mtool-add-url">
+              <label className="form-label">Question</label>
+              <input
+                className="form-input"
+                type="text"
                 value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                rows={3}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Investigate checkout latency and errors"
+                disabled={busy}
               />
+            </div>
 
-              <label>Service</label>
+            <div className="form-group mtool-add-tool">
+              <label className="form-label">Service</label>
               <input
+                className="form-input"
+                type="text"
                 value={service}
-                onChange={(event) => setService(event.target.value)}
+                onChange={(e) => setService(e.target.value)}
                 placeholder="checkout"
+                disabled={busy}
               />
+            </div>
 
-              <label>Time range</label>
+            <div className="form-group mtool-add-tool">
+              <label className="form-label">Time Range</label>
               <input
+                className="form-input"
+                type="text"
                 value={timeRange}
-                onChange={(event) => setTimeRange(event.target.value)}
+                onChange={(e) => setTimeRange(e.target.value)}
                 placeholder="30m"
+                disabled={busy}
               />
+            </div>
+          </div>
 
-              <button className="primary-button" onClick={runInvestigation} disabled={loading}>
-                {loading ? "Investigating..." : "Run AYOSA Investigation"}
-              </button>
-
-              <div className="ayosa-tools">
-                <strong>Live tools:</strong>
-                {ayosaTools.map((tool) => (
-                    <span key={`${tool.tool}-${tool.base_url}`}>{tool.tool}</span>
-                ))}
+          {tools.length > 0 ? (
+            <>
+              <div className="modal-alert modal-alert-success animate-in">
+                <span className="modal-alert-icon">✓</span>
+                <div>
+                  <div className="modal-alert-title">
+                    {tools.length} validated tool{tools.length !== 1 ? "s" : ""} loaded
+                  </div>
+                  <div className="modal-alert-msg">
+                    AYOSA will query these live observability connections for RCA evidence.
+                  </div>
+                </div>
               </div>
 
-              {error && <div className="error-box">{error}</div>}
-            </section>
-
-            <section className="ayosa-panel ayosa-results">
-              {!result && (
-                <div className="empty-state">
-                  Run an investigation to see RCA, impact, timeline, evidence, and suggested actions.
+              <div className="mtool-table-wrap animate-in">
+                <div className="mtool-cols mtool-cols-global mtool-header">
+                  <span>#</span>
+                  <span>Tool</span>
+                  <span>URL</span>
+                  <span>Auth</span>
+                  <span>Status</span>
                 </div>
-              )}
 
-              {result && (
-                <>
-                  <div className="ayosa-summary-card">
-                    <div className="score-pill">Confidence: {Math.round(result.confidence * 100)}%</div>
-                    <h3>AYOSA Summary</h3>
-                    <p>{result.answer}</p>
+                {tools.map((tool, index) => (
+                  <div
+                    key={`${tool.toolName}-${tool.baseUrl}`}
+                    className="mtool-cols mtool-cols-global mtool-row"
+                  >
+                    <span className="mtool-num">{index + 1}</span>
+
+                    <span className="mtool-name">
+                      <span>{TOOL_ICONS[tool.toolName] ?? "🔧"}</span>
+                      {tool.toolName}
+                    </span>
+
+                    <span className="mtool-url" title={tool.baseUrl}>
+                      {tool.baseUrl}
+                    </span>
+
+                    <span className="mtool-auth">
+                      {tool.authToken ? "•••••" : <span className="mtool-none">—</span>}
+                    </span>
+
+                    <span className="mtool-status">
+                      <span className="validation-badge ok">✓ Global</span>
+                    </span>
                   </div>
+                ))}
 
-                  <div className="ayosa-card">
-                    <h3>Probable Root Cause</h3>
+                <div className="mtool-summary-bar">
+                  <span>{tools.length} tool{tools.length !== 1 ? "s" : ""} ready</span>
+                  <span>Source: Hub connectivity</span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="empty-state">
+              <span className="empty-icon">🧠</span>
+              <span className="empty-text">
+                No globally validated tools found. Close this modal and validate at least one observability tool from Tool Connectivity.
+              </span>
+            </div>
+          )}
+
+          {status && (
+            <div className={`modal-alert modal-alert-${status.type} animate-in`}>
+              <span className="modal-alert-icon">
+                {status.type === "success" ? "✓" : "✗"}
+              </span>
+              <div>
+                <div className="modal-alert-title">{status.title}</div>
+                <div className="modal-alert-msg">{status.msg}</div>
+              </div>
+            </div>
+          )}
+
+          {result && (
+            <div className="ayosa-result-stack animate-in">
+              <div className="report-preview-card">
+                <div className="report-preview-header">
+                  <div>
+                    <div className="report-preview-title">
+                      AYOSA Investigation Summary
+                    </div>
+                    <div className="report-preview-subtitle">
+                      Confidence: {Math.round((result.confidence || 0) * 100)}%
+                    </div>
+                  </div>
+                </div>
+
+                <div className="ayosa-summary-grid">
+                  <div className="ayosa-result-card ayosa-result-card-primary">
+                    <div className="ayosa-result-label">Probable Root Cause</div>
                     <p>{result.probable_root_cause}</p>
                   </div>
 
-                  <div className="ayosa-card">
-                    <h3>Impact</h3>
+                  <div className="ayosa-result-card">
+                    <div className="ayosa-result-label">Impact</div>
                     <p>{result.impact}</p>
                   </div>
+                </div>
 
-                  <div className="ayosa-card">
-                    <h3>Detected Patterns</h3>
-                    <div className="pattern-list">
-                      {(result.detected_patterns || []).map((pattern) => (
-                        <span key={pattern}>{pattern}</span>
-                      ))}
-                    </div>
-                  </div>
+                <div className="ayosa-result-card">
+                  <div className="ayosa-result-label">Executive Summary</div>
+                  <p>{result.answer}</p>
+                </div>
 
-                  <div className="ayosa-card">
-                    <h3>Timeline</h3>
-                    <div className="timeline-list">
-                      {(result.timeline || []).map((item, index) => (
-                        <div className="timeline-item" key={`${item.timestamp}-${index}`}>
-                          <strong>{item.source}</strong>
-                          <small>{item.timestamp}</small>
-                          <p>{item.event}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="ayosa-card">
-                    <h3>Suggested Actions</h3>
-                    <ul>
-                      {(result.suggested_actions || []).map((action) => (
-                        <li key={action}>{action}</li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="ayosa-card">
-                    <h3>Evidence</h3>
-                    {(result.evidence || []).map((item, index) => (
-                      <details key={`${item.source}-${index}`}>
-                        <summary>
-                          {item.source} · {item.signal} · {item.status}
-                        </summary>
-                        <p>{item.finding}</p>
-                        {item.query && <pre>{item.query}</pre>}
-                      </details>
+                <div className="ayosa-result-card">
+                  <div className="ayosa-result-label">Detected Patterns</div>
+                  <div className="ayosa-pattern-list">
+                    {(result.detected_patterns || []).map((pattern) => (
+                      <span key={pattern}>{pattern}</span>
                     ))}
                   </div>
-                </>
-              )}
-            </section>
-          </div>
+                </div>
+
+                <div className="ayosa-result-card">
+                  <div className="ayosa-result-label">Timeline</div>
+                  <div className="ayosa-timeline">
+                    {(result.timeline || []).map((item, index) => (
+                      <div className="ayosa-timeline-item" key={`${item.timestamp}-${index}`}>
+                        <div className="ayosa-timeline-top">
+                          <strong>{item.source}</strong>
+                          <span>{item.severity || "event"}</span>
+                        </div>
+                        <small>{item.timestamp}</small>
+                        <p>{item.event}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="ayosa-result-card">
+                  <div className="ayosa-result-label">Suggested Actions</div>
+                  <ul className="ayosa-action-list">
+                    {(result.suggested_actions || []).map((action) => (
+                      <li key={action}>{action}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="ayosa-result-card">
+                  <div className="ayosa-result-label">Evidence</div>
+                  {(result.evidence || []).map((item, index) => (
+                    <details className="ayosa-evidence" key={`${item.source}-${index}`}>
+                      <summary>
+                        {item.source} · {item.signal} · {item.status}
+                      </summary>
+                      <p>{item.finding}</p>
+                      {item.query && <pre>{item.query}</pre>}
+                    </details>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+
+          <button
+            className="btn btn-violet btn-lg"
+            onClick={handleRun}
+            disabled={busy || tools.length === 0}
+          >
+            {running ? (
+              <>
+                <span className="spinner" /> Running AYOSA…
+              </>
+            ) : (
+              `▶ Run AYOSA Investigation (${tools.length} tool${tools.length !== 1 ? "s" : ""})`
+            )}
+          </button>
         </div>
       </div>
     </div>

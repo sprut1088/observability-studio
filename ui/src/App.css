@@ -385,3 +385,137 @@
     max-height: none;
   }
 }
+
+.modal-header-violet {
+  background:
+    radial-gradient(circle at top left, rgba(124, 58, 237, 0.12), transparent 34%),
+    linear-gradient(135deg, rgba(255,255,255,0.98), rgba(245,243,255,0.92));
+}
+
+.btn-violet {
+  background: linear-gradient(135deg, #7c3aed, #6366f1);
+  color: white;
+  border: 0;
+}
+
+.btn-violet:hover {
+  filter: brightness(1.04);
+}
+
+.ayosa-result-stack {
+  margin-top: 14px;
+}
+
+.ayosa-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.ayosa-result-card {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+  margin-top: 12px;
+}
+
+.ayosa-result-card-primary {
+  background:
+    radial-gradient(circle at top right, rgba(124, 58, 237, 0.14), transparent 34%),
+    #ffffff;
+  border-color: rgba(124, 58, 237, 0.22);
+}
+
+.ayosa-result-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6d28d9;
+  margin-bottom: 8px;
+}
+
+.ayosa-pattern-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ayosa-pattern-list span {
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(124, 58, 237, 0.10);
+  color: #5b21b6;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ayosa-timeline {
+  display: grid;
+  gap: 10px;
+}
+
+.ayosa-timeline-item {
+  border-left: 3px solid #7c3aed;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #f8fafc;
+}
+
+.ayosa-timeline-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ayosa-timeline-top span {
+  font-size: 11px;
+  font-weight: 800;
+  color: #6d28d9;
+  text-transform: uppercase;
+}
+
+.ayosa-timeline-item small {
+  color: #64748b;
+}
+
+.ayosa-timeline-item p {
+  margin: 6px 0 0;
+  color: #334155;
+}
+
+.ayosa-action-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.ayosa-evidence {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  background: #f8fafc;
+}
+
+.ayosa-evidence summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.ayosa-evidence pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 12px;
+}
+
+@media (max-width: 800px) {
+  .ayosa-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

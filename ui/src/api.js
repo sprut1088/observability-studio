@@ -28,3 +28,7 @@ export const v1Rca = (payload) => api.post("/v1/rca", payload);
 export const getFeatureFlags = () => api.get("/feature-flags");
 
 export default api;
+
+export function runAyosaInvestigation(payload) {
+  return api.post("/api/ayosa/chat", payload);
+}
