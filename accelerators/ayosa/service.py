@@ -59,11 +59,22 @@ class AyosaService:
             error_count=error_count,
         )
 
+        probable_root_cause = self._infer_probable_cause(
+            self._extract_active_alerts(evidence),
+            self._extract_log_hits(evidence),
+            self._extract_metric_values(evidence),
+        )
+
         return {
             "answer": answer,
             "service": request.service,
             "time_range": request.time_range,
             "confidence": confidence,
+            "probable_root_cause": probable_root_cause,
+            "impact": self._summarize_impact(evidence, request.service),
+            "detected_patterns": self._detect_patterns(evidence),
+            "timeline": self._build_timeline(evidence),
+            "related_artifacts": self._related_artifacts(evidence),
             "evidence": evidence,
             "suggested_actions": self._suggest_actions(evidence),
         }
@@ -346,3 +357,157 @@ class AyosaService:
         ])
 
         return actions
+    
+
+    def _summarize_impact(self, evidence: list[dict[str, Any]], service: str | None) -> str:
+        alerts = self._extract_active_alerts(evidence)
+        logs = self._extract_log_hits(evidence)
+
+        target = service or "the selected service"
+
+        critical_alerts = [
+            alert for alert in alerts
+            if alert.get("labels", {}).get("severity") == "critical"
+        ]
+
+        if critical_alerts:
+            alert = critical_alerts[0]
+            labels = alert.get("labels", {})
+            slo = labels.get("sloth_slo") or labels.get("slo")
+            journey = labels.get("journey")
+
+            if slo or journey:
+                return (
+                    f"{target} is impacted by a critical SLO/error-budget alert"
+                    f"{f' for journey {journey}' if journey else ''}"
+                    f"{f' and SLO {slo}' if slo else ''}."
+                )
+
+            return f"{target} has at least one critical active alert."
+
+        if logs:
+            return f"{target} has matching error-like log events, but no critical active alert was found."
+
+        return f"No clear user-facing impact was detected for {target} from the available signals."
+
+    def _detect_patterns(self, evidence: list[dict[str, Any]]) -> list[str]:
+        patterns = []
+
+        alerts = self._extract_active_alerts(evidence)
+        logs = self._extract_log_hits(evidence)
+        metrics = self._extract_metric_values(evidence)
+
+        if alerts:
+            patterns.append("active_alerts_present")
+
+        if any(
+            alert.get("labels", {}).get("severity") == "critical"
+            for alert in alerts
+        ):
+            patterns.append("critical_alert_present")
+
+        if any(
+            "slo" in str(alert).lower() or "error budget" in str(alert).lower()
+            for alert in alerts
+        ):
+            patterns.append("slo_error_budget_burn")
+
+        log_text = " ".join(
+            str(hit.get("_source", {}).get("body", "")).lower()
+            for hit in logs[:20]
+        )
+
+        if "high memory usage" in log_text:
+            patterns.append("high_memory_usage")
+
+        if "export timeout" in log_text or "exporter export timeout" in log_text:
+            patterns.append("telemetry_export_timeout")
+
+        if "kafka" in log_text or "broker" in log_text:
+            patterns.append("kafka_or_broker_errors")
+
+        if "broken pipe" in log_text:
+            patterns.append("network_broken_pipe")
+
+        if "eof" in log_text:
+            patterns.append("connection_eof")
+
+        if metrics:
+            patterns.append("metrics_available")
+
+        return list(dict.fromkeys(patterns))
+
+    def _build_timeline(self, evidence: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        timeline = []
+
+        alerts = self._extract_active_alerts(evidence)
+        logs = self._extract_log_hits(evidence)
+
+        for alert in alerts[:5]:
+            labels = alert.get("labels", {})
+            annotations = alert.get("annotations", {})
+            timeline.append({
+                "timestamp": alert.get("startsAt"),
+                "source": "alertmanager",
+                "event": (
+                    f"Alert started: {labels.get('alertname', 'unknown alert')}. "
+                    f"{annotations.get('summary', '')}".strip()
+                ),
+                "severity": labels.get("severity"),
+            })
+
+        for hit in logs[:5]:
+            source = hit.get("_source", {})
+            body = source.get("body") or source.get("message") or "log event"
+            severity = source.get("severity", {})
+            if isinstance(severity, dict):
+                severity = severity.get("text")
+
+            timeline.append({
+                "timestamp": source.get("@timestamp") or source.get("observedTimestamp"),
+                "source": "opensearch",
+                "event": body[:240],
+                "severity": severity,
+            })
+
+        timeline = sorted(
+            timeline,
+            key=lambda item: item.get("timestamp") or "",
+            reverse=True,
+        )
+
+        return timeline[:10]
+
+    def _related_artifacts(self, evidence: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        artifacts = []
+
+        for alert in self._extract_active_alerts(evidence):
+            labels = alert.get("labels", {})
+            generator_url = alert.get("generatorURL")
+
+            artifacts.append({
+                "type": "alert",
+                "name": labels.get("alertname", "Alertmanager alert"),
+                "source": "alertmanager",
+                "url": generator_url,
+                "metadata": labels,
+            })
+
+        for item in evidence:
+            if item.get("source") == "prometheus" and item.get("query"):
+                artifacts.append({
+                    "type": "query",
+                    "name": item.get("finding", "Prometheus query"),
+                    "source": "prometheus",
+                    "query": item.get("query"),
+                })
+
+            if item.get("source") == "elasticsearch" and item.get("query"):
+                artifacts.append({
+                    "type": "query",
+                    "name": "OpenSearch log query",
+                    "source": "opensearch",
+                    "query": item.get("query"),
+                })
+
+        return artifacts[:20]
