@@ -133,6 +133,51 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
     }
   }
 
+  async function handleCopyRunbook() {
+    try {
+      await navigator.clipboard.writeText(runbook || "");
+      setStatus({
+        type: "success",
+        title: "Runbook copied",
+        msg: "AYOSA runbook copied to clipboard.",
+      });
+    } catch (err) {
+      setStatus({
+        type: "error",
+        title: "Copy failed",
+        msg: err.message,
+      });
+    }
+  }
+
+  function downloadRunbook(filename, contentType) {
+    if (!runbook) return;
+
+    const blob = new Blob([runbook], { type: contentType });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+
+    URL.revokeObjectURL(url);
+  }
+
+  function handleDownloadMarkdown() {
+    downloadRunbook(
+      `ayosa-runbook-${service || "incident"}.md`,
+      "text/markdown"
+    );
+  }
+
+  function handleDownloadText() {
+    downloadRunbook(
+      `ayosa-runbook-${service || "incident"}.txt`,
+      "text/plain"
+    );
+  }
+
   return (
     <div
       className="modal-overlay"
@@ -352,9 +397,34 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
                   </button>
 
                   {runbook && (
-                    <pre className="ayosa-runbook">
-                      {runbook}
-                    </pre>
+                    <>
+                      <div className="ayosa-runbook-actions">
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={handleCopyRunbook}
+                        >
+                          Copy
+                        </button>
+
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={handleDownloadMarkdown}
+                        >
+                          Download .md
+                        </button>
+
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={handleDownloadText}
+                        >
+                          Download .txt
+                        </button>
+                      </div>
+
+                      <pre className="ayosa-runbook">
+                        {runbook}
+                      </pre>
+                    </>
                   )}
                 </div>
 

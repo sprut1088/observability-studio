@@ -2577,3 +2577,11 @@ html[data-theme="dark"] .validated-tool .status-ok {
   line-height: 1.6;
   font-size: 12px;
 }
+
+.ayosa-runbook-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
