@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { runAyosaInvestigation } from "../api";
+import { runAyosaInvestigation, generateAyosaRunbook } from "../api";
 
 const DEFAULT_USAGES = {
   prometheus: ["metrics"],
@@ -28,6 +28,9 @@ const TOOL_ICONS = {
   appdynamics: "📱",
   splunk: "🌊",
 };
+
+const [runbook, setRunbook] = useState(null);
+const [runbookBusy, setRunbookBusy] = useState(false);
 
 function normalizeValidatedTools(validatedTools = []) {
   return validatedTools
@@ -84,6 +87,7 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
 
       const res = await runAyosaInvestigation(payload);
       setResult(res.data);
+      setRunbook(null);
 
       setStatus({
         type: "success",
@@ -309,6 +313,24 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
                 </div>
 
                 <div className="ayosa-result-card">
+                  <div className="ayosa-result-label">Runbook Generation</div>
+
+                  <button
+                    className="btn btn-violet"
+                    onClick={handleGenerateRunbook}
+                    disabled={runbookBusy}
+                  >
+                    {runbookBusy ? "Generating..." : "Generate Incident Runbook"}
+                  </button>
+
+                  {runbook && (
+                    <pre className="ayosa-runbook">
+                      {runbook}
+                    </pre>
+                  )}
+                </div>
+
+                <div className="ayosa-result-card">
                   <div className="ayosa-result-label">Evidence</div>
                   {(result.evidence || []).map((item, index) => (
                     <details className="ayosa-evidence" key={`${item.source}-${index}`}>
@@ -347,4 +369,33 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
       </div>
     </div>
   );
+}
+
+async function handleGenerateRunbook() {
+  try {
+    setRunbookBusy(true);
+
+    const payload = {
+      message,
+      service,
+      time_range: timeRange,
+      tools: tools.map((tool) => ({
+        tool: tool.toolName,
+        base_url: tool.baseUrl,
+        auth_token: tool.authToken ?? null,
+      })),
+    };
+
+    const response = await generateAyosaRunbook(payload);
+
+    setRunbook(response.data.generated_runbook);
+  } catch (err) {
+    setStatus({
+      type: "error",
+      title: "Runbook generation failed",
+      msg: err?.response?.data?.detail || err.message,
+    });
+  } finally {
+    setRunbookBusy(false);
+  }
 }

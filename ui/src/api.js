@@ -32,3 +32,7 @@ export default api;
 export function runAyosaInvestigation(payload) {
   return api.post("/ayosa/chat", payload);
 }
+
+export function generateAyosaRunbook(payload) {
+  return api.post("/ayosa/runbook", payload);
+}

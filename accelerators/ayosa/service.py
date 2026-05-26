@@ -511,3 +511,60 @@ class AyosaService:
                 })
 
         return artifacts[:20]
+
+    def generate_runbook(self, result: dict[str, Any]) -> str:
+        service = result.get("service") or "unknown-service"
+
+        impact = result.get("impact", "")
+        root_cause = result.get("probable_root_cause", "")
+
+        patterns = result.get("detected_patterns", [])
+        actions = result.get("suggested_actions", [])
+        timeline = result.get("timeline", [])
+
+        lines: list[str] = []
+
+        lines.append(f"# AYOSA Incident Runbook — {service}")
+        lines.append("")
+        lines.append("## Incident Summary")
+        lines.append(result.get("answer", ""))
+        lines.append("")
+
+        lines.append("## Impact")
+        lines.append(impact)
+        lines.append("")
+
+        lines.append("## Probable Root Cause")
+        lines.append(root_cause)
+        lines.append("")
+
+        if patterns:
+            lines.append("## Detected Signal Patterns")
+            for pattern in patterns:
+                lines.append(f"- {pattern}")
+            lines.append("")
+
+        if timeline:
+            lines.append("## Timeline")
+            for item in timeline[:10]:
+                timestamp = item.get("timestamp", "unknown-time")
+                event = item.get("event", "")
+                source = item.get("source", "unknown")
+                lines.append(f"- [{timestamp}] ({source}) {event}")
+            lines.append("")
+
+        if actions:
+            lines.append("## Recommended Actions")
+            for action in actions:
+                lines.append(f"1. {action}")
+            lines.append("")
+
+        lines.append("## Validation Checklist")
+        lines.append("- Verify alert clears after remediation.")
+        lines.append("- Confirm Prometheus latency and request-rate normalize.")
+        lines.append("- Confirm OpenSearch error frequency decreases.")
+        lines.append("- Validate downstream Kafka/export pipeline stability.")
+        lines.append("- Capture post-incident learnings.")
+        lines.append("")
+
+        return "\n".join(lines)
