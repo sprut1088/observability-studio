@@ -105,6 +105,34 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
     }
   }
 
+  async function handleGenerateRunbook() {
+    try {
+      setRunbookBusy(true);
+
+      const payload = {
+        message,
+        service,
+        time_range: timeRange,
+        tools: tools.map((tool) => ({
+          tool: tool.toolName,
+          base_url: tool.baseUrl,
+          auth_token: tool.authToken ?? null,
+        })),
+      };
+
+      const response = await generateAyosaRunbook(payload);
+      setRunbook(response.data.generated_runbook);
+    } catch (err) {
+      setStatus({
+        type: "error",
+        title: "Runbook generation failed",
+        msg: err?.response?.data?.detail || err.message,
+      });
+    } finally {
+      setRunbookBusy(false);
+    }
+  }
+
   return (
     <div
       className="modal-overlay"
@@ -371,31 +399,3 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
   );
 }
 
-async function handleGenerateRunbook() {
-  try {
-    setRunbookBusy(true);
-
-    const payload = {
-      message,
-      service,
-      time_range: timeRange,
-      tools: tools.map((tool) => ({
-        tool: tool.toolName,
-        base_url: tool.baseUrl,
-        auth_token: tool.authToken ?? null,
-      })),
-    };
-
-    const response = await generateAyosaRunbook(payload);
-
-    setRunbook(response.data.generated_runbook);
-  } catch (err) {
-    setStatus({
-      type: "error",
-      title: "Runbook generation failed",
-      msg: err?.response?.data?.detail || err.message,
-    });
-  } finally {
-    setRunbookBusy(false);
-  }
-}
