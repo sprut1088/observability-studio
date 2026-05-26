@@ -29,9 +29,6 @@ const TOOL_ICONS = {
   splunk: "🌊",
 };
 
-const [runbook, setRunbook] = useState(null);
-const [runbookBusy, setRunbookBusy] = useState(false);
-
 function normalizeValidatedTools(validatedTools = []) {
   return validatedTools
     .map((tool) => ({
@@ -51,6 +48,9 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState(null);
   const [result, setResult] = useState(null);
+
+  const [runbook, setRunbook] = useState(null);
+  const [runbookBusy, setRunbookBusy] = useState(false);
 
   const tools = useMemo(
     () => normalizeValidatedTools(validatedTools),
