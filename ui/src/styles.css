@@ -2363,3 +2363,205 @@ html[data-theme="dark"] .validated-tool .status-ok {
     flex-direction: column;
   }
 }
+
+/* ============================================
+   VIOLET / AYOSA THEME
+   ============================================ */
+
+:root {
+  --violet: #7c3aed;
+  --violet-dark: #6d28d9;
+  --violet-glow: rgba(124, 58, 237, 0.12);
+  --shadow-violet: 0 4px 14px rgba(124, 58, 237, 0.35);
+  --grad-violet: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+}
+
+.hub-tile.tile-violet::before {
+  background: linear-gradient(to right, transparent, rgba(124, 58, 237, 0.55), transparent);
+}
+
+.hub-tile.tile-violet:hover {
+  box-shadow: var(--shadow-card), 0 0 40px rgba(124, 58, 237, 0.14);
+  border-color: rgba(124, 58, 237, 0.3);
+}
+
+.tile-violet .hub-tile-icon-wrap {
+  background: rgba(124, 58, 237, 0.1);
+  border: 1px solid rgba(124, 58, 237, 0.2);
+}
+
+.tile-violet .hub-tile-tagline {
+  color: var(--violet-dark);
+}
+
+.tile-violet .hub-feature-dot {
+  background: var(--violet);
+}
+
+.badge-violet {
+  background: rgba(124, 58, 237, 0.1);
+  color: var(--violet-dark);
+  border: 1px solid rgba(124, 58, 237, 0.25);
+}
+
+.tile-violet-cta {
+  background: rgba(124, 58, 237, 0.1);
+  color: var(--violet-dark);
+  border: 1px solid rgba(124, 58, 237, 0.25);
+}
+
+.hub-tile.tile-violet:hover .tile-violet-cta {
+  background: var(--grad-violet);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: var(--shadow-violet);
+}
+
+.modal-header-violet {
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.08) 0%, transparent 100%);
+}
+
+.btn-violet {
+  background: var(--grad-violet);
+  color: #fff;
+  border: none;
+  box-shadow: var(--shadow-violet);
+}
+
+.btn-violet:hover:not(:disabled) {
+  background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%);
+  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.45);
+  transform: translateY(-1px);
+}
+
+.btn-violet:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* ============================================
+   AYOSA RESULT VIEW
+   ============================================ */
+
+.ayosa-result-stack {
+  margin-top: 4px;
+}
+
+.ayosa-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.ayosa-result-card {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+
+.ayosa-result-card-primary {
+  border-color: rgba(124, 58, 237, 0.25);
+  background: rgba(124, 58, 237, 0.04);
+}
+
+.ayosa-result-label {
+  margin-bottom: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--violet-dark);
+}
+
+.ayosa-result-card p {
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.ayosa-pattern-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ayosa-pattern-list span {
+  display: inline-flex;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.1);
+  border: 1px solid rgba(124, 58, 237, 0.2);
+  color: var(--violet-dark);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ayosa-timeline {
+  display: grid;
+  gap: 10px;
+}
+
+.ayosa-timeline-item {
+  padding: 10px 12px;
+  border-left: 3px solid var(--violet);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.ayosa-timeline-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ayosa-timeline-top span {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--violet-dark);
+  text-transform: uppercase;
+}
+
+.ayosa-timeline-item small {
+  color: var(--text-muted);
+}
+
+.ayosa-timeline-item p {
+  margin-top: 5px;
+}
+
+.ayosa-action-list {
+  padding-left: 18px;
+}
+
+.ayosa-action-list li {
+  margin-bottom: 8px;
+}
+
+.ayosa-evidence {
+  padding: 10px 12px;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.ayosa-evidence summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.ayosa-evidence pre {
+  margin-top: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: var(--radius-md);
+  padding: 12px;
+  font-size: 12px;
+}
+
+@media (max-width: 800px) {
+  .ayosa-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
