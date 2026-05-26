@@ -521,37 +521,41 @@
 }
 
 .tile-violet {
-  border-color: rgba(124, 58, 237, 0.28);
+  border: 1px solid rgba(124, 58, 237, 0.28) !important;
   background:
     radial-gradient(circle at top left, rgba(124, 58, 237, 0.16), transparent 34%),
-    linear-gradient(135deg, #ffffff, #f5f3ff);
+    linear-gradient(135deg, #ffffff, #f5f3ff) !important;
 }
 
 .tile-violet .hub-tile-icon-wrap {
-  border: 1px solid rgba(124, 58, 237, 0.28);
-  background: rgba(124, 58, 237, 0.08);
+  border: 1px solid rgba(124, 58, 237, 0.28) !important;
+  background: rgba(124, 58, 237, 0.08) !important;
+}
+
+.tile-violet .hub-feature-dot {
+  background: #7c3aed !important;
 }
 
 .tile-violet:hover {
-  border-color: rgba(124, 58, 237, 0.45);
-  box-shadow: 0 18px 44px rgba(124, 58, 237, 0.18);
+  border-color: rgba(124, 58, 237, 0.5) !important;
+  box-shadow: 0 18px 44px rgba(124, 58, 237, 0.2) !important;
   transform: translateY(-3px);
 }
 
 .badge-violet {
-  color: #6d28d9;
-  background: rgba(124, 58, 237, 0.1);
-  border: 1px solid rgba(124, 58, 237, 0.24);
+  color: #6d28d9 !important;
+  background: rgba(124, 58, 237, 0.1) !important;
+  border: 1px solid rgba(124, 58, 237, 0.24) !important;
 }
 
 .tile-violet-cta {
-  background: rgba(124, 58, 237, 0.08);
-  border-color: rgba(124, 58, 237, 0.28);
-  color: #6d28d9;
+  background: rgba(124, 58, 237, 0.08) !important;
+  border: 1px solid rgba(124, 58, 237, 0.28) !important;
+  color: #6d28d9 !important;
 }
 
 .tile-violet:hover .tile-violet-cta {
-  background: linear-gradient(135deg, #7c3aed, #6366f1);
-  color: #9e7979;
-  border-color: transparent;
+  background: linear-gradient(135deg, #7c3aed, #6366f1) !important;
+  color: #fff !important;
+  border-color: transparent !important;
 }
