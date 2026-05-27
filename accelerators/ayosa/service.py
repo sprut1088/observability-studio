@@ -2,10 +2,30 @@ from typing import Any
 
 from accelerators.ayosa.registry import ADAPTERS
 
+SIGNAL_CAPABILITIES = {
+    "prometheus": ["metrics"],
+    "alertmanager": ["alerts"],
+    "elasticsearch": ["logs"],
+    "opensearch": ["logs"],
+    "splunk": ["logs", "alerts"],
+    "grafana": ["dashboards", "alerts"],
+    "jaeger": ["traces"],
+    "tempo": ["traces"],
+    "loki": ["logs"],
+    "datadog": ["metrics", "logs", "traces", "dashboards", "alerts"],
+    "dynatrace": ["metrics", "logs", "traces", "dashboards", "alerts"],
+    "appdynamics": ["metrics", "traces", "dashboards", "alerts"],
+}
+
+EXPECTED_SIGNALS = ["metrics", "logs", "alerts", "traces"]
+
 
 class AyosaService:
     def investigate(self, request):
         evidence = []
+
+        signal_coverage = self._build_signal_coverage(request.tools)
+        missing_signals = self._missing_signals(signal_coverage)
 
         for tool in request.tools:
             tool_key = tool.tool.lower().strip()
@@ -49,7 +69,8 @@ class AyosaService:
         pending_count = len([item for item in evidence if item.get("status") == "not_implemented"])
         error_count = len([item for item in evidence if item.get("status") == "error"])
 
-        confidence = self._calculate_confidence(evidence)
+        confidence = self._calculate_confidence(evidence, missing_signals)
+
         answer = self._summarize_evidence(
             evidence=evidence,
             service=request.service,
@@ -57,6 +78,8 @@ class AyosaService:
             ok_count=ok_count,
             pending_count=pending_count,
             error_count=error_count,
+            signal_coverage=signal_coverage,
+            missing_signals=missing_signals,
         )
 
         probable_root_cause = self._infer_probable_cause(
@@ -70,16 +93,42 @@ class AyosaService:
             "service": request.service,
             "time_range": request.time_range,
             "confidence": confidence,
+            "signal_coverage": signal_coverage,
+            "missing_signals": missing_signals,
             "probable_root_cause": probable_root_cause,
             "impact": self._summarize_impact(evidence, request.service),
             "detected_patterns": self._detect_patterns(evidence),
             "timeline": self._build_timeline(evidence),
             "related_artifacts": self._related_artifacts(evidence),
             "evidence": evidence,
-            "suggested_actions": self._suggest_actions(evidence),
+            "suggested_actions": self._suggest_actions(evidence, missing_signals),
         }
 
-    def _calculate_confidence(self, evidence: list[dict[str, Any]]) -> float:
+    def _build_signal_coverage(self, tools) -> dict[str, list[str]]:
+        coverage = {signal: [] for signal in EXPECTED_SIGNALS}
+
+        for tool in tools:
+            tool_name = tool.tool.lower().strip()
+            capabilities = SIGNAL_CAPABILITIES.get(tool_name, [])
+
+            for signal in capabilities:
+                if signal in coverage and tool_name not in coverage[signal]:
+                    coverage[signal].append(tool_name)
+
+        return coverage
+
+    def _missing_signals(self, coverage: dict[str, list[str]]) -> list[str]:
+        return [
+            signal
+            for signal, providers in coverage.items()
+            if not providers
+        ]
+
+    def _calculate_confidence(
+        self,
+        evidence: list[dict[str, Any]],
+        missing_signals: list[str],
+    ) -> float:
         ok_count = len([item for item in evidence if item.get("status") == "ok"])
         alert_count = len(self._extract_active_alerts(evidence))
         log_count = len(self._extract_log_hits(evidence))
@@ -96,7 +145,16 @@ class AyosaService:
         if alert_count > 0 and log_count > 0 and metric_count > 0:
             confidence = 0.84
 
-        return confidence
+        if "metrics" in missing_signals:
+            confidence -= 0.08
+        if "logs" in missing_signals:
+            confidence -= 0.08
+        if "alerts" in missing_signals:
+            confidence -= 0.06
+        if "traces" in missing_signals:
+            confidence -= 0.03
+
+        return max(0.15, round(confidence, 2))
 
     def _summarize_evidence(
         self,
@@ -106,6 +164,8 @@ class AyosaService:
         ok_count: int,
         pending_count: int,
         error_count: int,
+        signal_coverage: dict[str, list[str]],
+        missing_signals: list[str],
     ) -> str:
         target = service or "the selected environment"
 
@@ -117,6 +177,13 @@ class AyosaService:
             f"AYOSA investigated {target} over the last {time_range}.",
             f"It completed {ok_count} successful live checks, {pending_count} pending checks, and {error_count} failed checks.",
         ]
+
+        coverage_sentence = self._summarize_signal_coverage(
+            signal_coverage=signal_coverage,
+            missing_signals=missing_signals,
+        )
+        if coverage_sentence:
+            summary_parts.append(coverage_sentence)
 
         if alerts:
             critical_alerts = [
@@ -142,22 +209,65 @@ class AyosaService:
                     f"{labels.get('alertname', 'unknown alert')}."
                 )
         else:
-            summary_parts.append("No matching active alerts were found.")
+            if "alerts" in missing_signals:
+                summary_parts.append(
+                    "Alert analysis was skipped because no alert-capable tool was provided."
+                )
+            else:
+                summary_parts.append("No matching active alerts were found.")
 
         if metrics:
             metric_sentence = self._summarize_metrics(metrics)
             if metric_sentence:
                 summary_parts.append(metric_sentence)
+        elif "metrics" in missing_signals:
+            summary_parts.append(
+                "Metric analysis was skipped because no metrics-capable tool was provided."
+            )
 
         if logs:
             log_sentence = self._summarize_logs(logs)
             if log_sentence:
                 summary_parts.append(log_sentence)
+        elif "logs" in missing_signals:
+            summary_parts.append(
+                "Log analysis was skipped because no logs-capable tool was provided."
+            )
+
+        if "traces" in missing_signals:
+            summary_parts.append(
+                "Trace analysis was skipped because no tracing-capable tool was provided."
+            )
 
         probable_cause = self._infer_probable_cause(alerts, logs, metrics)
         summary_parts.append(f"Probable interpretation: {probable_cause}")
 
         return " ".join(summary_parts)
+
+    def _summarize_signal_coverage(
+        self,
+        signal_coverage: dict[str, list[str]],
+        missing_signals: list[str],
+    ) -> str:
+        available = [
+            f"{signal} via {', '.join(providers)}"
+            for signal, providers in signal_coverage.items()
+            if providers
+        ]
+
+        parts = []
+
+        if available:
+            parts.append("Configured signal coverage: " + "; ".join(available) + ".")
+
+        if missing_signals:
+            parts.append(
+                "Missing signal coverage: "
+                + ", ".join(missing_signals)
+                + ". AYOSA could not query these signal types because no matching validated tool was provided."
+            )
+
+        return " ".join(parts)
 
     def _extract_active_alerts(self, evidence: list[dict[str, Any]]) -> list[dict[str, Any]]:
         alerts = []
@@ -181,8 +291,7 @@ class AyosaService:
 
             raw = item.get("raw") or {}
             search_hits = (
-                raw.get("hits", {})
-                .get("hits", [])
+                raw.get("hits", {}).get("hits", [])
                 if isinstance(raw, dict)
                 else []
             )
@@ -194,13 +303,12 @@ class AyosaService:
         metric_values = []
 
         for item in evidence:
-            if item.get("source") != "prometheus" or item.get("status") != "ok":
+            if item.get("signal") != "metrics" or item.get("status") != "ok":
                 continue
 
             raw = item.get("raw") or {}
             result = (
-                raw.get("data", {})
-                .get("result", [])
+                raw.get("data", {}).get("result", [])
                 if isinstance(raw, dict)
                 else []
             )
@@ -209,6 +317,7 @@ class AyosaService:
                 metric_values.append({
                     "finding": item.get("finding"),
                     "query": item.get("query"),
+                    "source": item.get("source"),
                     "result": result,
                 })
 
@@ -219,6 +328,7 @@ class AyosaService:
 
         for metric in metrics:
             finding = metric.get("finding", "")
+            source = metric.get("source", "metrics")
             result = metric.get("result", [])
 
             if not result:
@@ -230,12 +340,12 @@ class AyosaService:
                 value = None
 
             if value is not None:
-                readable.append(f"{finding} returned value {value}")
+                readable.append(f"{source}: {finding} returned value {value}")
 
         if not readable:
             return ""
 
-        return "Prometheus metric evidence: " + "; ".join(readable[:4]) + "."
+        return "Metric evidence: " + "; ".join(readable[:4]) + "."
 
     def _summarize_logs(self, logs: list[dict[str, Any]]) -> str:
         if not logs:
@@ -265,11 +375,11 @@ class AyosaService:
         if patterns:
             unique_patterns = list(dict.fromkeys(patterns))
             return (
-                f"OpenSearch log evidence found {len(logs)} matching events. "
+                f"Log evidence found {len(logs)} matching events. "
                 f"Common patterns include: {', '.join(unique_patterns)}."
             )
 
-        return f"OpenSearch log evidence found {len(logs)} matching events."
+        return f"Log evidence found {len(logs)} matching events."
 
     def _infer_probable_cause(
         self,
@@ -326,18 +436,34 @@ class AyosaService:
             )
 
         return (
-            "AYOSA found limited evidence. Expand the time range or include more tools such as traces, logs, and alerts."
+            "AYOSA found limited evidence. Expand the time range or include more tools such as metrics, logs, alerts, and traces."
         )
 
-    def _suggest_actions(self, evidence: list[dict[str, Any]]) -> list[str]:
+    def _suggest_actions(
+        self,
+        evidence: list[dict[str, Any]],
+        missing_signals: list[str],
+    ) -> list[str]:
         alerts = self._extract_active_alerts(evidence)
         logs = self._extract_log_hits(evidence)
 
         actions = []
 
         if alerts:
-            actions.append("Open the active Alertmanager alert and inspect its Prometheus generator query.")
+            actions.append("Open the active alert and inspect its generator query.")
             actions.append("Check the SLO burn-rate windows and identify when the burn started.")
+
+        if "alerts" in missing_signals:
+            actions.append("Add an alert-capable tool such as Alertmanager, Splunk, Grafana, Datadog, or Dynatrace to inspect active alerts.")
+
+        if "metrics" in missing_signals:
+            actions.append("Add a metrics-capable tool such as Prometheus, Datadog, Dynatrace, or AppDynamics to inspect latency, traffic, and error-rate trends.")
+
+        if "logs" in missing_signals:
+            actions.append("Add a logs-capable tool such as OpenSearch, Elasticsearch, Splunk, Loki, Datadog, or Dynatrace to inspect error events.")
+
+        if "traces" in missing_signals:
+            actions.append("Add a tracing-capable tool such as Jaeger, Tempo, Datadog, Dynatrace, or AppDynamics to inspect slow or failing spans.")
 
         log_text = " ".join(
             str(hit.get("_source", {}).get("body", "")).lower()
@@ -352,12 +478,11 @@ class AyosaService:
             actions.append("Check Kafka container health and checkout-to-Kafka connectivity.")
 
         actions.extend([
-            "Compare the alert timestamp with matching OpenSearch log events.",
-            "Use the confirmed evidence to generate a runbook in the next AYOSA phase.",
+            "Compare the alert timestamp with matching log and metric events where available.",
+            "Use the confirmed evidence to generate or export a runbook.",
         ])
 
-        return actions
-    
+        return list(dict.fromkeys(actions))
 
     def _summarize_impact(self, evidence: list[dict[str, Any]], service: str | None) -> str:
         alerts = self._extract_active_alerts(evidence)
@@ -463,9 +588,11 @@ class AyosaService:
             if isinstance(severity, dict):
                 severity = severity.get("text")
 
+            source_name = source.get("source") or "logs"
+
             timeline.append({
                 "timestamp": source.get("@timestamp") or source.get("observedTimestamp"),
-                "source": "opensearch",
+                "source": source_name,
                 "event": body[:240],
                 "severity": severity,
             })
@@ -487,26 +614,18 @@ class AyosaService:
 
             artifacts.append({
                 "type": "alert",
-                "name": labels.get("alertname", "Alertmanager alert"),
-                "source": "alertmanager",
+                "name": labels.get("alertname", "Alert"),
+                "source": "alerts",
                 "url": generator_url,
                 "metadata": labels,
             })
 
         for item in evidence:
-            if item.get("source") == "prometheus" and item.get("query"):
+            if item.get("query"):
                 artifacts.append({
                     "type": "query",
-                    "name": item.get("finding", "Prometheus query"),
-                    "source": "prometheus",
-                    "query": item.get("query"),
-                })
-
-            if item.get("source") == "elasticsearch" and item.get("query"):
-                artifacts.append({
-                    "type": "query",
-                    "name": "OpenSearch log query",
-                    "source": "opensearch",
+                    "name": item.get("finding", "Observability query"),
+                    "source": item.get("source"),
                     "query": item.get("query"),
                 })
 
@@ -521,6 +640,8 @@ class AyosaService:
         patterns = result.get("detected_patterns", [])
         actions = result.get("suggested_actions", [])
         timeline = result.get("timeline", [])
+        signal_coverage = result.get("signal_coverage", {})
+        missing_signals = result.get("missing_signals", [])
 
         lines: list[str] = []
 
@@ -528,6 +649,18 @@ class AyosaService:
         lines.append("")
         lines.append("## Incident Summary")
         lines.append(result.get("answer", ""))
+        lines.append("")
+
+        lines.append("## Signal Coverage")
+        if signal_coverage:
+            for signal, providers in signal_coverage.items():
+                provider_text = ", ".join(providers) if providers else "not available"
+                lines.append(f"- {signal}: {provider_text}")
+        if missing_signals:
+            lines.append("")
+            lines.append("Missing signals:")
+            for signal in missing_signals:
+                lines.append(f"- {signal}")
         lines.append("")
 
         lines.append("## Impact")
@@ -555,15 +688,15 @@ class AyosaService:
 
         if actions:
             lines.append("## Recommended Actions")
-            for action in actions:
-                lines.append(f"1. {action}")
+            for index, action in enumerate(actions, start=1):
+                lines.append(f"{index}. {action}")
             lines.append("")
 
         lines.append("## Validation Checklist")
-        lines.append("- Verify alert clears after remediation.")
-        lines.append("- Confirm Prometheus latency and request-rate normalize.")
-        lines.append("- Confirm OpenSearch error frequency decreases.")
-        lines.append("- Validate downstream Kafka/export pipeline stability.")
+        lines.append("- Verify alert clears after remediation, if alert data is available.")
+        lines.append("- Confirm latency, request-rate, and error-rate normalize, if metrics data is available.")
+        lines.append("- Confirm log error frequency decreases, if log data is available.")
+        lines.append("- Validate downstream dependency stability.")
         lines.append("- Capture post-incident learnings.")
         lines.append("")
 

@@ -45,3 +45,6 @@ class AyosaChatResponse(BaseModel):
 
     evidence: list[EvidenceItem]
     suggested_actions: list[str]
+
+    signal_coverage: dict[str, list[str]]
+    missing_signals: list[str]
