@@ -1,4 +1,6 @@
-import time
+import json
+from urllib.parse import urlparse
+
 import requests
 
 
@@ -6,8 +8,27 @@ class SplunkAdapter:
     signal = "logs"
 
     def __init__(self, base_url: str, auth_token: str | None = None):
-        self.base_url = base_url.rstrip("/")
+        self.base_url = self._normalize_splunk_api_url(base_url)
         self.auth_token = auth_token
+
+    def _normalize_splunk_api_url(self, base_url: str) -> str:
+        """
+        AYOSA accepts either Splunk Web URL or Splunk API URL.
+
+        Converts:
+          http://host:8000/en-US
+          http://host:8000
+        To:
+          https://host:8089
+        """
+        raw = (base_url or "").rstrip("/")
+        parsed = urlparse(raw)
+
+        if parsed.port == 8000 or "/en-US" in parsed.path:
+            host = parsed.hostname
+            return f"https://{host}:8089"
+
+        return raw
 
     def investigate(self, service: str | None, time_range: str, message: str):
         if not self.auth_token:
@@ -29,8 +50,8 @@ class SplunkAdapter:
         }
 
         try:
-            create_response = requests.post(
-                f"{self.base_url}/services/search/jobs",
+            response = requests.post(
+                f"{self.base_url}/services/search/jobs/export",
                 headers=headers,
                 data={
                     "search": search_query,
@@ -39,43 +60,32 @@ class SplunkAdapter:
                     "output_mode": "json",
                 },
                 verify=False,
-                timeout=20,
+                timeout=30,
             )
-            create_response.raise_for_status()
+            response.raise_for_status()
 
-            sid = create_response.json().get("sid")
-
-            if not sid:
-                return [{
-                    "source": "splunk",
-                    "signal": "logs",
-                    "finding": "Splunk search job was created but no search id was returned.",
-                    "query": search_query,
-                    "status": "error",
-                    "raw": create_response.json(),
-                }]
-
-            time.sleep(2)
-
-            results_response = requests.get(
-                f"{self.base_url}/services/search/jobs/{sid}/results",
-                headers=headers,
-                params={
-                    "output_mode": "json",
-                    "count": 20,
-                },
-                verify=False,
-                timeout=20,
-            )
-            results_response.raise_for_status()
+            events = []
+            for line in response.text.splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    item = json.loads(line)
+                    if "result" in item:
+                        events.append(item["result"])
+                except Exception:
+                    continue
 
             return [{
                 "source": "splunk",
                 "signal": "logs",
-                "finding": "Retrieved recent error-like log events from Splunk.",
+                "finding": f"Retrieved {len(events)} recent error-like log events from Splunk.",
                 "query": search_query,
                 "status": "ok",
-                "raw": results_response.json(),
+                "raw": {
+                    "results": events[:20],
+                    "count": len(events),
+                    "api_url_used": self.base_url,
+                },
             }]
 
         except Exception as exc:
@@ -85,5 +95,7 @@ class SplunkAdapter:
                 "finding": f"Splunk query failed: {exc}",
                 "query": search_query,
                 "status": "error",
-                "raw": None,
+                "raw": {
+                    "api_url_used": self.base_url,
+                },
             }]
