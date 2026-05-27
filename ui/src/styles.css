@@ -2585,3 +2585,54 @@ html[data-theme="dark"] .validated-tool .status-ok {
   margin-bottom: 10px;
   flex-wrap: wrap;
 }
+
+.ayosa-signal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.ayosa-signal-pill {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.ayosa-signal-pill strong {
+  display: block;
+  text-transform: capitalize;
+  color: var(--text-heading);
+  font-size: 13px;
+}
+
+.ayosa-signal-pill span {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.ayosa-signal-pill.available {
+  border-color: var(--green-border);
+  background: var(--green-bg);
+}
+
+.ayosa-signal-pill.available span {
+  color: var(--green);
+}
+
+.ayosa-signal-pill.missing {
+  border-color: var(--yellow-bg);
+  background: var(--yellow-bg);
+}
+
+.ayosa-signal-pill.missing span {
+  color: var(--yellow);
+}
+
+.ayosa-missing-note {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}

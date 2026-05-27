@@ -334,6 +334,32 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
                   </div>
                 </div>
 
+                <div className="ayosa-result-card">
+                  <div className="ayosa-result-label">Signal Coverage</div>
+
+                  <div className="ayosa-signal-grid">
+                    {Object.entries(result.signal_coverage || {}).map(([signal, providers]) => (
+                      <div
+                        key={signal}
+                        className={`ayosa-signal-pill ${
+                          providers.length ? "available" : "missing"
+                        }`}
+                      >
+                        <strong>{signal}</strong>
+                        <span>
+                          {providers.length ? providers.join(", ") : "missing"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {(result.missing_signals || []).length > 0 && (
+                    <p className="ayosa-missing-note">
+                      AYOSA could not query {result.missing_signals.join(", ")} because no matching validated tools were provided.
+                    </p>
+                  )}
+                </div>
+
                 <div className="ayosa-summary-grid">
                   <div className="ayosa-result-card ayosa-result-card-primary">
                     <div className="ayosa-result-label">Probable Root Cause</div>
