@@ -20,9 +20,9 @@ class SplunkAdapter:
                 "raw": None,
             }]
 
-        search_query = 'search index=* (error OR exception OR timeout OR failed)'
+        search_query = 'search index=user01-index (error OR exception OR timeout OR failed)'
         if service:
-            search_query += f' "{service}"'
+            search_query += f' "service.name"={service}'
 
         headers = {
             "Authorization": f"Bearer {self.auth_token}"
