@@ -82,11 +82,11 @@ class AyosaService:
             missing_signals=missing_signals,
         )
 
-        probable_root_cause = self._infer_probable_cause(
-            self._extract_active_alerts(evidence),
-            self._extract_log_hits(evidence),
-            self._extract_metric_values(evidence),
-        )
+        alerts = self._extract_active_alerts(evidence)
+        logs = self._extract_log_hits(evidence)
+        metrics = self._extract_metric_values(evidence)
+
+        probable_root_cause = self._infer_probable_cause(alerts, logs, metrics)
 
         return {
             "answer": answer,
@@ -138,6 +138,8 @@ class AyosaService:
 
         if ok_count >= 2:
             confidence = 0.55
+        if log_count > 0:
+            confidence = max(confidence, 0.35)
         if metric_count > 0:
             confidence = 0.65
         if alert_count > 0 and log_count > 0:
@@ -290,12 +292,24 @@ class AyosaService:
                 continue
 
             raw = item.get("raw") or {}
-            search_hits = (
-                raw.get("hits", {}).get("hits", [])
-                if isinstance(raw, dict)
-                else []
-            )
-            hits.extend(search_hits)
+            if not isinstance(raw, dict):
+                continue
+
+            # OpenSearch / Elasticsearch format
+            search_hits = raw.get("hits", {}).get("hits", [])
+            if search_hits:
+                for hit in search_hits:
+                    if isinstance(hit, dict):
+                        hit["_ayosa_source"] = item.get("source")
+                        hits.append(hit)
+
+            # Splunk format from jobs/export adapter
+            splunk_results = raw.get("results", [])
+            if splunk_results:
+                for hit in splunk_results:
+                    if isinstance(hit, dict):
+                        hit["_ayosa_source"] = item.get("source")
+                        hits.append(hit)
 
         return hits
 
@@ -322,6 +336,75 @@ class AyosaService:
                 })
 
         return metric_values
+
+    def _log_body(self, hit: dict[str, Any]) -> str:
+        if not isinstance(hit, dict):
+            return ""
+
+        # OpenSearch / Elasticsearch
+        source = hit.get("_source", {})
+        if isinstance(source, dict) and source:
+            return (
+                source.get("body")
+                or source.get("message")
+                or source.get("log")
+                or ""
+            )
+
+        # Splunk
+        return (
+            hit.get("_raw")
+            or hit.get("body")
+            or hit.get("message")
+            or hit.get("event")
+            or hit.get("log")
+            or ""
+        )
+
+    def _log_timestamp(self, hit: dict[str, Any]) -> str | None:
+        if not isinstance(hit, dict):
+            return None
+
+        source = hit.get("_source", {})
+        if isinstance(source, dict) and source:
+            return source.get("@timestamp") or source.get("observedTimestamp")
+
+        return hit.get("_time") or hit.get("time") or hit.get("@timestamp")
+
+    def _log_severity(self, hit: dict[str, Any]) -> str | None:
+        if not isinstance(hit, dict):
+            return None
+
+        source = hit.get("_source", {})
+        if isinstance(source, dict) and source:
+            severity = source.get("severity")
+            if isinstance(severity, dict):
+                return severity.get("text")
+            return severity
+
+        return (
+            hit.get("severity")
+            or hit.get("otel.log.severity.text")
+            or hit.get("level")
+            or hit.get("log_level")
+        )
+
+    def _log_source(self, hit: dict[str, Any]) -> str:
+        if not isinstance(hit, dict):
+            return "logs"
+
+        ayosa_source = hit.get("_ayosa_source")
+        if ayosa_source:
+            return ayosa_source
+
+        if "_raw" in hit:
+            return "splunk"
+
+        source = hit.get("_source", {})
+        if isinstance(source, dict):
+            return source.get("source") or "logs"
+
+        return "logs"
 
     def _summarize_metrics(self, metrics: list[dict[str, Any]]) -> str:
         readable = []
@@ -352,13 +435,20 @@ class AyosaService:
             return ""
 
         bodies = []
-        for hit in logs[:5]:
-            source = hit.get("_source", {})
-            body = source.get("body") or source.get("message") or ""
+        sources = []
+
+        for hit in logs[:10]:
+            body = self._log_body(hit)
             if body:
                 bodies.append(body.lower())
 
+            source_name = self._log_source(hit)
+            if source_name:
+                sources.append(source_name)
+
         joined = " ".join(bodies)
+        unique_sources = list(dict.fromkeys(sources))
+        source_text = ", ".join(unique_sources) if unique_sources else "logs"
 
         patterns = []
         if "high memory usage" in joined:
@@ -371,15 +461,17 @@ class AyosaService:
             patterns.append("broken pipe network errors")
         if "eof" in joined:
             patterns.append("EOF connection errors")
+        if "unauthorized" in joined or "authentication" in joined:
+            patterns.append("authentication or authorization errors")
 
         if patterns:
             unique_patterns = list(dict.fromkeys(patterns))
             return (
-                f"Log evidence found {len(logs)} matching events. "
+                f"Log evidence from {source_text} found {len(logs)} matching events. "
                 f"Common patterns include: {', '.join(unique_patterns)}."
             )
 
-        return f"Log evidence found {len(logs)} matching events."
+        return f"Log evidence from {source_text} found {len(logs)} matching events."
 
     def _infer_probable_cause(
         self,
@@ -388,8 +480,8 @@ class AyosaService:
         metrics: list[dict[str, Any]],
     ) -> str:
         log_text = " ".join(
-            str(hit.get("_source", {}).get("body", "")).lower()
-            for hit in logs[:10]
+            self._log_body(hit).lower()
+            for hit in logs[:20]
         )
 
         has_slo_alert = any(
@@ -430,6 +522,11 @@ class AyosaService:
                 "logs indicate Kafka or broker connectivity issues. Check Kafka health and checkout producer or metadata connectivity."
             )
 
+        if logs:
+            return (
+                "log evidence is available, but no strong known incident pattern was inferred. Review the newest log events and expand correlation with metrics, alerts, and traces."
+            )
+
         if metrics:
             return (
                 "metrics are available, but no strong incident pattern was inferred yet. Review latency, request-rate, and error-rate trends."
@@ -466,8 +563,8 @@ class AyosaService:
             actions.append("Add a tracing-capable tool such as Jaeger, Tempo, Datadog, Dynatrace, or AppDynamics to inspect slow or failing spans.")
 
         log_text = " ".join(
-            str(hit.get("_source", {}).get("body", "")).lower()
-            for hit in logs[:10]
+            self._log_body(hit).lower()
+            for hit in logs[:20]
         )
 
         if "high memory usage" in log_text or "export timeout" in log_text:
@@ -538,7 +635,7 @@ class AyosaService:
             patterns.append("slo_error_budget_burn")
 
         log_text = " ".join(
-            str(hit.get("_source", {}).get("body", "")).lower()
+            self._log_body(hit).lower()
             for hit in logs[:20]
         )
 
@@ -582,19 +679,13 @@ class AyosaService:
             })
 
         for hit in logs[:5]:
-            source = hit.get("_source", {})
-            body = source.get("body") or source.get("message") or "log event"
-            severity = source.get("severity", {})
-            if isinstance(severity, dict):
-                severity = severity.get("text")
-
-            source_name = source.get("source") or "logs"
+            body = self._log_body(hit) or "log event"
 
             timeline.append({
-                "timestamp": source.get("@timestamp") or source.get("observedTimestamp"),
-                "source": source_name,
+                "timestamp": self._log_timestamp(hit),
+                "source": self._log_source(hit),
                 "event": body[:240],
-                "severity": severity,
+                "severity": self._log_severity(hit),
             })
 
         timeline = sorted(
