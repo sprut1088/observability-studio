@@ -463,6 +463,10 @@ class AyosaService:
             patterns.append("EOF connection errors")
         if "unauthorized" in joined or "authentication" in joined:
             patterns.append("authentication or authorization errors")
+        if "failed" in joined or "request failed" in joined:
+            patterns.append("failed requests")
+        if "invalid token" in joined:
+            patterns.append("invalid token or authentication failures")
 
         if patterns:
             unique_patterns = list(dict.fromkeys(patterns))
@@ -520,6 +524,18 @@ class AyosaService:
         if has_kafka:
             return (
                 "logs indicate Kafka or broker connectivity issues. Check Kafka health and checkout producer or metadata connectivity."
+            )
+        
+        if "invalid token" in log_text:
+            return (
+                "payment logs show repeated invalid-token failures. "
+                "This points to an authentication, token validation, or payment request credential issue."
+            )
+
+        if "request failed" in log_text or "failed" in log_text:
+            return (
+                "payment logs show repeated failed requests. "
+                "Review payment request validation, auth token handling, and recent client or configuration changes."
             )
 
         if logs:
@@ -638,6 +654,12 @@ class AyosaService:
             self._log_body(hit).lower()
             for hit in logs[:20]
         )
+
+        if "failed" in log_text or "request failed" in log_text:
+            patterns.append("failed_requests")
+
+        if "invalid token" in log_text:
+            patterns.append("invalid_token_auth_failure")
 
         if "high memory usage" in log_text:
             patterns.append("high_memory_usage")
