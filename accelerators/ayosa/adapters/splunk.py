@@ -12,23 +12,34 @@ class SplunkAdapter:
         self.auth_token = auth_token
 
     def _normalize_splunk_api_url(self, base_url: str) -> str:
-        """
-        AYOSA accepts either Splunk Web URL or Splunk API URL.
-
-        Converts:
-          http://host:8000/en-US
-          http://host:8000
-        To:
-          https://host:8089
-        """
         raw = (base_url or "").rstrip("/")
         parsed = urlparse(raw)
 
+        # Accept Splunk Web URL and convert to Splunk management/API URL.
+        # Example: http://host:8000/en-US -> https://host:8089
         if parsed.port == 8000 or "/en-US" in parsed.path:
             host = parsed.hostname
             return f"https://{host}:8089"
 
         return raw
+
+    def _build_search_query(self, service: str | None, message: str | None) -> str:
+        search_query = "search index=user01-index"
+
+        if service:
+            search_query += f" {service}"
+
+        message_l = (message or "").lower()
+
+        # Add broader incident/error keywords when the user is investigating failures.
+        if any(word in message_l for word in ["error", "fail", "failed", "failure", "timeout", "latency", "issue", "incident"]):
+            search_query += (
+                " (error OR exception OR timeout OR failed OR failure "
+                "OR unavailable OR refused OR broken OR eof "
+                'OR "invalid token" OR "request failed")'
+            )
+
+        return search_query
 
     def investigate(self, service: str | None, time_range: str, message: str):
         if not self.auth_token:
@@ -41,9 +52,7 @@ class SplunkAdapter:
                 "raw": None,
             }]
 
-        search_query = 'search index=user01-index (error OR exception OR timeout OR failed)'
-        if service:
-            search_query += f" {service}"
+        search_query = self._build_search_query(service, message)
 
         headers = {
             "Authorization": f"Bearer {self.auth_token}"
@@ -68,17 +77,20 @@ class SplunkAdapter:
             for line in response.text.splitlines():
                 if not line.strip():
                     continue
+
                 try:
                     item = json.loads(line)
                     if "result" in item:
-                        events.append(item["result"])
+                        event = item["result"]
+                        event["_ayosa_source"] = "splunk"
+                        events.append(event)
                 except Exception:
                     continue
 
             return [{
                 "source": "splunk",
                 "signal": "logs",
-                "finding": f"Retrieved {len(events)} recent error-like log events from Splunk.",
+                "finding": f"Retrieved {len(events)} recent log events from Splunk.",
                 "query": search_query,
                 "status": "ok",
                 "raw": {
