@@ -108,14 +108,217 @@ class AyosaService:
             "evidence": evidence,
             "suggested_actions": self._suggest_actions(evidence, missing_signals),
             "ai_analysis": None,
+            "charts": [],
+            "llm_analysis": None,
+            "incident_snapshot": None,
         }
+
+        # Collect charts from adapters that support get_charts()
+        result["charts"] = self._collect_charts(
+            tools=request.tools,
+            service=request.service,
+            time_range=request.time_range,
+        )
+
+        # Build deterministic incident snapshot
+        result["incident_snapshot"] = self._build_incident_snapshot(result)
 
         # Optional LLM enrichment
         ai_cfg = getattr(request, "ai", None)
         if ai_cfg and ai_cfg.enabled:
             result["ai_analysis"] = self._run_ai_analysis(ai_cfg, result)
+            result["llm_analysis"] = self._generate_llm_analysis(ai_cfg, result)
 
         return result
+
+    # ------------------------------------------------------------------
+    # Chart collection
+    # ------------------------------------------------------------------
+
+    def _collect_charts(
+        self,
+        tools: list[Any],
+        service: str | None,
+        time_range: str,
+    ) -> list[dict[str, Any]]:
+        """Call get_charts() on every adapter that supports it."""
+        charts: list[dict[str, Any]] = []
+        for tool in tools:
+            tool_key = tool.tool.lower().strip()
+            adapter_cls = ADAPTERS.get(tool_key)
+            if not adapter_cls:
+                continue
+            adapter = adapter_cls(base_url=tool.base_url, auth_token=tool.auth_token)
+            if not hasattr(adapter, "get_charts"):
+                continue
+            try:
+                charts.extend(adapter.get_charts(service=service, time_range=time_range))
+            except Exception as exc:
+                logger.warning("Chart collection failed for %s: %s", tool.tool, exc)
+        return charts
+
+    # ------------------------------------------------------------------
+    # Incident snapshot
+    # ------------------------------------------------------------------
+
+    def _build_incident_snapshot(self, result: dict[str, Any]) -> dict[str, Any]:
+        """Assemble a compact, structured incident snapshot from investigation data."""
+        evidence = result.get("evidence", [])
+        top_findings = [
+            item["finding"]
+            for item in evidence
+            if item.get("status") == "ok" and item.get("finding")
+        ]
+        timeline = result.get("timeline", [])
+        return {
+            "root_cause": result.get("probable_root_cause", ""),
+            "impact": result.get("impact", ""),
+            "confidence": result.get("confidence", 0.0),
+            "coverage": result.get("signal_coverage", {}),
+            "top_findings": top_findings[:5],
+            "recommended_actions": result.get("suggested_actions", [])[:5],
+            "timeline_summary": [
+                {
+                    "timestamp": item.get("timestamp"),
+                    "source": item.get("source"),
+                    "event": (item.get("event") or "")[:150],
+                    "severity": item.get("severity"),
+                }
+                for item in timeline[:5]
+            ],
+        }
+
+    # ------------------------------------------------------------------
+    # LLM context builder (compact evidence for LLM consumption)
+    # ------------------------------------------------------------------
+
+    def _generate_llm_context(self, result: dict[str, Any]) -> dict[str, Any]:
+        """Prepare a compact, evidence-only dict for LLM consumption.
+
+        Only facts already present in the investigation result are included.
+        This dict is passed verbatim to the LLM prompt so the model cannot
+        reference anything outside it.
+        """
+        evidence = result.get("evidence", [])
+
+        alerts: list[dict[str, Any]] = []
+        log_samples: list[dict[str, Any]] = []
+        metric_samples: list[dict[str, Any]] = []
+        trace_samples: list[dict[str, Any]] = []
+
+        for item in evidence:
+            if item.get("status") != "ok":
+                continue
+            signal = item.get("signal", "")
+            source = item.get("source", "")
+
+            if source == "alertmanager":
+                raw = item.get("raw") or []
+                if isinstance(raw, list):
+                    for alert in raw[:3]:
+                        labels = alert.get("labels", {})
+                        annotations = alert.get("annotations", {})
+                        alerts.append({
+                            "alertname": labels.get("alertname"),
+                            "severity": labels.get("severity"),
+                            "service": labels.get("service"),
+                            "summary": annotations.get("summary", ""),
+                            "startsAt": alert.get("startsAt"),
+                        })
+            elif signal == "logs":
+                raw = item.get("raw") or {}
+                if isinstance(raw, dict):
+                    hits = (
+                        raw.get("hits", {}).get("hits", [])
+                        or raw.get("results", [])
+                    )[:3]
+                    for hit in hits:
+                        body = self._log_body(hit)
+                        if body:
+                            log_samples.append({
+                                "source": source,
+                                "timestamp": self._log_timestamp(hit),
+                                "severity": self._log_severity(hit),
+                                "message": body[:300],
+                            })
+            elif signal == "metrics":
+                raw = item.get("raw") or {}
+                if isinstance(raw, dict):
+                    results = raw.get("data", {}).get("result", [])
+                    if results:
+                        try:
+                            metric_samples.append({
+                                "source": source,
+                                "query": item.get("query"),
+                                "finding": item.get("finding"),
+                                "value": results[0].get("value", [None, None])[1],
+                            })
+                        except Exception:
+                            pass
+            elif signal == "traces":
+                trace_samples.append({
+                    "source": source,
+                    "finding": item.get("finding"),
+                })
+
+        return {
+            "service": result.get("service"),
+            "time_range": result.get("time_range"),
+            "confidence": result.get("confidence"),
+            "signal_coverage": result.get("signal_coverage", {}),
+            "missing_signals": result.get("missing_signals", []),
+            "root_cause": result.get("probable_root_cause", ""),
+            "impact": result.get("impact", ""),
+            "patterns": result.get("detected_patterns", []),
+            "timeline": [
+                {
+                    "timestamp": t.get("timestamp"),
+                    "source": t.get("source"),
+                    "event": (t.get("event") or "")[:200],
+                }
+                for t in result.get("timeline", [])[:5]
+            ],
+            "active_alerts": alerts,
+            "log_samples": log_samples[:5],
+            "metric_samples": metric_samples[:5],
+            "trace_samples": trace_samples[:3],
+            "suggested_actions": result.get("suggested_actions", []),
+        }
+
+    # ------------------------------------------------------------------
+    # Focused LLM analysis (strict evidence-bounded prompt)
+    # ------------------------------------------------------------------
+
+    def _generate_llm_analysis(
+        self, ai_cfg: Any, result: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Generate a focused, evidence-bounded LLM analysis.
+
+        The LLM is explicitly forbidden from inventing facts not present in
+        the evidence.  Returns a dict matching LLMAnalysis schema.
+        """
+        try:
+            from accelerators.ayosa.llm.analyst import AyosaAIAnalyst
+
+            analyst = AyosaAIAnalyst({
+                "provider": ai_cfg.provider or "anthropic",
+                "api_key": ai_cfg.api_key,
+                "model": ai_cfg.model,
+                "azure_endpoint": ai_cfg.azure_endpoint,
+                "azure_deployment": ai_cfg.azure_deployment,
+                "openrouter_model": ai_cfg.openrouter_model,
+            })
+            context = self._generate_llm_context(result)
+            return analyst.analyze_focused(context)
+        except Exception as exc:
+            logger.error("AYOSA LLM focused analysis failed: %s", exc, exc_info=True)
+            return {
+                "executive_summary": "LLM analysis was unavailable. See deterministic findings above.",
+                "reasoning": f"LLM analysis failed: {exc}",
+                "missing_information": [],
+                "recommended_next_steps": [],
+                "error": str(exc),
+            }
 
     def _run_ai_analysis(self, ai_cfg: Any, investigation_result: dict[str, Any]) -> dict[str, Any]:
         """Call the configured LLM provider and return enriched analysis."""

@@ -2,6 +2,40 @@ from typing import Any, Optional
 from pydantic import BaseModel
 
 
+class ChartDataPoint(BaseModel):
+    timestamp: str
+    value: float
+
+
+class ChartData(BaseModel):
+    title: str
+    type: str = "line"
+    signal: str
+    source: str
+    query: Optional[str] = None
+    data: list[ChartDataPoint] = []
+
+
+class LLMAnalysis(BaseModel):
+    executive_summary: str = ""
+    reasoning: str = ""
+    missing_information: list[str] = []
+    recommended_next_steps: list[str] = []
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    error: Optional[str] = None
+
+
+class IncidentSnapshot(BaseModel):
+    root_cause: str = ""
+    impact: str = ""
+    confidence: float = 0.0
+    coverage: dict[str, list[str]] = {}
+    top_findings: list[str] = []
+    recommended_actions: list[str] = []
+    timeline_summary: list[dict[str, Any]] = []
+
+
 class AyosaToolConfig(BaseModel):
     tool: str
     base_url: str
@@ -61,3 +95,6 @@ class AyosaChatResponse(BaseModel):
     missing_signals: list[str]
 
     ai_analysis: Optional[dict[str, Any]] = None
+    charts: list[ChartData] = []
+    llm_analysis: Optional[LLMAnalysis] = None
+    incident_snapshot: Optional[IncidentSnapshot] = None

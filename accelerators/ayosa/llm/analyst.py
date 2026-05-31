@@ -47,7 +47,19 @@ INCIDENT ANALYSIS EXPERTISE:
 RESPONSE FORMAT: Respond ONLY with a valid JSON object matching the schema in the user message. No markdown fences, no explanation outside the JSON."""
 
 # ---------------------------------------------------------------------------
-# Response schema
+# Focused (evidence-bounded) system prompt
+# ---------------------------------------------------------------------------
+
+_FOCUSED_SYSTEM_PROMPT = """You are a Site Reliability Engineer performing incident root cause analysis.
+
+STRICT RULE: You MUST only use the evidence provided in the user message.
+Do not invent metrics, logs, traces, alerts, services, incidents, root causes, timelines, or remediation steps.
+If the provided evidence is insufficient to reach a confident conclusion, state that explicitly rather than guessing.
+
+RESPONSE FORMAT: Respond ONLY with a valid JSON object matching the schema in the user message. No markdown fences, no explanation outside the JSON."""
+
+# ---------------------------------------------------------------------------
+# Response schemas
 # ---------------------------------------------------------------------------
 
 _RESPONSE_SCHEMA = {
@@ -76,6 +88,23 @@ _RESPONSE_SCHEMA = {
     "follow_up_queries": [
         "string: specific query or check to run in the observability tools to confirm/refute the root cause"
     ]
+}
+
+_FOCUSED_RESPONSE_SCHEMA = {
+    "executive_summary": (
+        "string: 2-3 sentence summary of findings based ONLY on the provided evidence. "
+        "If evidence is sparse, say so explicitly instead of guessing."
+    ),
+    "reasoning": (
+        "string: step-by-step reasoning from the provided evidence to the conclusion. "
+        "Reference only facts present in the evidence."
+    ),
+    "missing_information": [
+        "string: specific signal or data point absent from the provided evidence that would increase confidence"
+    ],
+    "recommended_next_steps": [
+        "string: specific actionable next step grounded in the provided evidence"
+    ],
 }
 
 # ---------------------------------------------------------------------------
@@ -306,11 +335,11 @@ class AyosaAIAnalyst:
     # Provider call implementations
     # ------------------------------------------------------------------
 
-    def _call_anthropic(self, user_message: str) -> str:
+    def _call_anthropic(self, user_message: str, system_prompt: str = _SYSTEM_PROMPT) -> str:
         response = self.client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
-            system=_SYSTEM_PROMPT,
+            system=system_prompt,
             messages=[{"role": "user", "content": user_message}],
         )
         try:
@@ -318,11 +347,11 @@ class AyosaAIAnalyst:
         except Exception:
             return str(response)
 
-    def _call_openai_compatible(self, user_message: str) -> str:
+    def _call_openai_compatible(self, user_message: str, system_prompt: str = _SYSTEM_PROMPT) -> str:
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
             ],
             max_tokens=self.max_tokens,
@@ -385,6 +414,73 @@ Be specific. Reference actual alert names, log patterns, and metric values from 
             "signal_gaps": [],
             "executive_summary": "AI analysis was unavailable. Review the deterministic evidence above.",
             "follow_up_queries": [],
+            "error": error_message,
+            "provider": self.provider,
+            "model": self.model,
+        }
+
+    # ------------------------------------------------------------------
+    # Focused, evidence-bounded analysis
+    # ------------------------------------------------------------------
+
+    def analyze_focused(self, context: dict[str, Any]) -> dict[str, Any]:
+        """Run a focused LLM analysis that is strictly bounded to the provided evidence.
+
+        The LLM is explicitly instructed not to invent metrics, logs, traces,
+        alerts, services, incidents, root causes, timelines, or remediation
+        steps beyond what is present in *context*.
+        """
+        logger.info(
+            "Running AYOSA focused LLM analysis with provider=%s model=%s",
+            self.provider,
+            self.model,
+        )
+
+        user_message = (
+            "Analyze ONLY the following evidence from an AYOSA investigation. "
+            "Do NOT invent or assume any information not present in this evidence.\n\n"
+            "## EVIDENCE\n"
+            f"```json\n{json.dumps(context, indent=2, default=str)}\n```\n\n"
+            "## REQUIRED RESPONSE SCHEMA\n"
+            "Respond ONLY with a JSON object matching this exact schema "
+            "(no markdown fences, raw JSON only):\n"
+            f"```json\n{json.dumps(_FOCUSED_RESPONSE_SCHEMA, indent=2)}\n```\n\n"
+            "## IMPORTANT CONSTRAINTS\n"
+            "- Do not invent metrics, logs, traces, alerts, services, incidents, "
+            "root causes, timelines, or remediation steps.\n"
+            "- Base ALL statements on the evidence provided above.\n"
+            "- If the evidence is insufficient, clearly state what is missing "
+            "rather than guessing.\n"
+            "- Reference specific alert names, log messages, and metric values "
+            "from the evidence when available."
+        )
+
+        try:
+            raw_text = self._call(user_message, _FOCUSED_SYSTEM_PROMPT)
+        except Exception as exc:
+            logger.error("AYOSA focused LLM call failed: %s", exc)
+            return self._focused_error_result(str(exc))
+
+        try:
+            parsed = self._parse_response(raw_text)
+        except Exception as exc:
+            logger.error("Failed to parse focused LLM response: %s", exc)
+            logger.debug("Raw focused AI response snippet: %s", raw_text[:1000])
+            return self._focused_error_result(f"Response parse error: {exc}")
+
+        parsed["provider"] = self.provider
+        parsed["model"] = self.model
+        return parsed
+
+    def _focused_error_result(self, error_message: str) -> dict[str, Any]:
+        return {
+            "executive_summary": (
+                "LLM analysis could not be completed. "
+                "Review the deterministic findings above."
+            ),
+            "reasoning": f"LLM analysis failed: {error_message}",
+            "missing_information": [],
+            "recommended_next_steps": [],
             "error": error_message,
             "provider": self.provider,
             "model": self.model,
