@@ -98,3 +98,4 @@ class AyosaChatResponse(BaseModel):
     charts: list[ChartData] = []
     llm_analysis: Optional[LLMAnalysis] = None
     incident_snapshot: Optional[IncidentSnapshot] = None
+    intent: Optional[str] = None

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { runAyosaInvestigation, generateAyosaRunbook } from "../api";
 import AyosaChatMessage from "./AyosaChatMessage";
 import AyosaIncidentSnapshot from "./AyosaIncidentSnapshot";
+import AyosaChatShell from "./AyosaChatShell";
 
 const AI_PROVIDERS = [
   { value: "anthropic", label: "✨ Anthropic (Claude)" },
@@ -64,6 +65,7 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
 
   // AI configuration
   const [useAi, setUseAi] = useState(false);
+  const [aiModeActive, setAiModeActive] = useState(false); // true = chat workspace
   const [aiProvider, setAiProvider] = useState("anthropic");
   const [aiApiKey, setAiApiKey] = useState("");
   const [azureEndpoint, setAzureEndpoint] = useState("");
@@ -83,6 +85,12 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
   );
 
   const busy = running;
+
+  // When AI toggle is turned off, exit chat workspace too
+  function handleAiToggle(enabled) {
+    setUseAi(enabled);
+    if (!enabled) setAiModeActive(false);
+  }
 
   async function handleRun() {
     if (tools.length === 0) {
@@ -244,7 +252,7 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="modal modal-wide"
+        className={`modal modal-wide${aiModeActive ? " modal-ai-workspace" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label="AYOSA"
@@ -253,18 +261,52 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
           <div className="modal-header-left">
             <span className="modal-icon">🧠</span>
             <div>
-              <div className="modal-title">AYOSA</div>
+              <div className="modal-title">
+                AYOSA
+                {aiModeActive && (
+                  <span className="ayosa-ai-mode-badge">✨ AI Chat</span>
+                )}
+              </div>
               <div className="modal-subtitle">
-                Ask Your Observability Stack Anything using globally validated tools.
+                {aiModeActive
+                  ? "Conversational AI investigation workspace"
+                  : "Ask Your Observability Stack Anything using globally validated tools."}
               </div>
             </div>
           </div>
 
-          <button className="modal-close" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {aiModeActive && (
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setAiModeActive(false)}
+                title="Return to form view"
+              >
+                ⚙ Settings
+              </button>
+            )}
+            <button className="modal-close" onClick={onClose} aria-label="Close">
+              ✕
+            </button>
+          </div>
         </div>
 
+        {/* ── AI Chat Workspace ── */}
+        {aiModeActive ? (
+          <AyosaChatShell
+            tools={tools}
+            aiConfig={{
+              provider:         aiProvider,
+              apiKey:           aiApiKey,
+              azureEndpoint,
+              azureDeployment,
+              openrouterModel,
+              model:            null,
+            }}
+            onClose={onClose}
+          />
+        ) : (
+          <>
         <div className="modal-body">
           <div className="mtool-add-bar" style={{ marginBottom: 12 }}>
             <div className="form-group mtool-add-url">
@@ -371,7 +413,7 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
           {/* AI Toggle */}
           <div
             className={`toggle-row${useAi ? " toggle-row-active" : ""}`}
-            onClick={() => !busy && setUseAi((v) => !v)}
+            onClick={() => !busy && handleAiToggle(!useAi)}
             style={{ marginTop: 16 }}
           >
             <div className="toggle-label">
@@ -379,7 +421,7 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
               <div>
                 <div className="toggle-title">Enable AI-Powered Analysis</div>
                 <div className="toggle-desc">
-                  Enrich investigation results with deep LLM root cause analysis and remediation guidance.
+                  Switch to a conversational AI workspace with intent classification, evidence-backed answers, and charts.
                 </div>
               </div>
             </div>
@@ -387,7 +429,7 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
               <input
                 type="checkbox"
                 checked={useAi}
-                onChange={(e) => setUseAi(e.target.checked)}
+                onChange={(e) => handleAiToggle(e.target.checked)}
                 disabled={busy}
               />
               <span className="switch-track" />
@@ -476,6 +518,20 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
                   </div>
                 </div>
               )}
+
+              {/* Enter chat workspace button */}
+              <div className="ayosa-enter-ai-bar animate-in">
+                <div className="ayosa-enter-ai-hint">
+                  Once your API key is set, enter the AI chat workspace for a conversational investigation experience.
+                </div>
+                <button
+                  className="btn btn-violet"
+                  onClick={() => setAiModeActive(true)}
+                  disabled={!aiApiKey.trim() || tools.length === 0}
+                >
+                  Enter AI Chat Mode →
+                </button>
+              </div>
             </div>
           )}
 
@@ -531,6 +587,8 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
             )}
           </button>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

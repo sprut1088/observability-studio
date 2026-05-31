@@ -1,11 +1,25 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from accelerators.ayosa.registry import ADAPTERS
 
 logger = logging.getLogger(__name__)
+
+# Intent keyword mapping — order matters (more specific first)
+_INTENT_KEYWORDS: dict[str, list[str]] = {
+    "current_time":         ["what time", "current time", "what is the time", "what's the time", "what date", "today's date", "current date"],
+    "general_chat":         ["hello", "hi there", "hey", "help me", "what can you do", "who are you", "what are you"],
+    "runbook_request":      ["runbook", "playbook", "steps to fix", "how to fix", "how do i fix", "remediation steps"],
+    "health_check":         ["health check", "is it up", "is it down", "service status", "are services healthy", "check health", "check status"],
+    "last_error":           ["last error", "recent error", "latest error", "last failure", "recent failure", "last exception"],
+    "alerts_check":         ["alert", "alerts", "firing", "pagerduty", "opsgenie", "alarm", "is there an alert"],
+    "metrics_trend":        ["trend", "over time", "graph", "p99", "p95", "latency trend", "error rate", "request rate", "throughput"],
+    "logs_search":          ["log", "logs", "log search", "log entry", "error log", "exception", "stacktrace"],
+    "traces_check":         ["trace", "traces", "span", "distributed trace", "slow request", "slow trace"],
+}
 
 SIGNAL_CAPABILITIES = {
     "prometheus": ["metrics"],
@@ -26,7 +40,75 @@ EXPECTED_SIGNALS = ["metrics", "logs", "alerts", "traces"]
 
 
 class AyosaService:
+
+    # ------------------------------------------------------------------
+    # Intent classification
+    # ------------------------------------------------------------------
+
+    def _classify_intent(self, message: str) -> str:
+        """Simple keyword-based intent classification.  No LLM required."""
+        msg = message.lower().strip()
+        # Check explicit time question first to avoid confusion with "time range"
+        if any(kw in msg for kw in _INTENT_KEYWORDS["current_time"]):
+            return "current_time"
+        for intent, keywords in _INTENT_KEYWORDS.items():
+            if intent == "current_time":
+                continue
+            if any(kw in msg for kw in keywords):
+                return intent
+        return "service_investigation"
+
+    def _quick_result(self, request: Any, answer: str, intent: str) -> dict[str, Any]:
+        """Return a minimal result dict without running any tool queries."""
+        return {
+            "answer": answer,
+            "service": request.service,
+            "time_range": request.time_range,
+            "confidence": 1.0,
+            "intent": intent,
+            "signal_coverage": {},
+            "missing_signals": [],
+            "probable_root_cause": "",
+            "impact": "",
+            "detected_patterns": [],
+            "timeline": [],
+            "related_artifacts": [],
+            "evidence": [],
+            "suggested_actions": [],
+            "ai_analysis": None,
+            "charts": [],
+            "llm_analysis": None,
+            "incident_snapshot": None,
+        }
+
     def investigate(self, request):
+        intent = self._classify_intent(request.message)
+
+        # ── Fast-path: current_time ──
+        if intent == "current_time":
+            now = datetime.now()
+            return self._quick_result(
+                request,
+                answer=f"The current server time is {now.strftime('%A, %d %B %Y at %H:%M:%S')} (server local time).",
+                intent=intent,
+            )
+
+        # ── Fast-path: general_chat ──
+        if intent == "general_chat":
+            tool_count = len(request.tools)
+            return self._quick_result(
+                request,
+                answer=(
+                    f"Hi! I'm AYOSA — Ask Your Observability Stack Anything. "
+                    f"I currently have access to {tool_count} validated tool"
+                    f"{'s' if tool_count != 1 else ''}. "
+                    "You can ask me things like: 'Investigate payment latency', "
+                    "'Show error trend for checkout', 'Are there any active alerts?', "
+                    "or 'What was the last error for the auth service?'"
+                ),
+                intent=intent,
+            )
+
         evidence = []
 
         signal_coverage = self._build_signal_coverage(request.tools)
@@ -98,6 +180,7 @@ class AyosaService:
             "service": request.service,
             "time_range": request.time_range,
             "confidence": confidence,
+            "intent": intent,
             "signal_coverage": signal_coverage,
             "missing_signals": missing_signals,
             "probable_root_cause": probable_root_cause,

@@ -3235,3 +3235,448 @@ html[data-theme="dark"] .ayosa-effort-badge {
 .form-grid-1 {
   grid-template-columns: 1fr;
 }
+
+/* ============================================
+   AYOSA AI CHAT WORKSPACE
+   ============================================ */
+
+/* Wider modal when AI chat workspace is active */
+.modal.modal-ai-workspace {
+  width: min(1140px, 97vw);
+  height: 88vh;
+  max-height: 88vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.modal.modal-ai-workspace .modal-header {
+  flex-shrink: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+/* AI mode badge in title */
+.ayosa-ai-mode-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--grad-violet);
+  color: #fff;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* Enter AI mode CTA bar */
+.ayosa-enter-ai-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px dashed rgba(124, 58, 237, 0.35);
+  border-radius: var(--radius-md);
+  background: rgba(124, 58, 237, 0.04);
+  flex-wrap: wrap;
+}
+
+.ayosa-enter-ai-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+/* ── Chat Shell Layout ── */
+
+.ayosa-chat-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.ayosa-chat-sidebar {
+  width: 210px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-card);
+}
+
+html[data-theme="dark"] .ayosa-chat-sidebar {
+  background: rgba(20, 24, 42, 0.6);
+}
+
+.ayosa-chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ayosa-chat-thread {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  scroll-behavior: smooth;
+}
+
+/* ── Sidebar elements ── */
+
+.ayosa-sidebar-new-chat {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 6px;
+  text-align: left;
+  transition: background var(--ease), border-color var(--ease), color var(--ease);
+}
+
+.ayosa-sidebar-new-chat:hover:not(:disabled) {
+  background: rgba(124, 58, 237, 0.06);
+  border-color: var(--violet);
+  color: var(--violet);
+}
+
+.ayosa-sidebar-new-chat:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ayosa-sidebar-section {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  padding: 8px 6px 3px;
+}
+
+.ayosa-sidebar-tool {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.ayosa-sidebar-session {
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background var(--ease), color var(--ease);
+}
+
+.ayosa-sidebar-session:hover,
+.ayosa-sidebar-session.active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.ayosa-sidebar-artifact {
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: default;
+  border-radius: var(--radius-sm);
+}
+
+/* ── System / welcome message ── */
+
+.ayosa-system-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Suggested prompts ── */
+
+.ayosa-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ayosa-suggestion-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ayosa-suggestion-pill {
+  padding: 6px 12px;
+  border: 1px solid rgba(124, 58, 237, 0.25);
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.05);
+  color: var(--violet-dark);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--ease), border-color var(--ease);
+}
+
+.ayosa-suggestion-pill:hover {
+  background: rgba(124, 58, 237, 0.12);
+  border-color: rgba(124, 58, 237, 0.45);
+}
+
+/* ── Assistant message wrapper ── */
+
+.ayosa-message-assistant-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 100%;
+}
+
+/* ── Tool execution steps ── */
+
+.ayosa-tool-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.ayosa-tool-step {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 3px 0;
+}
+
+.ayosa-step-icon {
+  font-size: 13px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.ayosa-step-label {
+  flex: 1;
+}
+
+.ayosa-step-spinner {
+  width: 12px !important;
+  height: 12px !important;
+  flex-shrink: 0;
+}
+
+.ayosa-tool-step.ayosa-step-done {
+  color: var(--text-primary);
+}
+
+.ayosa-tool-step.ayosa-step-done .ayosa-step-icon {
+  color: var(--green);
+}
+
+.ayosa-tool-step.ayosa-step-running {
+  color: var(--text-heading);
+  font-weight: 500;
+}
+
+.ayosa-tool-step.ayosa-step-error {
+  color: var(--red);
+}
+
+/* Collapsed steps summary (after investigation completes) */
+.ayosa-steps-collapsed {
+  margin-bottom: 2px;
+}
+
+.ayosa-steps-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  list-style: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.ayosa-steps-summary::-webkit-details-marker { display: none; }
+
+.ayosa-steps-collapsed[open] .ayosa-steps-summary {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Evidence collapsible section */
+.ayosa-evidence-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.ayosa-evidence-summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 10px 14px !important;
+  margin-bottom: 0 !important;
+  list-style: none;
+  background: var(--bg-elevated);
+}
+
+.ayosa-evidence-summary::-webkit-details-marker { display: none; }
+
+.ayosa-evidence-list {
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Chart note (shown instead of empty chart card) */
+.ayosa-chart-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border);
+  margin-top: 6px;
+}
+
+/* ── Chat Input Bar ── */
+
+.ayosa-chat-input-bar {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding: 12px 16px 14px;
+  background: var(--bg-card);
+}
+
+html[data-theme="dark"] .ayosa-chat-input-bar {
+  background: rgba(20, 24, 42, 0.8);
+}
+
+.ayosa-chat-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.ayosa-chat-textarea {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: var(--font);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  line-height: 1.5;
+  transition: border-color var(--ease);
+}
+
+.ayosa-chat-textarea:focus {
+  outline: none;
+  border-color: var(--violet);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.08);
+}
+
+.ayosa-chat-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ayosa-send-btn {
+  flex-shrink: 0;
+  padding: 10px 20px;
+  align-self: flex-end;
+}
+
+.ayosa-chat-input-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ayosa-chat-input-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ayosa-input-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ayosa-input-mini {
+  width: 80px !important;
+  padding: 4px 8px !important;
+  font-size: 12px !important;
+  height: 28px !important;
+  min-height: unset !important;
+}
+
+.ayosa-provider-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--violet-dark);
+  background: rgba(124, 58, 237, 0.08);
+  border: 1px solid rgba(124, 58, 237, 0.2);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+@media (max-width: 700px) {
+  .ayosa-chat-sidebar { display: none; }
+  .ayosa-chat-input-controls { flex-wrap: wrap; }
+  .ayosa-input-mini { width: 64px !important; }
+}

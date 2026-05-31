@@ -162,6 +162,8 @@ function StatCard({ data }) {
 }
 
 export default function AyosaChartCard({ chart }) {
+  if (!chart || !chart.data || chart.data.length === 0) return null;
+
   const { title, type = "line", signal = "", source = "", data = [] } = chart;
   const signalClass = `ayosa-chart-badge ayosa-chart-badge-${signal}`;
 

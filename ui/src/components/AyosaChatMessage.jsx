@@ -12,7 +12,7 @@ export default function AyosaChatMessage({ userMessage, service, timeRange, resu
   const executiveSummary =
     (hasLlm && result.llm_analysis.executive_summary) || result.answer;
   const confidence = Math.round((result.confidence || 0) * 100);
-  const charts = result.charts || [];
+  const charts = (result.charts || []).filter((c) => (c.data || []).length > 0);
   const timeline = result.timeline || [];
   const evidence = result.evidence || [];
 
@@ -53,37 +53,41 @@ export default function AyosaChatMessage({ userMessage, service, timeRange, resu
         </div>
 
         {/* Root Cause + Impact */}
-        <div className="ayosa-summary-grid">
-          <div className="ayosa-result-card">
-            <div className="ayosa-result-label">Root Cause</div>
-            <p>{result.probable_root_cause}</p>
+        {(result.probable_root_cause || result.impact) && (
+          <div className="ayosa-summary-grid">
+            <div className="ayosa-result-card">
+              <div className="ayosa-result-label">Root Cause</div>
+              <p>{result.probable_root_cause}</p>
+            </div>
+            <div className="ayosa-result-card">
+              <div className="ayosa-result-label">Impact</div>
+              <p>{result.impact}</p>
+            </div>
           </div>
-          <div className="ayosa-result-card">
-            <div className="ayosa-result-label">Impact</div>
-            <p>{result.impact}</p>
-          </div>
-        </div>
+        )}
 
         {/* Signal Coverage */}
-        <div className="ayosa-result-card">
-          <div className="ayosa-result-label">Signal Coverage</div>
-          <div className="ayosa-signal-grid">
-            {Object.entries(result.signal_coverage || {}).map(([signal, providers]) => (
-              <div
-                key={signal}
-                className={`ayosa-signal-pill ${providers.length ? "available" : "missing"}`}
-              >
-                <strong>{signal}</strong>
-                <span>{providers.length ? providers.join(", ") : "missing"}</span>
-              </div>
-            ))}
+        {Object.keys(result.signal_coverage || {}).length > 0 && (
+          <div className="ayosa-result-card">
+            <div className="ayosa-result-label">Signal Coverage</div>
+            <div className="ayosa-signal-grid">
+              {Object.entries(result.signal_coverage).map(([signal, providers]) => (
+                <div
+                  key={signal}
+                  className={`ayosa-signal-pill ${providers.length ? "available" : "missing"}`}
+                >
+                  <strong>{signal}</strong>
+                  <span>{providers.length ? providers.join(", ") : "missing"}</span>
+                </div>
+              ))}
+            </div>
+            {(result.missing_signals || []).length > 0 && (
+              <p className="ayosa-missing-note">
+                Missing coverage: {result.missing_signals.join(", ")}.
+              </p>
+            )}
           </div>
-          {(result.missing_signals || []).length > 0 && (
-            <p className="ayosa-missing-note">
-              Missing coverage: {result.missing_signals.join(", ")}.
-            </p>
-          )}
-        </div>
+        )}
 
         {/* Detected Patterns */}
         {(result.detected_patterns || []).length > 0 && (
@@ -118,36 +122,43 @@ export default function AyosaChatMessage({ userMessage, service, timeRange, resu
         )}
 
         {/* Recommended Actions */}
-        <div className="ayosa-result-card">
-          <div className="ayosa-result-label">Recommended Actions</div>
-          <ul className="ayosa-action-list">
-            {(result.suggested_actions || []).map((a, i) => (
-              <li key={i}>{a}</li>
-            ))}
-          </ul>
-          {hasLlm && (result.llm_analysis.recommended_next_steps || []).length > 0 && (
-            <>
-              <div className="ayosa-result-label" style={{ marginTop: 12 }}>
-                ✨ AI Next Steps
-              </div>
+        {((result.suggested_actions || []).length > 0 ||
+          (hasLlm && (result.llm_analysis.recommended_next_steps || []).length > 0)) && (
+          <div className="ayosa-result-card">
+            <div className="ayosa-result-label">Recommended Actions</div>
+            {(result.suggested_actions || []).length > 0 && (
               <ul className="ayosa-action-list">
-                {result.llm_analysis.recommended_next_steps.map((s, i) => (
-                  <li key={i}>{s}</li>
+                {result.suggested_actions.map((a, i) => (
+                  <li key={i}>{a}</li>
                 ))}
               </ul>
-            </>
-          )}
-        </div>
+            )}
+            {hasLlm && (result.llm_analysis.recommended_next_steps || []).length > 0 && (
+              <>
+                <div className="ayosa-result-label" style={{ marginTop: 12 }}>
+                  ✨ AI Next Steps
+                </div>
+                <ul className="ayosa-action-list">
+                  {result.llm_analysis.recommended_next_steps.map((s, i) => (
+                    <li key={i}>{s}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Evidence */}
-        <div className="ayosa-result-card">
-          <div className="ayosa-result-label">
-            Evidence ({evidence.length} item{evidence.length !== 1 ? "s" : ""})
+        {evidence.length > 0 && (
+          <div className="ayosa-result-card">
+            <div className="ayosa-result-label">
+              Evidence ({evidence.length} item{evidence.length !== 1 ? "s" : ""})
+            </div>
+            {evidence.map((item, i) => (
+              <AyosaEvidenceCard key={`${item.source}-${i}`} item={item} />
+            ))}
           </div>
-          {evidence.map((item, i) => (
-            <AyosaEvidenceCard key={`${item.source}-${i}`} item={item} />
-          ))}
-        </div>
+        )}
 
         {/* Focused LLM Analysis */}
         {hasLlm && (
