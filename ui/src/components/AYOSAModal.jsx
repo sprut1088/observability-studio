@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { runAyosaInvestigation, generateAyosaRunbook } from "../api";
+import AyosaChatMessage from "./AyosaChatMessage";
+import AyosaIncidentSnapshot from "./AyosaIncidentSnapshot";
 
 const AI_PROVIDERS = [
   { value: "anthropic", label: "✨ Anthropic (Claude)" },
@@ -490,256 +492,22 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
           )}
 
           {result && (
-            <div className="ayosa-result-stack animate-in">
-              <div className="report-preview-card">
-                <div className="report-preview-header">
-                  <div>
-                    <div className="report-preview-title">
-                      AYOSA Investigation Summary
-                    </div>
-                    <div className="report-preview-subtitle">
-                      Confidence: {Math.round((result.confidence || 0) * 100)}%
-                      {result.ai_analysis && !result.ai_analysis.error && (
-                        <span className="ayosa-ai-badge">✨ AI Enhanced</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="ayosa-result-card">
-                  <div className="ayosa-result-label">Signal Coverage</div>
-
-                  <div className="ayosa-signal-grid">
-                    {Object.entries(result.signal_coverage || {}).map(([signal, providers]) => (
-                      <div
-                        key={signal}
-                        className={`ayosa-signal-pill ${
-                          providers.length ? "available" : "missing"
-                        }`}
-                      >
-                        <strong>{signal}</strong>
-                        <span>
-                          {providers.length ? providers.join(", ") : "missing"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {(result.missing_signals || []).length > 0 && (
-                    <p className="ayosa-missing-note">
-                      AYOSA could not query {result.missing_signals.join(", ")} because no matching validated tools were provided.
-                    </p>
-                  )}
-                </div>
-
-                <div className="ayosa-summary-grid">
-                  <div className="ayosa-result-card ayosa-result-card-primary">
-                    <div className="ayosa-result-label">Probable Root Cause</div>
-                    <p>{result.probable_root_cause}</p>
-                  </div>
-
-                  <div className="ayosa-result-card">
-                    <div className="ayosa-result-label">Impact</div>
-                    <p>{result.impact}</p>
-                  </div>
-                </div>
-
-                <div className="ayosa-result-card">
-                  <div className="ayosa-result-label">Executive Summary</div>
-                  <p>{result.answer}</p>
-                </div>
-
-                {/* AI Analysis Section */}
-                {result.ai_analysis && !result.ai_analysis.error && (
-                  <div className="ayosa-ai-analysis animate-in">
-                    <div className="ayosa-ai-header">
-                      <span>✨</span>
-                      <div>
-                        <div className="ayosa-ai-title">AI-Powered Analysis</div>
-                        <div className="ayosa-ai-meta">
-                          {result.ai_analysis.provider} · {result.ai_analysis.model} ·{" "}
-                          <span className={`ayosa-confidence-badge ayosa-confidence-${result.ai_analysis.root_cause_confidence}`}>
-                            {result.ai_analysis.root_cause_confidence} confidence
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {result.ai_analysis.executive_summary && (
-                      <div className="ayosa-result-card ayosa-result-card-primary">
-                        <div className="ayosa-result-label">AI Executive Summary</div>
-                        <p>{result.ai_analysis.executive_summary}</p>
-                      </div>
-                    )}
-
-                    {result.ai_analysis.narrative && (
-                      <div className="ayosa-result-card">
-                        <div className="ayosa-result-label">AI Root Cause Narrative</div>
-                        <p style={{ whiteSpace: "pre-wrap" }}>{result.ai_analysis.narrative}</p>
-                      </div>
-                    )}
-
-                    {result.ai_analysis.root_cause_reasoning && (
-                      <div className="ayosa-result-card">
-                        <div className="ayosa-result-label">Root Cause Reasoning</div>
-                        <p style={{ whiteSpace: "pre-wrap" }}>{result.ai_analysis.root_cause_reasoning}</p>
-                      </div>
-                    )}
-
-                    {result.ai_analysis.risk_assessment && (
-                      <div className="ayosa-result-card">
-                        <div className="ayosa-result-label">Risk Assessment</div>
-                        <div className="ayosa-risk-grid">
-                          <div><strong>Severity:</strong> <span className={`ayosa-severity-badge ayosa-severity-${result.ai_analysis.risk_assessment.severity}`}>{result.ai_analysis.risk_assessment.severity}</span></div>
-                          <div><strong>Blast Radius:</strong> {result.ai_analysis.risk_assessment.blast_radius}</div>
-                          <div><strong>User Impact:</strong> {result.ai_analysis.risk_assessment.user_impact}</div>
-                          {result.ai_analysis.risk_assessment.escalation_required && (
-                            <div className="ayosa-escalation-flag">⚠️ Escalation Required</div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {(result.ai_analysis.remediation_steps || []).length > 0 && (
-                      <div className="ayosa-result-card">
-                        <div className="ayosa-result-label">AI Remediation Steps</div>
-                        <ol className="ayosa-remediation-list">
-                          {result.ai_analysis.remediation_steps.map((step, i) => (
-                            <li key={i} className="ayosa-remediation-item">
-                              <div className="ayosa-remediation-action">{step.action}</div>
-                              {step.tool && <div className="ayosa-remediation-meta"><strong>Tool:</strong> {step.tool}</div>}
-                              {step.expected_outcome && <div className="ayosa-remediation-meta"><strong>Expected:</strong> {step.expected_outcome}</div>}
-                              {step.effort && <span className="ayosa-effort-badge">{step.effort}</span>}
-                            </li>
-                          ))}
-                        </ol>
-                      </div>
-                    )}
-
-                    {(result.ai_analysis.follow_up_queries || []).length > 0 && (
-                      <div className="ayosa-result-card">
-                        <div className="ayosa-result-label">Follow-up Queries</div>
-                        <ul className="ayosa-action-list">
-                          {result.ai_analysis.follow_up_queries.map((q, i) => (
-                            <li key={i}>{q}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {(result.ai_analysis.signal_gaps || []).length > 0 && (
-                      <div className="ayosa-result-card">
-                        <div className="ayosa-result-label">Signal Gaps Identified by AI</div>
-                        <ul className="ayosa-action-list">
-                          {result.ai_analysis.signal_gaps.map((gap, i) => (
-                            <li key={i}>{gap}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {result.ai_analysis && result.ai_analysis.error && (
-                  <div className="modal-alert modal-alert-error animate-in">
-                    <span className="modal-alert-icon">✗</span>
-                    <div>
-                      <div className="modal-alert-title">AI Analysis Failed</div>
-                      <div className="modal-alert-msg">{result.ai_analysis.error}</div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="ayosa-result-card">
-                  <div className="ayosa-result-label">Detected Patterns</div>
-                  <div className="ayosa-pattern-list">
-                    {(result.detected_patterns || []).map((pattern) => (
-                      <span key={pattern}>{pattern}</span>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="ayosa-result-card">
-                  <div className="ayosa-result-label">Timeline</div>
-                  <div className="ayosa-timeline">
-                    {(result.timeline || []).map((item, index) => (
-                      <div className="ayosa-timeline-item" key={`${item.timestamp}-${index}`}>
-                        <div className="ayosa-timeline-top">
-                          <strong>{item.source}</strong>
-                          <span>{item.severity || "event"}</span>
-                        </div>
-                        <small>{item.timestamp}</small>
-                        <p>{item.event}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="ayosa-result-card">
-                  <div className="ayosa-result-label">Suggested Actions</div>
-                  <ul className="ayosa-action-list">
-                    {(result.suggested_actions || []).map((action) => (
-                      <li key={action}>{action}</li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="ayosa-result-card">
-                  <div className="ayosa-result-label">Runbook Generation</div>
-
-                  <button
-                    className="btn btn-violet"
-                    onClick={handleGenerateRunbook}
-                    disabled={runbookBusy}
-                  >
-                    {runbookBusy ? "Generating..." : "Generate Incident Runbook"}
-                  </button>
-
-                  {runbook && (
-                    <>
-                      <div className="ayosa-runbook-actions">
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={handleCopyRunbook}
-                        >
-                          Copy
-                        </button>
-
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={handleDownloadMarkdown}
-                        >
-                          Download .md
-                        </button>
-
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={handleDownloadText}
-                        >
-                          Download .txt
-                        </button>
-                      </div>
-
-                      <pre className="ayosa-runbook">
-                        {runbook}
-                      </pre>
-                    </>
-                  )}
-                </div>
-
-                <div className="ayosa-result-card">
-                  <div className="ayosa-result-label">Evidence</div>
-                  {(result.evidence || []).map((item, index) => (
-                    <details className="ayosa-evidence" key={`${item.source}-${index}`}>
-                      <summary>
-                        {item.source} · {item.signal} · {item.status}
-                      </summary>
-                      <p>{item.finding}</p>
-                      {item.query && <pre>{item.query}</pre>}
-                    </details>
-                  ))}
-                </div>
-              </div>
+            <div className="ayosa-chat animate-in">
+              <AyosaChatMessage
+                userMessage={message}
+                service={service}
+                timeRange={timeRange}
+                result={result}
+              />
+              <AyosaIncidentSnapshot
+                snapshot={result.incident_snapshot}
+                onGenerateRunbook={handleGenerateRunbook}
+                runbookBusy={runbookBusy}
+                runbook={runbook}
+                onCopyRunbook={handleCopyRunbook}
+                onDownloadMarkdown={handleDownloadMarkdown}
+                onDownloadText={handleDownloadText}
+              />
             </div>
           )}
         </div>
