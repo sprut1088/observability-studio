@@ -1,6 +1,11 @@
+from __future__ import annotations
+
+import logging
 from typing import Any
 
 from accelerators.ayosa.registry import ADAPTERS
+
+logger = logging.getLogger(__name__)
 
 SIGNAL_CAPABILITIES = {
     "prometheus": ["metrics"],
@@ -88,7 +93,7 @@ class AyosaService:
 
         probable_root_cause = self._infer_probable_cause(alerts, logs, metrics)
 
-        return {
+        result = {
             "answer": answer,
             "service": request.service,
             "time_range": request.time_range,
@@ -102,7 +107,37 @@ class AyosaService:
             "related_artifacts": self._related_artifacts(evidence),
             "evidence": evidence,
             "suggested_actions": self._suggest_actions(evidence, missing_signals),
+            "ai_analysis": None,
         }
+
+        # Optional LLM enrichment
+        ai_cfg = getattr(request, "ai", None)
+        if ai_cfg and ai_cfg.enabled:
+            result["ai_analysis"] = self._run_ai_analysis(ai_cfg, result)
+
+        return result
+
+    def _run_ai_analysis(self, ai_cfg: Any, investigation_result: dict[str, Any]) -> dict[str, Any]:
+        """Call the configured LLM provider and return enriched analysis."""
+        try:
+            from accelerators.ayosa.llm.analyst import AyosaAIAnalyst
+
+            analyst = AyosaAIAnalyst({
+                "provider": ai_cfg.provider or "anthropic",
+                "api_key": ai_cfg.api_key,
+                "model": ai_cfg.model,
+                "azure_endpoint": ai_cfg.azure_endpoint,
+                "azure_deployment": ai_cfg.azure_deployment,
+                "openrouter_model": ai_cfg.openrouter_model,
+            })
+            return analyst.analyze(investigation_result)
+        except Exception as exc:
+            logger.error("AYOSA AI analysis failed: %s", exc, exc_info=True)
+            return {
+                "error": str(exc),
+                "narrative": f"AI analysis failed: {exc}",
+                "executive_summary": "AI analysis was unavailable. See deterministic findings above.",
+            }
 
     def _build_signal_coverage(self, tools) -> dict[str, list[str]]:
         coverage = {signal: [] for signal in EXPECTED_SIGNALS}

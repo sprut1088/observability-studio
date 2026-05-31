@@ -2636,3 +2636,200 @@ html[data-theme="dark"] .validated-tool .status-ok {
   font-size: 12px;
   color: var(--text-secondary);
 }
+
+/* ─────────────────────────────────────────────
+   AYOSA AI ANALYSIS SECTION
+───────────────────────────────────────────── */
+.ayosa-ai-analysis {
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  border-radius: var(--radius-lg);
+  background: rgba(139, 92, 246, 0.05);
+  padding: 16px;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+html[data-theme="dark"] .ayosa-ai-analysis {
+  background: rgba(139, 92, 246, 0.08);
+}
+
+.ayosa-ai-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.ayosa-ai-header > span {
+  font-size: 22px;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.ayosa-ai-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-heading);
+}
+
+.ayosa-ai-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ayosa-ai-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.15);
+  color: #8b5cf6;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  margin-left: 8px;
+}
+
+html[data-theme="dark"] .ayosa-ai-badge {
+  background: rgba(139, 92, 246, 0.2);
+  color: #a78bfa;
+}
+
+.ayosa-confidence-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.ayosa-confidence-badge.ayosa-confidence-high {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.ayosa-confidence-badge.ayosa-confidence-medium {
+  background: var(--yellow-bg);
+  color: var(--yellow);
+}
+
+.ayosa-confidence-badge.ayosa-confidence-low {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.ayosa-risk-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.ayosa-risk-grid > div {
+  line-height: 1.5;
+}
+
+.ayosa-severity-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ayosa-severity-badge.ayosa-severity-critical {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+.ayosa-severity-badge.ayosa-severity-high {
+  background: rgba(249, 115, 22, 0.12);
+  color: #f97316;
+}
+
+.ayosa-severity-badge.ayosa-severity-medium {
+  background: var(--yellow-bg);
+  color: var(--yellow);
+}
+
+.ayosa-severity-badge.ayosa-severity-low {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.ayosa-severity-badge.ayosa-severity-unknown {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+.ayosa-escalation-flag {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ef4444;
+  padding: 4px 0;
+}
+
+.ayosa-remediation-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ayosa-remediation-item {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ayosa-remediation-action {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-heading);
+}
+
+.ayosa-remediation-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.ayosa-effort-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.1);
+  color: #8b5cf6;
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  align-self: flex-start;
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+html[data-theme="dark"] .ayosa-effort-badge {
+  background: rgba(139, 92, 246, 0.18);
+  color: #a78bfa;
+}
+
+/* Single column form grid used in OpenRouter model picker */
+.form-grid-1 {
+  grid-template-columns: 1fr;
+}

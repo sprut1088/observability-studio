@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 from pydantic import BaseModel
 
 
@@ -8,11 +8,22 @@ class AyosaToolConfig(BaseModel):
     auth_token: str | None = None
 
 
+class AyosaAIConfig(BaseModel):
+    enabled: bool = False
+    provider: Optional[str] = None          # "anthropic" | "azure" | "openrouter"
+    api_key: Optional[str] = None
+    azure_endpoint: Optional[str] = None
+    azure_deployment: Optional[str] = None
+    openrouter_model: Optional[str] = None
+    model: Optional[str] = None
+
+
 class AyosaChatRequest(BaseModel):
     message: str
     service: str | None = None
     time_range: str = "30m"
     tools: list[AyosaToolConfig]
+    ai: Optional[AyosaAIConfig] = None
 
 
 class EvidenceItem(BaseModel):
@@ -48,3 +59,5 @@ class AyosaChatResponse(BaseModel):
 
     signal_coverage: dict[str, list[str]]
     missing_signals: list[str]
+
+    ai_analysis: Optional[dict[str, Any]] = None
