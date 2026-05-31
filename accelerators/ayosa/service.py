@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, AsyncGenerator
 
 from accelerators.ayosa.registry import ADAPTERS
 
@@ -81,6 +82,236 @@ class AyosaService:
             "incident_snapshot": None,
         }
 
+    # ------------------------------------------------------------------
+    # Single-tool query helper (used by both sync and streaming paths)
+    # ------------------------------------------------------------------
+
+    def _query_single_tool(self, tool: Any, request: Any) -> list[dict[str, Any]]:
+        """Run one adapter's investigate() and return its evidence list."""
+        tool_key = tool.tool.lower().strip()
+        adapter_cls = ADAPTERS.get(tool_key)
+        if not adapter_cls:
+            return [{
+                "source": tool.tool,
+                "signal": "unknown",
+                "finding": f"No AYOSA adapter found for tool: {tool.tool}",
+                "query": None,
+                "status": "error",
+                "raw": None,
+            }]
+        adapter = adapter_cls(base_url=tool.base_url, auth_token=tool.auth_token)
+        return adapter.investigate(
+            service=request.service,
+            time_range=request.time_range,
+            message=request.message,
+        )
+
+    # ------------------------------------------------------------------
+    # Streaming investigation (yields SSE-friendly dicts)
+    # ------------------------------------------------------------------
+
+    async def investigate_stream(self, request: Any) -> AsyncGenerator[dict[str, Any], None]:
+        """Async generator that yields SSE events while running the investigation.
+
+        Event shapes:
+          {"type": "step",      "index": int, "label": str, "status": "running"|"done"|"error"}
+          {"type": "llm_chunk", "text": str}
+          {"type": "result",    "data": dict}
+          {"type": "error",     "message": str}
+        """
+        intent = self._classify_intent(request.message)
+
+        # Fast-paths: answer immediately with no tool queries
+        if intent == "current_time":
+            now = datetime.now()
+            yield {"type": "result", "data": self._quick_result(
+                request,
+                answer=f"The current server time is {now.strftime('%A, %d %B %Y at %H:%M:%S')} (server local time).",
+                intent=intent,
+            )}
+            return
+
+        if intent == "general_chat":
+            tool_count = len(request.tools)
+            yield {"type": "result", "data": self._quick_result(
+                request,
+                answer=(
+                    f"Hi! I'm AYOSA — Ask Your Observability Stack Anything. "
+                    f"I currently have access to {tool_count} validated tool"
+                    f"{'s' if tool_count != 1 else ''}. "
+                    "You can ask me things like: 'Investigate payment latency', "
+                    "'Show error trend for checkout', 'Are there any active alerts?', "
+                    "or 'What was the last error for the auth service?'"
+                ),
+                intent=intent,
+            )}
+            return
+
+        signal_coverage = self._build_signal_coverage(request.tools)
+        missing_signals = self._missing_signals(signal_coverage)
+        evidence: list[dict[str, Any]] = []
+
+        # ── Step 0 + 1: intent classify + tool selection (instant) ──
+        yield {"type": "step", "index": 0, "label": "Understanding question", "status": "done"}
+        yield {"type": "step", "index": 1, "label": "Selecting tools", "status": "done"}
+
+        # ── Steps 2…n+1: query each tool ──
+        for i, tool in enumerate(request.tools):
+            step_idx = i + 2
+            yield {"type": "step", "index": step_idx, "label": f"Querying {tool.tool}", "status": "running"}
+            try:
+                tool_evidence = await asyncio.to_thread(self._query_single_tool, tool, request)
+                evidence.extend(tool_evidence)
+                yield {"type": "step", "index": step_idx, "label": f"Querying {tool.tool}", "status": "done"}
+            except Exception as exc:
+                logger.warning("Tool query failed for %s: %s", tool.tool, exc)
+                evidence.append({
+                    "source": tool.tool, "signal": "unknown",
+                    "finding": f"Adapter failed: {exc}", "query": None,
+                    "status": "error", "raw": None,
+                })
+                yield {"type": "step", "index": step_idx, "label": f"Querying {tool.tool}", "status": "error"}
+
+        # ── Correlation step ──
+        n_tools = len(request.tools)
+        correlate_idx = n_tools + 2
+        yield {"type": "step", "index": correlate_idx, "label": "Correlating evidence", "status": "running"}
+        result = await asyncio.to_thread(self._build_deterministic_result, evidence, request, signal_coverage, missing_signals)
+        yield {"type": "step", "index": correlate_idx, "label": "Correlating evidence", "status": "done"}
+
+        # ── AI analysis step (streaming LLM text) ──
+        ai_cfg = getattr(request, "ai", None)
+        if ai_cfg and ai_cfg.enabled:
+            ai_idx = n_tools + 3
+            yield {"type": "step", "index": ai_idx, "label": "Generating AI analysis", "status": "running"}
+
+            llm_result: dict[str, Any] | None = None
+            async for event in self._stream_llm_analysis(ai_cfg, result):
+                if event["type"] == "llm_chunk":
+                    yield event  # forward text chunks to the browser
+                elif event["type"] == "llm_done":
+                    llm_result = event.get("data")
+
+            if llm_result:
+                result["llm_analysis"] = llm_result
+            # Also run the deep ai_analysis (non-streaming, reuse existing method)
+            result["ai_analysis"] = await asyncio.to_thread(self._run_ai_analysis, ai_cfg, result)
+            yield {"type": "step", "index": ai_idx, "label": "Generating AI analysis", "status": "done"}
+        else:
+            # Mark "Generating answer" done without LLM
+            yield {"type": "step", "index": n_tools + 3, "label": "Generating answer", "status": "done"}
+
+        yield {"type": "result", "data": result}
+
+    # ------------------------------------------------------------------
+    # Deterministic result builder (sync, called via asyncio.to_thread)
+    # ------------------------------------------------------------------
+
+    def _build_deterministic_result(
+        self,
+        evidence: list[dict[str, Any]],
+        request: Any,
+        signal_coverage: dict[str, list[str]],
+        missing_signals: list[str],
+    ) -> dict[str, Any]:
+        """Build the complete deterministic result dict from pre-collected evidence."""
+        ok_count     = len([e for e in evidence if e.get("status") == "ok"])
+        pending_count = len([e for e in evidence if e.get("status") == "not_implemented"])
+        error_count  = len([e for e in evidence if e.get("status") == "error"])
+
+        confidence = self._calculate_confidence(evidence, missing_signals)
+        intent     = self._classify_intent(request.message)
+
+        answer = self._summarize_evidence(
+            evidence=evidence,
+            service=request.service,
+            time_range=request.time_range,
+            ok_count=ok_count,
+            pending_count=pending_count,
+            error_count=error_count,
+            signal_coverage=signal_coverage,
+            missing_signals=missing_signals,
+        )
+
+        alerts  = self._extract_active_alerts(evidence)
+        logs    = self._extract_log_hits(evidence)
+        metrics = self._extract_metric_values(evidence)
+
+        result: dict[str, Any] = {
+            "answer":             answer,
+            "service":            request.service,
+            "time_range":         request.time_range,
+            "confidence":         confidence,
+            "intent":             intent,
+            "signal_coverage":    signal_coverage,
+            "missing_signals":    missing_signals,
+            "probable_root_cause": self._infer_probable_cause(alerts, logs, metrics),
+            "impact":             self._summarize_impact(evidence, request.service),
+            "detected_patterns":  self._detect_patterns(evidence),
+            "timeline":           self._build_timeline(evidence),
+            "related_artifacts":  self._related_artifacts(evidence),
+            "evidence":           evidence,
+            "suggested_actions":  self._suggest_actions(evidence, missing_signals),
+            "ai_analysis":        None,
+            "charts":             [],
+            "llm_analysis":       None,
+            "incident_snapshot":  None,
+        }
+
+        result["charts"] = self._collect_charts(
+            tools=request.tools,
+            service=request.service,
+            time_range=request.time_range,
+        )
+        result["incident_snapshot"] = self._build_incident_snapshot(result)
+        return result
+
+    # ------------------------------------------------------------------
+    # LLM streaming helper
+    # ------------------------------------------------------------------
+
+    async def _stream_llm_analysis(
+        self, ai_cfg: Any, result: dict[str, Any]
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Async generator: yields {type: llm_chunk, text} events then {type: llm_done, data: parsed_result}."""
+        loop = asyncio.get_event_loop()
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+        def on_chunk(text: str) -> None:
+            loop.call_soon_threadsafe(queue.put_nowait, {"type": "llm_chunk", "text": text})
+
+        def sync_work() -> None:
+            try:
+                from accelerators.ayosa.llm.analyst import AyosaAIAnalyst
+                analyst = AyosaAIAnalyst({
+                    "provider":         ai_cfg.provider or "anthropic",
+                    "api_key":          ai_cfg.api_key,
+                    "model":            ai_cfg.model,
+                    "azure_endpoint":   ai_cfg.azure_endpoint,
+                    "azure_deployment": ai_cfg.azure_deployment,
+                    "openrouter_model": ai_cfg.openrouter_model,
+                })
+                context  = self._generate_llm_context(result)
+                analysis = analyst.analyze_focused_streaming(context, on_chunk)
+                loop.call_soon_threadsafe(queue.put_nowait, {"type": "llm_done", "data": analysis})
+            except Exception as exc:
+                logger.error("AYOSA streaming LLM failed: %s", exc, exc_info=True)
+                loop.call_soon_threadsafe(queue.put_nowait, {"type": "llm_done", "data": {
+                    "executive_summary": f"AI analysis failed: {exc}",
+                    "reasoning": "", "missing_information": [],
+                    "recommended_next_steps": [], "error": str(exc),
+                }})
+
+        import threading
+        thread = threading.Thread(target=sync_work, daemon=True)
+        thread.start()
+
+        while True:
+            event = await queue.get()
+            yield event
+            if event["type"] == "llm_done":
+                break
+
     def investigate(self, request):
         intent = self._classify_intent(request.message)
 
@@ -115,33 +346,8 @@ class AyosaService:
         missing_signals = self._missing_signals(signal_coverage)
 
         for tool in request.tools:
-            tool_key = tool.tool.lower().strip()
-            adapter_cls = ADAPTERS.get(tool_key)
-
-            if not adapter_cls:
-                evidence.append({
-                    "source": tool.tool,
-                    "signal": "unknown",
-                    "finding": f"No AYOSA adapter found for tool: {tool.tool}",
-                    "query": None,
-                    "status": "error",
-                    "raw": None,
-                })
-                continue
-
-            adapter = adapter_cls(
-                base_url=tool.base_url,
-                auth_token=tool.auth_token,
-            )
-
             try:
-                evidence.extend(
-                    adapter.investigate(
-                        service=request.service,
-                        time_range=request.time_range,
-                        message=request.message,
-                    )
-                )
+                evidence.extend(self._query_single_tool(tool, request))
             except Exception as exc:
                 evidence.append({
                     "source": tool.tool,
@@ -152,59 +358,7 @@ class AyosaService:
                     "raw": None,
                 })
 
-        ok_count = len([item for item in evidence if item.get("status") == "ok"])
-        pending_count = len([item for item in evidence if item.get("status") == "not_implemented"])
-        error_count = len([item for item in evidence if item.get("status") == "error"])
-
-        confidence = self._calculate_confidence(evidence, missing_signals)
-
-        answer = self._summarize_evidence(
-            evidence=evidence,
-            service=request.service,
-            time_range=request.time_range,
-            ok_count=ok_count,
-            pending_count=pending_count,
-            error_count=error_count,
-            signal_coverage=signal_coverage,
-            missing_signals=missing_signals,
-        )
-
-        alerts = self._extract_active_alerts(evidence)
-        logs = self._extract_log_hits(evidence)
-        metrics = self._extract_metric_values(evidence)
-
-        probable_root_cause = self._infer_probable_cause(alerts, logs, metrics)
-
-        result = {
-            "answer": answer,
-            "service": request.service,
-            "time_range": request.time_range,
-            "confidence": confidence,
-            "intent": intent,
-            "signal_coverage": signal_coverage,
-            "missing_signals": missing_signals,
-            "probable_root_cause": probable_root_cause,
-            "impact": self._summarize_impact(evidence, request.service),
-            "detected_patterns": self._detect_patterns(evidence),
-            "timeline": self._build_timeline(evidence),
-            "related_artifacts": self._related_artifacts(evidence),
-            "evidence": evidence,
-            "suggested_actions": self._suggest_actions(evidence, missing_signals),
-            "ai_analysis": None,
-            "charts": [],
-            "llm_analysis": None,
-            "incident_snapshot": None,
-        }
-
-        # Collect charts from adapters that support get_charts()
-        result["charts"] = self._collect_charts(
-            tools=request.tools,
-            service=request.service,
-            time_range=request.time_range,
-        )
-
-        # Build deterministic incident snapshot
-        result["incident_snapshot"] = self._build_incident_snapshot(result)
+        result = self._build_deterministic_result(evidence, request, signal_coverage, missing_signals)
 
         # Optional LLM enrichment
         ai_cfg = getattr(request, "ai", None)

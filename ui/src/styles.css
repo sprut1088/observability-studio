@@ -3242,7 +3242,7 @@ html[data-theme="dark"] .ayosa-effort-badge {
 
 /* Wider modal when AI chat workspace is active */
 .modal.modal-ai-workspace {
-  width: min(1140px, 97vw);
+  width: min(75vw, 1400px);
   height: 88vh;
   max-height: 88vh;
   overflow: hidden;
@@ -3583,6 +3583,46 @@ html[data-theme="dark"] .ayosa-chat-sidebar {
   border-radius: var(--radius-sm);
   border: 1px dashed var(--border);
   margin-top: 6px;
+}
+
+/* ── Streaming preview (live LLM output during generation) ── */
+
+.ayosa-stream-preview {
+  margin-top: 10px;
+  border: 1px solid rgba(124, 58, 237, 0.25);
+  border-radius: var(--radius-sm);
+  background: rgba(124, 58, 237, 0.04);
+  overflow: hidden;
+}
+
+.ayosa-stream-preview-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--violet, #7c3aed);
+  border-bottom: 1px solid rgba(124, 58, 237, 0.15);
+  background: rgba(124, 58, 237, 0.06);
+}
+
+.ayosa-stream-preview-text {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-family: "Fira Code", "Consolas", monospace;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+  line-height: 1.55;
+}
+
+html[data-theme="dark"] .ayosa-stream-preview {
+  background: rgba(124, 58, 237, 0.07);
+  border-color: rgba(124, 58, 237, 0.3);
 }
 
 /* ── Chat Input Bar ── */

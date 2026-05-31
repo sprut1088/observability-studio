@@ -52,9 +52,10 @@ RESPONSE FORMAT: Respond ONLY with a valid JSON object matching the schema in th
 
 _FOCUSED_SYSTEM_PROMPT = """You are a Site Reliability Engineer performing incident root cause analysis.
 
-STRICT RULE: You MUST only use the evidence provided in the user message.
-Do not invent metrics, logs, traces, alerts, services, incidents, root causes, timelines, or remediation steps.
-If the provided evidence is insufficient to reach a confident conclusion, state that explicitly rather than guessing.
+STRICT RULES:
+1. Use ONLY the evidence provided. Do not invent metrics, logs, traces, alerts, services, incidents, root causes, timelines, or remediation steps.
+2. Be concise and precise — every sentence must add value. No padding, no repetition.
+3. If evidence is insufficient for a confident conclusion, state that explicitly.
 
 RESPONSE FORMAT: Respond ONLY with a valid JSON object matching the schema in the user message. No markdown fences, no explanation outside the JSON."""
 
@@ -92,18 +93,16 @@ _RESPONSE_SCHEMA = {
 
 _FOCUSED_RESPONSE_SCHEMA = {
     "executive_summary": (
-        "string: 2-3 sentence summary of findings based ONLY on the provided evidence. "
-        "If evidence is sparse, say so explicitly instead of guessing."
+        "string: 1-2 sentences summarising findings. Evidence-only. State gaps if data is sparse."
     ),
     "reasoning": (
-        "string: step-by-step reasoning from the provided evidence to the conclusion. "
-        "Reference only facts present in the evidence."
+        "string: bullet-point reasoning (max 5 points) from evidence to conclusion. Evidence-only."
     ),
     "missing_information": [
-        "string: specific signal or data point absent from the provided evidence that would increase confidence"
+        "string: specific missing signal that would raise confidence (max 3 items)"
     ],
     "recommended_next_steps": [
-        "string: specific actionable next step grounded in the provided evidence"
+        "string: concrete, tool-specific action (max 4 items)"
     ],
 }
 
@@ -223,7 +222,7 @@ class AyosaAIAnalyst:
           - max_tokens, temperature
         """
         self.provider = (config.get("provider") or "anthropic").strip().lower()
-        self.max_tokens = config.get("max_tokens", 3000)
+        self.max_tokens = config.get("max_tokens", 1200)
         self.temperature = config.get("temperature", 0.3)
         self.model = config.get("model") or "claude-sonnet-4-6"
 
@@ -347,6 +346,20 @@ class AyosaAIAnalyst:
         except Exception:
             return str(response)
 
+    def _call_anthropic_streaming(self, user_message: str, system_prompt: str, on_chunk) -> str:
+        """Anthropic streaming call — invokes on_chunk(text) for each token; returns full text."""
+        full_text = ""
+        with self.client.messages.stream(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        ) as stream:
+            for text in stream.text_stream:
+                full_text += text
+                on_chunk(text)
+        return full_text
+
     def _call_openai_compatible(self, user_message: str, system_prompt: str = _SYSTEM_PROMPT) -> str:
         response = self.client.chat.completions.create(
             model=self.model,
@@ -358,6 +371,26 @@ class AyosaAIAnalyst:
             temperature=self.temperature,
         )
         return response.choices[0].message.content or ""
+
+    def _call_openai_streaming(self, user_message: str, system_prompt: str, on_chunk) -> str:
+        """OpenAI-compatible streaming call — invokes on_chunk(text) for each delta; returns full text."""
+        full_text = ""
+        stream = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = (chunk.choices[0].delta.content or "") if chunk.choices else ""
+            if delta:
+                full_text += delta
+                on_chunk(delta)
+        return full_text
 
     # ------------------------------------------------------------------
     # Helpers
@@ -485,3 +518,62 @@ Be specific. Reference actual alert names, log patterns, and metric values from 
             "provider": self.provider,
             "model": self.model,
         }
+
+    # ------------------------------------------------------------------
+    # Streaming focused analysis (used by investigate_stream)
+    # ------------------------------------------------------------------
+
+    def analyze_focused_streaming(
+        self,
+        context: dict[str, Any],
+        on_chunk,
+    ) -> dict[str, Any]:
+        """Like analyze_focused() but streams raw tokens via on_chunk(text).
+
+        on_chunk is called synchronously from the LLM provider's streaming
+        loop.  The caller (service._stream_llm_analysis) bridges this to
+        asyncio via loop.call_soon_threadsafe so the UI receives live text
+        while the JSON is still being assembled.
+
+        Returns the fully parsed analysis dict once generation is complete.
+        """
+        logger.info(
+            "Running AYOSA focused streaming LLM analysis with provider=%s model=%s",
+            self.provider, self.model,
+        )
+
+        user_message = (
+            "Analyze ONLY the following evidence from an AYOSA investigation. "
+            "Do NOT invent or assume any information not present in this evidence.\n\n"
+            "## EVIDENCE\n"
+            f"```json\n{json.dumps(context, indent=2, default=str)}\n```\n\n"
+            "## REQUIRED RESPONSE SCHEMA\n"
+            "Respond ONLY with a JSON object matching this exact schema "
+            "(no markdown fences, raw JSON only):\n"
+            f"```json\n{json.dumps(_FOCUSED_RESPONSE_SCHEMA, indent=2)}\n```\n\n"
+            "## IMPORTANT CONSTRAINTS\n"
+            "- Evidence-only. No invented facts.\n"
+            "- Be concise — 1-2 sentence summary, max 5 reasoning bullet points, max 4 next steps.\n"
+            "- If evidence is insufficient, state what is missing rather than guessing."
+        )
+
+        if self.provider == "anthropic":
+            stream_fn = self._call_anthropic_streaming
+        else:
+            stream_fn = self._call_openai_streaming
+
+        try:
+            raw_text = stream_fn(user_message, _FOCUSED_SYSTEM_PROMPT, on_chunk)
+        except Exception as exc:
+            logger.error("AYOSA focused streaming LLM call failed: %s", exc)
+            return self._focused_error_result(str(exc))
+
+        try:
+            parsed = self._parse_response(raw_text)
+        except Exception as exc:
+            logger.error("Failed to parse focused streaming LLM response: %s", exc)
+            return self._focused_error_result(f"Response parse error: {exc}")
+
+        parsed["provider"] = self.provider
+        parsed["model"] = self.model
+        return parsed

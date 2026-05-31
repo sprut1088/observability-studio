@@ -6,7 +6,7 @@
  *                   |  sticky input bar
  */
 import { useEffect, useRef, useState } from "react";
-import { generateAyosaRunbook, runAyosaInvestigation } from "../api";
+import { generateAyosaRunbook, streamAyosaInvestigation } from "../api";
 import AyosaChartCard from "./AyosaChartCard";
 import AyosaEvidenceCard from "./AyosaEvidenceCard";
 import AyosaIncidentSnapshot from "./AyosaIncidentSnapshot";
@@ -100,20 +100,32 @@ function ToolSteps({ steps }) {
 }
 
 function AssistantMessage({ msg, onGenerateRunbook }) {
-  const { status, steps = [], result, error } = msg;
+  const { status, steps = [], result, error, streamingText = "" } = msg;
 
   // ── Loading state ──
   if (status === "pending") {
+    // Derive a human-readable current action from the running step
+    const runningStep = steps.find((s) => s.status === "running");
+    const metaLabel   = runningStep ? runningStep.label : "Preparing…";
+
     return (
       <div className="ayosa-message-assistant-wrap">
         <div className="ayosa-response-header">
           <span className="ayosa-response-icon">🧠</span>
           <div>
             <div className="ayosa-response-title">AYOSA is investigating…</div>
-            <div className="ayosa-response-meta">Running tool queries</div>
+            <div className="ayosa-response-meta">{metaLabel}</div>
           </div>
         </div>
         <ToolSteps steps={steps} />
+        {streamingText && (
+          <div className="ayosa-stream-preview">
+            <div className="ayosa-stream-preview-label">
+              <span className="spinner ayosa-step-spinner" /> Generating AI analysis…
+            </div>
+            <pre className="ayosa-stream-preview-text">{streamingText}</pre>
+          </div>
+        )}
       </div>
     );
   }
@@ -480,31 +492,12 @@ export default function AyosaChatShell({ tools, aiConfig }) {
         steps:        [...steps],
         result:       null,
         error:        null,
+        streamingText: "",
         runbook:      null,
         runbookBusy:  false,
         timestamp:    new Date(),
       },
     ]);
-
-    // Animate steps while API is in flight
-    let stepIdx = 0;
-    const tick = setInterval(() => {
-      stepIdx++;
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== assistantMsgId) return m;
-          const updated = m.steps.map((s, i) => ({
-            ...s,
-            status:
-              i < stepIdx - 1   ? "done"
-              : i === stepIdx - 1 ? "running"
-              : s.status,
-          }));
-          return { ...m, steps: updated };
-        })
-      );
-      if (stepIdx >= steps.length) clearInterval(tick);
-    }, 500);
 
     const payload = {
       message:    input,
@@ -525,39 +518,54 @@ export default function AyosaChatShell({ tools, aiConfig }) {
       },
     };
 
+    // Helper: update one field on the assistant message immutably
+    const updateMsg = (fields) =>
+      setMessages((prev) =>
+        prev.map((m) => (m.id === assistantMsgId ? { ...m, ...fields } : m))
+      );
+
     try {
-      const res = await runAyosaInvestigation(payload);
-      clearInterval(tick);
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== assistantMsgId) return m;
-          return {
-            ...m,
-            status: "complete",
-            steps:  m.steps.map((s) => ({ ...s, status: "done" })),
-            result: res.data,
-          };
-        })
-      );
-    } catch (err) {
-      clearInterval(tick);
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== assistantMsgId) return m;
-          return {
-            ...m,
+      await streamAyosaInvestigation(payload, (event) => {
+        if (event.type === "step") {
+          // Update the specific step by index with the real status from the backend
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== assistantMsgId) return m;
+              const updatedSteps = m.steps.map((s, i) =>
+                i === event.index ? { ...s, status: event.status } : s
+              );
+              return { ...m, steps: updatedSteps };
+            })
+          );
+        } else if (event.type === "llm_chunk") {
+          // Append streaming LLM text so the user can see it being generated
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId
+                ? { ...m, streamingText: (m.streamingText || "") + event.text }
+                : m
+            )
+          );
+        } else if (event.type === "result") {
+          updateMsg({
+            status:       "complete",
+            steps:        steps.map((s) => ({ ...s, status: "done" })),
+            result:       event.data,
+            streamingText: "",
+          });
+        } else if (event.type === "error") {
+          updateMsg({
             status: "error",
-            steps:  m.steps.map((s, i) => ({
-              ...s,
-              status:
-                i < stepIdx     ? "done"
-                : i === stepIdx ? "error"
-                : s.status,
-            })),
-            error: err?.response?.data?.detail || err.message || "Unknown error",
-          };
-        })
-      );
+            error:  event.message || "Unknown error",
+          });
+        }
+      });
+    } catch (err) {
+      updateMsg({
+        status: "error",
+        steps:  steps.map((s) => ({ ...s, status: s.status === "running" ? "error" : s.status })),
+        error:  err?.message || "Unknown error",
+      });
     }
   }
 

@@ -33,6 +33,49 @@ export function runAyosaInvestigation(payload) {
   return api.post("/ayosa/chat", payload);
 }
 
+/**
+ * Streaming investigation — parses SSE from /api/ayosa/chat/stream.
+ * Calls onEvent for each parsed event object:
+ *   { type: "step",      index, label, status }
+ *   { type: "llm_chunk", text }
+ *   { type: "result",    data }
+ *   { type: "error",     message }
+ * Returns a Promise that resolves when the stream closes.
+ */
+export async function streamAyosaInvestigation(payload, onEvent) {
+  const response = await fetch(`${API_HOST}/api/ayosa/chat/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(errBody.detail || response.statusText);
+  }
+
+  const reader  = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer    = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      const line = part.trim();
+      if (!line.startsWith("data: ")) continue;
+      try {
+        onEvent(JSON.parse(line.slice(6)));
+      } catch {
+        // ignore malformed SSE lines
+      }
+    }
+  }
+}
+
 export function generateAyosaRunbook(payload) {
   return api.post("/ayosa/runbook", payload);
 }
