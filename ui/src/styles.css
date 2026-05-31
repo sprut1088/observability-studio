@@ -3256,6 +3256,69 @@ html[data-theme="dark"] .ayosa-effort-badge {
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
+/* ── AYOSA wide AI modal ─────────────────────────────────────────── */
+.modal.ayosa-ai-modal-wide {
+  width: min(75vw, 1400px);
+  max-width: min(75vw, 1400px);
+  height: min(900px, 88vh);
+  max-height: min(900px, 88vh);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+@media (max-width: 900px) {
+  .modal.ayosa-ai-modal-wide { width: 96vw; height: 92vh; max-height: 92vh; }
+}
+.modal.ayosa-ai-modal-wide .modal-header {
+  flex-shrink: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+/* ── Plan card ───────────────────────────────────────────────────── */
+.ayosa-plan-card {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 7px 12px;
+  background: rgba(124, 58, 237, 0.06);
+  border: 1px solid rgba(124, 58, 237, 0.18);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.ayosa-plan-intent {
+  font-weight: 600;
+  color: var(--violet, #7c3aed);
+}
+.ayosa-plan-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ayosa-plan-tool-pill {
+  padding: 2px 8px;
+  background: rgba(124, 58, 237, 0.12);
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--violet, #7c3aed);
+  font-weight: 500;
+}
+.ayosa-plan-missing {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Skipped step style ─────────────────────────────────────────── */
+.ayosa-tool-step.ayosa-step-skipped {
+  opacity: 0.4;
+}
+.ayosa-tool-step.ayosa-step-skipped .ayosa-step-icon {
+  color: var(--text-muted);
+}
+
 /* AI mode badge in title */
 .ayosa-ai-mode-badge {
   display: inline-block;

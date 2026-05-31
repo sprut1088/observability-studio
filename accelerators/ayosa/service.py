@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import types
 from datetime import datetime
 from typing import Any, AsyncGenerator
 
@@ -9,18 +11,155 @@ from accelerators.ayosa.registry import ADAPTERS
 
 logger = logging.getLogger(__name__)
 
-# Intent keyword mapping — order matters (more specific first)
+# ── Intent keywords — checked in priority order (most-specific first) ────────
+
 _INTENT_KEYWORDS: dict[str, list[str]] = {
-    "current_time":         ["what time", "current time", "what is the time", "what's the time", "what date", "today's date", "current date"],
-    "general_chat":         ["hello", "hi there", "hey", "help me", "what can you do", "who are you", "what are you"],
-    "runbook_request":      ["runbook", "playbook", "steps to fix", "how to fix", "how do i fix", "remediation steps"],
-    "health_check":         ["health check", "is it up", "is it down", "service status", "are services healthy", "check health", "check status"],
-    "last_error":           ["last error", "recent error", "latest error", "last failure", "recent failure", "last exception"],
-    "alerts_check":         ["alert", "alerts", "firing", "pagerduty", "opsgenie", "alarm", "is there an alert"],
-    "metrics_trend":        ["trend", "over time", "graph", "p99", "p95", "latency trend", "error rate", "request rate", "throughput"],
-    "logs_search":          ["log", "logs", "log search", "log entry", "error log", "exception", "stacktrace"],
-    "traces_check":         ["trace", "traces", "span", "distributed trace", "slow request", "slow trace"],
+    "current_time":          ["what time", "current time", "what is the time", "what's the time",
+                               "what date", "today's date", "current date"],
+    "active_alerts":         ["active alert", "any alerts", "current alerts", "firing alert",
+                               "alert firing", "alarm firing", "alerts firing", "check alerts",
+                               "alert", "alerts", "firing", "alarm", "is there an alert"],
+    "latest_error":          ["last error", "recent error", "latest error", "last failure",
+                               "recent failure", "last exception", "latest exception", "last crash"],
+    "error_trend":           ["error trend", "error rate", "failure rate", "error over time",
+                               "errors in last", "error spike", "error count"],
+    "latency_trend":         ["latency trend", "latency over time", "p99", "p95", "response time",
+                               "throughput trend", "slow response", "latency spike"],
+    "trace_lookup":          ["trace", "traces", "span", "distributed trace",
+                               "slow request", "slow trace", "request trace"],
+    "dashboard_lookup":      ["dashboard", "dashboards", "grafana board", "panel", "visualization"],
+    "incident_investigation":["investigate", "incident", "outage", "root cause", "what caused",
+                               "why is", "why are", "debug", "diagnose"],
+    "service_health":        ["health of", "is healthy", "health check", "service health",
+                               "is it up", "is it down", "service status", "how is",
+                               "status of", "check health"],
+    "environment_health":    ["environment health", "overall health", "what happened",
+                               "what's happening", "system health", "infrastructure health",
+                               "platform health", "everything ok", "anything wrong"],
+    "general_chat":          ["hello", "hi there", "hey", "help me", "what can you do",
+                               "who are you", "what are you"],
 }
+
+# ── Query planner ─────────────────────────────────────────────────────────────
+
+# Which tool provides which signal type
+_SIGNAL_TOOLS: dict[str, list[str]] = {
+    "metrics":    ["prometheus", "datadog", "dynatrace", "appdynamics"],
+    "logs":       ["elasticsearch", "opensearch", "splunk", "loki", "datadog", "dynatrace"],
+    "alerts":     ["alertmanager", "grafana", "splunk", "datadog", "dynatrace"],
+    "traces":     ["jaeger", "tempo", "datadog", "dynatrace", "appdynamics"],
+    "dashboards": ["grafana", "splunk", "datadog", "dynatrace", "appdynamics"],
+}
+
+# Which signal types each intent needs
+_INTENT_SIGNALS: dict[str, list[str]] = {
+    "current_time":                   [],
+    "general_chat":                   [],
+    "environment_health":             ["metrics", "alerts", "logs"],
+    "service_health":                 ["metrics", "alerts", "logs", "traces"],
+    "latest_error":                   ["logs"],
+    "error_trend":                    ["metrics", "logs"],
+    "latency_trend":                  ["metrics", "traces"],
+    "active_alerts":                  ["alerts"],
+    "trace_lookup":                   ["traces"],
+    "dashboard_lookup":               ["dashboards"],
+    "incident_investigation":         ["metrics", "logs", "alerts", "traces"],
+    "general_observability_question": ["metrics", "logs", "alerts", "traces"],
+}
+
+# Time-range extraction patterns — first match wins
+_TIME_RANGE_PATTERNS = [
+    (r"\blast\s+(\d+)\s*hours?\b",            lambda m: f"{m.group(1)}h"),
+    (r"\blast\s+(\d+)h\b",                   lambda m: f"{m.group(1)}h"),
+    (r"\blast\s+(\d+)\s*minutes?\b",          lambda m: f"{m.group(1)}m"),
+    (r"\blast\s+(\d+)m\b",                   lambda m: f"{m.group(1)}m"),
+    (r"\bpast\s+(\d+)\s*hours?\b",            lambda m: f"{m.group(1)}h"),
+    (r"\bpast\s+(\d+)h\b",                   lambda m: f"{m.group(1)}h"),
+    (r"\bpast\s+(\d+)\s*minutes?\b",          lambda m: f"{m.group(1)}m"),
+    (r"\bpast\s+(\d+)m\b",                   lambda m: f"{m.group(1)}m"),
+    (r"\bin\s+the\s+last\s+(\d+)\s*hours?\b", lambda m: f"{m.group(1)}h"),
+    (r"\bin\s+the\s+last\s+(\d+)\s*min\w*\b", lambda m: f"{m.group(1)}m"),
+]
+
+
+def _extract_time_range_from_message(msg: str) -> str | None:
+    """Return e.g. '1h' / '30m' inferred from free text, or None."""
+    msg = msg.lower()
+    for pattern, fn in _TIME_RANGE_PATTERNS:
+        m = re.search(pattern, msg)
+        if m:
+            return fn(m)
+    return None
+
+
+def _classify_intent_standalone(message: str) -> str:
+    """Pure-function intent classifier — no AyosaService instance needed."""
+    msg = message.lower().strip()
+    for intent in (
+        "current_time", "active_alerts", "latest_error", "error_trend",
+        "latency_trend", "trace_lookup", "dashboard_lookup",
+        "incident_investigation", "service_health", "environment_health",
+        "general_chat",
+    ):
+        if any(kw in msg for kw in _INTENT_KEYWORDS.get(intent, [])):
+            return intent
+    return "general_observability_question"
+
+
+def build_ayosa_plan(
+    message: str,
+    service: str | None,
+    time_range: str,
+    available_tools: list[Any],
+) -> dict[str, Any]:
+    """Build a structured investigation plan from user intent + validated tools.
+
+    Returns:
+        intent, service, time_range,
+        required_signals, selected_tools, covered_signals,
+        missing_signals, skipped_tools, explanation
+    """
+    intent = _classify_intent_standalone(message)
+    inferred_tr = _extract_time_range_from_message(message)
+    resolved_tr = inferred_tr or time_range
+
+    required_signals: list[str] = _INTENT_SIGNALS.get(intent, [])
+    available_names = {t.tool.lower().strip() for t in available_tools}
+
+    selected: list[str] = []
+    covered: list[str] = []
+    for signal in required_signals:
+        for tool_name in _SIGNAL_TOOLS.get(signal, []):
+            if tool_name in available_names and tool_name not in selected:
+                selected.append(tool_name)
+                covered.append(signal)
+
+    missing = [s for s in required_signals if s not in covered]
+    skipped = [t.tool for t in available_tools if t.tool.lower() not in selected]
+
+    parts: list[str] = [f"Intent: {intent.replace('_', ' ')}"]
+    if service:
+        parts.append(f"service={service}")
+    parts.append(
+        f"querying {', '.join(selected)}" if selected
+        else "no observability queries needed"
+    )
+    if missing:
+        parts.append(f"missing signals: {', '.join(missing)}")
+
+    return {
+        "intent":           intent,
+        "service":          service,
+        "time_range":       resolved_tr,
+        "required_signals": required_signals,
+        "selected_tools":   selected,
+        "covered_signals":  list(dict.fromkeys(covered)),
+        "missing_signals":  missing,
+        "skipped_tools":    skipped,
+        "explanation":      ". ".join(parts) + ".",
+    }
+
+
 
 SIGNAL_CAPABILITIES = {
     "prometheus": ["metrics"],
@@ -47,17 +186,27 @@ class AyosaService:
     # ------------------------------------------------------------------
 
     def _classify_intent(self, message: str) -> str:
-        """Simple keyword-based intent classification.  No LLM required."""
-        msg = message.lower().strip()
-        # Check explicit time question first to avoid confusion with "time range"
-        if any(kw in msg for kw in _INTENT_KEYWORDS["current_time"]):
-            return "current_time"
-        for intent, keywords in _INTENT_KEYWORDS.items():
-            if intent == "current_time":
-                continue
-            if any(kw in msg for kw in keywords):
-                return intent
-        return "service_investigation"
+        """Delegate to the module-level pure-function classifier."""
+        return _classify_intent_standalone(message)
+
+    def _no_matching_tools_answer(self, plan: dict[str, Any]) -> str:
+        """Return a helpful message when no validated tool covers the required signals."""
+        intent = plan["intent"].replace("_", " ")
+        missing = plan["missing_signals"]
+        if missing:
+            suggestions = "; ".join(
+                f"{s}: try {', '.join(_SIGNAL_TOOLS.get(s, [])[:3])}"
+                for s in missing
+            )
+            return (
+                f"To answer your '{intent}' question I need access to "
+                f"{', '.join(missing)} data, but none of the validated tools provide "
+                f"these signals. Consider adding: {suggestions}."
+            )
+        return (
+            f"Your question was classified as '{intent}'. "
+            "No observability tool queries are needed to answer this."
+        )
 
     def _quick_result(self, request: Any, answer: str, intent: str) -> dict[str, Any]:
         """Return a minimal result dict without running any tool queries."""
@@ -87,7 +236,9 @@ class AyosaService:
     # ------------------------------------------------------------------
 
     def _query_single_tool(self, tool: Any, request: Any) -> list[dict[str, Any]]:
-        """Run one adapter's investigate() and return its evidence list."""
+        """Run one adapter's investigate() and return its evidence list.
+        `request` may be a Pydantic model or a SimpleNamespace.
+        """
         tool_key = tool.tool.lower().strip()
         adapter_cls = ADAPTERS.get(tool_key)
         if not adapter_cls:
@@ -114,10 +265,11 @@ class AyosaService:
         """Async generator that yields SSE events while running the investigation.
 
         Event shapes:
-          {"type": "step",      "index": int, "label": str, "status": "running"|"done"|"error"}
-          {"type": "llm_chunk", "text": str}
-          {"type": "result",    "data": dict}
-          {"type": "error",     "message": str}
+          {"type": "plan",      "data": dict}                              — first event
+          {"type": "step",      "index": int, "label": str, "status": ...} — per tool
+          {"type": "llm_chunk", "text": str}                               — LLM tokens
+          {"type": "result",    "data": dict}                              — final result
+          {"type": "error",     "message": str}                            — on failure
         """
         intent = self._classify_intent(request.message)
 
@@ -139,28 +291,46 @@ class AyosaService:
                     f"Hi! I'm AYOSA — Ask Your Observability Stack Anything. "
                     f"I currently have access to {tool_count} validated tool"
                     f"{'s' if tool_count != 1 else ''}. "
-                    "You can ask me things like: 'Investigate payment latency', "
-                    "'Show error trend for checkout', 'Are there any active alerts?', "
-                    "or 'What was the last error for the auth service?'"
+                    "You can ask me things like: 'What is the health of my environment?', "
+                    "'Show error trend for the last 1h', 'Are there any active alerts?', "
+                    "or 'What was the last error?'"
                 ),
                 intent=intent,
             )}
             return
 
-        signal_coverage = self._build_signal_coverage(request.tools)
-        missing_signals = self._missing_signals(signal_coverage)
-        evidence: list[dict[str, Any]] = []
+        # ── Build query plan ──
+        plan = build_ayosa_plan(request.message, request.service, request.time_range, request.tools)
+        yield {"type": "plan", "data": plan}
+
+        effective = types.SimpleNamespace(
+            message=request.message,
+            service=request.service,
+            time_range=plan["time_range"],
+            tools=request.tools,
+            ai=getattr(request, "ai", None),
+        )
+
+        selected_names = set(plan["selected_tools"])
+        n_tools = len(request.tools)
 
         # ── Step 0 + 1: intent classify + tool selection (instant) ──
         yield {"type": "step", "index": 0, "label": "Understanding question", "status": "done"}
-        yield {"type": "step", "index": 1, "label": "Selecting tools", "status": "done"}
+        yield {"type": "step", "index": 1, "label": "Selecting tools",        "status": "done"}
 
-        # ── Steps 2…n+1: query each tool ──
+        # ── Steps 2…n+1: per-tool, skipping irrelevant ones ──
+        evidence: list[dict[str, Any]] = []
         for i, tool in enumerate(request.tools):
-            step_idx = i + 2
+            step_idx  = i + 2
+            tool_name = tool.tool.lower()
+
+            if tool_name not in selected_names:
+                yield {"type": "step", "index": step_idx, "label": f"Querying {tool.tool}", "status": "skipped"}
+                continue
+
             yield {"type": "step", "index": step_idx, "label": f"Querying {tool.tool}", "status": "running"}
             try:
-                tool_evidence = await asyncio.to_thread(self._query_single_tool, tool, request)
+                tool_evidence = await asyncio.to_thread(self._query_single_tool, tool, effective)
                 evidence.extend(tool_evidence)
                 yield {"type": "step", "index": step_idx, "label": f"Querying {tool.tool}", "status": "done"}
             except Exception as exc:
@@ -173,10 +343,16 @@ class AyosaService:
                 yield {"type": "step", "index": step_idx, "label": f"Querying {tool.tool}", "status": "error"}
 
         # ── Correlation step ──
-        n_tools = len(request.tools)
         correlate_idx = n_tools + 2
         yield {"type": "step", "index": correlate_idx, "label": "Correlating evidence", "status": "running"}
-        result = await asyncio.to_thread(self._build_deterministic_result, evidence, request, signal_coverage, missing_signals)
+        signal_coverage = self._build_signal_coverage(
+            [t for t in request.tools if t.tool.lower() in selected_names]
+        )
+        missing_signals = self._missing_signals(signal_coverage)
+        result = await asyncio.to_thread(
+            self._build_deterministic_result, evidence, effective, signal_coverage, missing_signals
+        )
+        result["plan"] = plan
         yield {"type": "step", "index": correlate_idx, "label": "Correlating evidence", "status": "done"}
 
         # ── AI analysis step (streaming LLM text) ──
@@ -188,17 +364,15 @@ class AyosaService:
             llm_result: dict[str, Any] | None = None
             async for event in self._stream_llm_analysis(ai_cfg, result):
                 if event["type"] == "llm_chunk":
-                    yield event  # forward text chunks to the browser
+                    yield event
                 elif event["type"] == "llm_done":
                     llm_result = event.get("data")
 
             if llm_result:
                 result["llm_analysis"] = llm_result
-            # Also run the deep ai_analysis (non-streaming, reuse existing method)
             result["ai_analysis"] = await asyncio.to_thread(self._run_ai_analysis, ai_cfg, result)
             yield {"type": "step", "index": ai_idx, "label": "Generating AI analysis", "status": "done"}
         else:
-            # Mark "Generating answer" done without LLM
             yield {"type": "step", "index": n_tools + 3, "label": "Generating answer", "status": "done"}
 
         yield {"type": "result", "data": result}
@@ -245,7 +419,7 @@ class AyosaService:
             "intent":             intent,
             "signal_coverage":    signal_coverage,
             "missing_signals":    missing_signals,
-            "probable_root_cause": self._infer_probable_cause(alerts, logs, metrics),
+            "probable_root_cause": self._infer_probable_cause(alerts, logs, metrics, service=request.service),
             "impact":             self._summarize_impact(evidence, request.service),
             "detected_patterns":  self._detect_patterns(evidence),
             "timeline":           self._build_timeline(evidence),
@@ -333,32 +507,51 @@ class AyosaService:
                     f"Hi! I'm AYOSA — Ask Your Observability Stack Anything. "
                     f"I currently have access to {tool_count} validated tool"
                     f"{'s' if tool_count != 1 else ''}. "
-                    "You can ask me things like: 'Investigate payment latency', "
-                    "'Show error trend for checkout', 'Are there any active alerts?', "
-                    "or 'What was the last error for the auth service?'"
+                    "You can ask me things like: 'What is the health of my environment?', "
+                    "'Show error trend for the last 1h', 'Are there any active alerts?', "
+                    "or 'What was the last error?'"
                 ),
                 intent=intent,
             )
 
-        evidence = []
+        # ── Build query plan (intent + tool selection + time-range resolution) ──
+        plan = build_ayosa_plan(request.message, request.service, request.time_range, request.tools)
 
-        signal_coverage = self._build_signal_coverage(request.tools)
-        missing_signals = self._missing_signals(signal_coverage)
+        # Effective request: may use a time-range inferred from the message
+        effective = types.SimpleNamespace(
+            message=request.message,
+            service=request.service,
+            time_range=plan["time_range"],
+            tools=request.tools,
+            ai=getattr(request, "ai", None),
+        )
 
-        for tool in request.tools:
+        # Select only tools needed for this intent
+        selected_names = set(plan["selected_tools"])
+        tools_to_query = [t for t in request.tools if t.tool.lower() in selected_names]
+
+        # If intent requires signals but no matching tool was validated, respond gracefully
+        if plan["required_signals"] and not tools_to_query:
+            result = self._quick_result(request, answer=self._no_matching_tools_answer(plan), intent=intent)
+            result["plan"] = plan
+            return result
+
+        signal_coverage = self._build_signal_coverage(tools_to_query)
+        missing_signals  = self._missing_signals(signal_coverage)
+
+        evidence: list[dict[str, Any]] = []
+        for tool in tools_to_query:
             try:
-                evidence.extend(self._query_single_tool(tool, request))
+                evidence.extend(self._query_single_tool(tool, effective))
             except Exception as exc:
                 evidence.append({
-                    "source": tool.tool,
-                    "signal": "unknown",
-                    "finding": f"AYOSA adapter execution failed for {tool.tool}: {exc}",
-                    "query": None,
-                    "status": "error",
-                    "raw": None,
+                    "source": tool.tool, "signal": "unknown",
+                    "finding": f"Adapter failed for {tool.tool}: {exc}",
+                    "query": None, "status": "error", "raw": None,
                 })
 
-        result = self._build_deterministic_result(evidence, request, signal_coverage, missing_signals)
+        result = self._build_deterministic_result(evidence, effective, signal_coverage, missing_signals)
+        result["plan"] = plan
 
         # Optional LLM enrichment
         ai_cfg = getattr(request, "ai", None)
@@ -716,7 +909,7 @@ class AyosaService:
                 "Trace analysis was skipped because no tracing-capable tool was provided."
             )
 
-        probable_cause = self._infer_probable_cause(alerts, logs, metrics)
+        probable_cause = self._infer_probable_cause(alerts, logs, metrics, service=service)
         summary_parts.append(f"Probable interpretation: {probable_cause}")
 
         return " ".join(summary_parts)
@@ -957,75 +1150,78 @@ class AyosaService:
         alerts: list[dict[str, Any]],
         logs: list[dict[str, Any]],
         metrics: list[dict[str, Any]],
+        service: str | None = None,
     ) -> str:
-        log_text = " ".join(
-            self._log_body(hit).lower()
-            for hit in logs[:20]
-        )
+        target = service or "the service"
+        log_text = " ".join(self._log_body(hit).lower() for hit in logs[:20])
 
-        has_slo_alert = any(
-            "slo" in str(alert).lower()
-            or "error budget" in str(alert).lower()
-            for alert in alerts
-        )
-
-        has_memory = "high memory usage" in log_text
+        has_slo_alert      = any("slo" in str(a).lower() or "error budget" in str(a).lower() for a in alerts)
+        has_memory         = "high memory usage" in log_text
         has_export_timeout = "export timeout" in log_text or "exporter export timeout" in log_text
-        has_kafka = "kafka" in log_text or "broker" in log_text
+        has_broker         = "kafka" in log_text or "broker" in log_text
+        has_auth_failure   = "invalid token" in log_text or "unauthorized" in log_text or "auth" in log_text
+        has_failed_req     = "request failed" in log_text or "connection refused" in log_text or "failed" in log_text
 
         if has_slo_alert and has_memory and has_export_timeout:
             return (
-                "checkout is under an active SLO burn condition, while logs show telemetry export failures "
-                "caused by high memory usage. This suggests observability pipeline pressure may be contributing "
-                "to missing or delayed signals, and the checkout incident should be correlated with collector or backend memory saturation."
+                f"{target} is under an active SLO burn condition. Logs show telemetry export failures "
+                "caused by memory pressure, suggesting observability pipeline congestion may be obscuring "
+                "the full incident scope. Correlate with collector and backend memory metrics."
             )
 
-        if has_slo_alert and has_kafka:
+        if has_slo_alert and has_broker:
             return (
-                "checkout has an active SLO burn alert and logs show Kafka or broker connectivity errors. "
-                "This suggests the checkout path may be affected by messaging instability or downstream dependency issues."
+                f"{target} has an active SLO burn alert and logs show messaging broker errors. "
+                "The degradation is likely caused by upstream or downstream messaging instability."
             )
 
         if has_slo_alert:
             return (
-                "checkout has an active SLO burn alert. Prioritize the alert's generator query and related service logs."
+                f"{target} has an active SLO burn alert. "
+                "Inspect the alert's generator query and related service logs to identify the burning window."
             )
 
         if has_memory or has_export_timeout:
             return (
-                "logs indicate telemetry export or memory pressure problems. Check OpenTelemetry Collector, backend storage, and container memory limits."
+                "Logs indicate telemetry export or memory pressure issues. "
+                "Check the OpenTelemetry Collector, backend storage, and container memory limits."
             )
 
-        if has_kafka:
+        if has_broker:
             return (
-                "logs indicate Kafka or broker connectivity issues. Check Kafka health and checkout producer or metadata connectivity."
-            )
-        
-        if "invalid token" in log_text:
-            return (
-                "payment logs show repeated invalid-token failures. "
-                "This points to an authentication, token validation, or payment request credential issue."
+                f"Logs indicate messaging broker connectivity issues affecting {target}. "
+                "Check broker health and producer/consumer connectivity."
             )
 
-        if "request failed" in log_text or "failed" in log_text:
+        if has_auth_failure:
             return (
-                "payment logs show repeated failed requests. "
-                "Review payment request validation, auth token handling, and recent client or configuration changes."
+                f"Logs show repeated authentication or token failures for {target}. "
+                "Review credential validity, token expiry, and recent auth configuration changes."
+            )
+
+        if has_failed_req:
+            return (
+                f"Logs show repeated failed requests for {target}. "
+                "Review request validation, dependency availability, and recent configuration changes."
             )
 
         if logs:
             return (
-                "log evidence is available, but no strong known incident pattern was inferred. Review the newest log events and expand correlation with metrics, alerts, and traces."
+                "Log evidence is available but no strong known incident pattern was matched. "
+                "Review the newest log events and expand correlation with metrics, alerts, and traces."
             )
 
         if metrics:
             return (
-                "metrics are available, but no strong incident pattern was inferred yet. Review latency, request-rate, and error-rate trends."
+                "Metrics are available but no strong incident pattern was inferred. "
+                "Review latency, request-rate, and error-rate trends for anomalies."
             )
 
         return (
-            "AYOSA found limited evidence. Expand the time range or include more tools such as metrics, logs, alerts, and traces."
+            "Limited evidence found. Expand the time range or include additional observability tools "
+            "covering metrics, logs, alerts, and traces."
         )
+
 
     def _suggest_actions(
         self,
@@ -1063,7 +1259,7 @@ class AyosaService:
             actions.append("Reduce telemetry load or increase memory limits if collector/exporter pressure is confirmed.")
 
         if "kafka" in log_text or "broker" in log_text:
-            actions.append("Check Kafka container health and checkout-to-Kafka connectivity.")
+            actions.append("Check messaging broker health and producer/consumer connectivity.")
 
         actions.extend([
             "Compare the alert timestamp with matching log and metric events where available.",

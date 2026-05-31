@@ -99,3 +99,4 @@ class AyosaChatResponse(BaseModel):
     llm_analysis: Optional[LLMAnalysis] = None
     incident_snapshot: Optional[IncidentSnapshot] = None
     intent: Optional[str] = None
+    plan: Optional[dict[str, Any]] = None

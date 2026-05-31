@@ -29,24 +29,35 @@ const TOOL_ICONS = {
 };
 
 const INTENT_LABELS = {
-  current_time:        "⏰ Time",
-  general_chat:        "💬 General",
-  health_check:        "💚 Health Check",
+  current_time:                   "⏰ Time",
+  general_chat:                   "💬 General",
+  service_health:                 "💚 Service Health",
+  environment_health:             "🌍 Environment Health",
+  latest_error:                   "🚨 Latest Error",
+  error_trend:                    "📉 Error Trend",
+  latency_trend:                  "📈 Latency Trend",
+  active_alerts:                  "🔔 Active Alerts",
+  trace_lookup:                   "🔍 Traces",
+  dashboard_lookup:               "📊 Dashboards",
+  incident_investigation:         "🔬 Incident Investigation",
+  general_observability_question: "🔭 Observability",
+  // legacy keys (backwards compat)
+  health_check:          "💚 Health Check",
   service_investigation: "🔬 Investigation",
-  last_error:          "🚨 Last Error",
-  metrics_trend:       "📈 Metrics",
-  logs_search:         "📋 Logs",
-  alerts_check:        "🔔 Alerts",
-  traces_check:        "🔍 Traces",
-  runbook_request:     "📖 Runbook",
+  last_error:            "🚨 Last Error",
+  metrics_trend:         "📈 Metrics",
+  logs_search:           "📋 Logs",
+  alerts_check:          "🔔 Alerts",
+  traces_check:          "🔍 Traces",
+  runbook_request:       "📖 Runbook",
 };
 
 const SUGGESTED_PROMPTS = [
-  "Investigate payment service health",
-  "Show error trend for checkout in the last 1h",
+  "What is the health of my environment?",
+  "Show error trend for the last 1h",
   "Are there any active alerts?",
-  "What was the last error for the auth service?",
-  "Check latency for order-service",
+  "What was the last error?",
+  "Check latency trend for the past 30 minutes",
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -85,10 +96,14 @@ function ToolSteps({ steps }) {
   return (
     <div className="ayosa-tool-steps">
       {steps.map((step, i) => (
-        <div key={i} className={`ayosa-tool-step ayosa-step-${step.status}`}>
+        <div
+          key={i}
+          className={`ayosa-tool-step ayosa-step-${step.status}${step.status === "skipped" ? " ayosa-step-skipped" : ""}`}
+        >
           <span className="ayosa-step-icon">
             {step.status === "done"    ? "✓"
              : step.status === "error" ? "✗"
+             : step.status === "skipped" ? "–"
              : step.icon}
           </span>
           <span className="ayosa-step-label">{step.label}</span>
@@ -199,6 +214,29 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
         <div className="ayosa-result-label">Summary</div>
         <p>{summary}</p>
       </div>
+
+      {/* Query plan card — shows intent, selected tools, missing signals */}
+      {!isSimple && result.plan && (
+        <div className="ayosa-plan-card">
+          <span className="ayosa-plan-intent">
+            {INTENT_LABELS[result.plan.intent] || result.plan.intent}
+          </span>
+          {result.plan.selected_tools && result.plan.selected_tools.length > 0 && (
+            <div className="ayosa-plan-tools">
+              {result.plan.selected_tools.map((t) => (
+                <span key={t} className="ayosa-plan-tool-pill">
+                  {TOOL_ICONS[t] || "🔧"} {t}
+                </span>
+              ))}
+            </div>
+          )}
+          {result.plan.missing_signals && result.plan.missing_signals.length > 0 && (
+            <span className="ayosa-plan-missing">
+              Missing: {result.plan.missing_signals.join(", ")}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Root Cause + Impact — investigation intents only */}
       {!isSimple && result.probable_root_cause && (
@@ -526,7 +564,10 @@ export default function AyosaChatShell({ tools, aiConfig }) {
 
     try {
       await streamAyosaInvestigation(payload, (event) => {
-        if (event.type === "step") {
+        if (event.type === "plan") {
+          // Store the plan on the pending message so we can show it in the UI
+          updateMsg({ plan: event.data });
+        } else if (event.type === "step") {
           // Update the specific step by index with the real status from the backend
           setMessages((prev) =>
             prev.map((m) => {
@@ -547,6 +588,7 @@ export default function AyosaChatShell({ tools, aiConfig }) {
             )
           );
         } else if (event.type === "result") {
+          // result.data.plan already set by backend; merge into message
           updateMsg({
             status:       "complete",
             steps:        steps.map((s) => ({ ...s, status: "done" })),

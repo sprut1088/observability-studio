@@ -59,8 +59,8 @@ function normalizeValidatedTools(validatedTools = []) {
 }
 
 export default function AYOSAModal({ onClose, validatedTools = [] }) {
-  const [message, setMessage] = useState("Investigate checkout latency and errors");
-  const [service, setService] = useState("checkout");
+  const [message, setMessage] = useState("");
+  const [service, setService] = useState("");
   const [timeRange, setTimeRange] = useState("30m");
 
   // AI configuration
@@ -252,7 +252,7 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className={`modal modal-wide${aiModeActive ? " modal-ai-workspace" : ""}`}
+        className={`modal modal-wide${aiModeActive ? " ayosa-ai-modal-wide" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label="AYOSA"
@@ -316,7 +316,7 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
                 type="text"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="Investigate checkout latency and errors"
+                placeholder="Ask me anything about your services…"
                 disabled={busy}
               />
             </div>
@@ -328,7 +328,7 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
                 type="text"
                 value={service}
                 onChange={(e) => setService(e.target.value)}
-                placeholder="checkout"
+                placeholder="service name (optional)"
                 disabled={busy}
               />
             </div>
