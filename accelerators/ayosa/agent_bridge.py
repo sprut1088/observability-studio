@@ -27,6 +27,11 @@ from accelerators.ayosa.agent.schemas import (
     AgentResult,
     AgentToolConfig,
 )
+from accelerators.ayosa.agent.session_store import (
+    SessionStore,
+    get_default_store,
+    summarise_evidence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,28 +53,74 @@ def run_agent_chat(
     request: Any,
     *,
     agent: AyosaAgent | None = None,
+    store: SessionStore | None = None,
 ) -> dict[str, Any]:
     """Run the agent loop and return a dict shaped like `AyosaChatResponse`.
 
     `request` is an `AyosaChatRequest` (or duck-typed equivalent with the
-    same attributes). `agent` is injectable for tests.
+    same attributes). `agent` and `store` are injectable for tests.
     """
     agent = agent or AyosaAgent()
-    agent_input = _to_agent_input(request)
+    store = store or get_default_store()
+
+    # ── Resolve session_id and honour reset_session ──
+    session_id = (getattr(request, "session_id", None) or "").strip()
+    if not session_id:
+        session_id = store.new_session_id()
+    if getattr(request, "reset_session", False):
+        store.reset(session_id)
+
+    # ── Follow-up inference: inherit prior service/time_range when blank ──
+    inferred = store.infer_followup_context(
+        session_id,
+        current_service=getattr(request, "service", None),
+        current_time_range=getattr(request, "time_range", None),
+        default_time_range="30m",
+    )
+
+    agent_input = _to_agent_input(request, session_id=session_id, inferred=inferred)
 
     try:
         result = agent.run(agent_input)
     except Exception as exc:  # noqa: BLE001 — never propagate; chat must respond
         logger.error("AyosaAgent run failed: %s", exc, exc_info=True)
-        return _error_response(request, str(exc))
+        out = _error_response(request, str(exc))
+        out["session_id"] = session_id
+        return out
 
-    return _agent_result_to_chat_response(result, request)
+    chat_response = _agent_result_to_chat_response(result, request)
+    chat_response["session_id"] = session_id
+
+    # ── Persist this turn so the next request can use it ──
+    try:
+        store.record_turn(
+            session_id=session_id,
+            user_message=agent_input.message,
+            assistant_answer=result.final_response,
+            intent=result.intent,
+            service=agent_input.service,
+            time_range=result.plan.time_range,
+            tools_used=result.plan.selected_tools,
+            evidence_summary=summarise_evidence(result.observations),
+            snapshot=(
+                result.snapshot.model_dump() if result.snapshot else None
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 — memory failures must not break chat
+        logger.warning("Session memory persist failed: %s", exc)
+
+    return chat_response
 
 
 # ──────────────────────────────────────────────────────────────────────── #
 # Input mapping
 # ──────────────────────────────────────────────────────────────────────── #
-def _to_agent_input(request: Any) -> AgentInput:
+def _to_agent_input(
+    request: Any,
+    *,
+    session_id: str | None = None,
+    inferred: dict[str, Any] | None = None,
+) -> AgentInput:
     tools = [
         AgentToolConfig(
             tool=t.tool,
@@ -92,15 +143,23 @@ def _to_agent_input(request: Any) -> AgentInput:
             openrouter_model=getattr(ai, "openrouter_model", None),
         )
 
-    session_id = getattr(request, "session_id", None) or "default"
+    sid = session_id or getattr(request, "session_id", None) or "default"
+
+    # Inferred values take effect ONLY when the request didn't supply them.
+    service = inferred["service"] if inferred else getattr(request, "service", None)
+    time_range = (
+        inferred["time_range"]
+        if inferred
+        else (getattr(request, "time_range", "30m") or "30m")
+    )
 
     return AgentInput(
         message=request.message,
-        service=getattr(request, "service", None),
-        time_range=getattr(request, "time_range", "30m") or "30m",
+        service=service,
+        time_range=time_range or "30m",
         tools=tools,
         llm=llm_cfg,
-        session_id=session_id,
+        session_id=sid,
     )
 
 

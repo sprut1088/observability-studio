@@ -11,6 +11,7 @@ from accelerators.ayosa.models import (
 )
 from accelerators.ayosa.service import AyosaService
 from accelerators.ayosa.agent_bridge import run_agent_chat
+from accelerators.ayosa.agent.session_store import get_default_store
 from accelerators.ayosa.agent_stream import (
     serialize_sse_event,
     stream_agent_chat,
@@ -24,11 +25,14 @@ def chat(request: AyosaChatRequest):
     if request.agent_mode:
         return run_agent_chat(request)
     result = AyosaService().investigate(request)
-    # Ensure the deterministic path always advertises its mode.
+    # Ensure the deterministic path always advertises its mode and
+    # echoes back a session_id so clients can chain follow-ups.
     if isinstance(result, dict):
         result.setdefault("mode", "deterministic")
         result.setdefault("tool_steps", [])
         result.setdefault("observations", result.get("evidence", []))
+        sid = (request.session_id or "").strip() or get_default_store().new_session_id()
+        result["session_id"] = sid
     return result
 
 

@@ -60,6 +60,7 @@ class AyosaChatRequest(BaseModel):
     ai: Optional[AyosaAIConfig] = None
     agent_mode: bool = False
     session_id: Optional[str] = None
+    reset_session: bool = False
 
 
 class EvidenceItem(BaseModel):
@@ -107,3 +108,4 @@ class AyosaChatResponse(BaseModel):
     mode: str = "deterministic"  # "deterministic" | "agent"
     tool_steps: list[dict[str, Any]] = []
     observations: list[dict[str, Any]] = []
+    session_id: Optional[str] = None
