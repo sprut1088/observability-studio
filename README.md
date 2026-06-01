@@ -87,9 +87,12 @@ Backend layers:
 - `POST /api/v1/obsco/chat` — ObsCo Q&A (knowledge base + optional Claude)
 
 ### AYOSA (live investigation copilot)
-- `POST /api/ayosa/chat` — synchronous investigation
-- `POST /api/ayosa/chat/stream` — Server-Sent Events stream (`step`, `llm_chunk`, `result`, `error`)
+- `POST /api/ayosa/chat` — synchronous investigation (set `agent_mode=true` to use the planner/dispatcher/synthesiser loop)
+- `POST /api/ayosa/chat/stream` — Server-Sent Events stream. Deterministic events (`step`, `llm_chunk`, `result`, `error`) plus agent-mode events (`session_start`, `intent`, `plan`, `tool_start`, `tool_result`, `observation`, `chart`, `timeline_event`, `final_snapshot`, `done`)
 - `POST /api/ayosa/runbook` — generate a runbook from an investigation result
+- `GET  /api/ayosa/runs` — list persisted runs (filter by `session_id`, `service`, `limit`); degrades to `{available:false}` if persistence is disabled
+- `GET  /api/ayosa/runs/{run_id}` — fetch one persisted run
+- `GET  /api/ayosa/runs/compare?left=&right=` — field-level diff between two runs
 
 ### Other platform endpoints
 - `POST /api/observability-gap-map`
@@ -121,10 +124,16 @@ imports from any other accelerator or adapter.
 AYOSA is a chat-driven investigation copilot:
 
 - Pulls live signals from connected tools (metrics, logs, traces, alerts, dashboards)
-- Plans tool queries from the user's intent (11 intent types)
+- Plans tool queries from the user's intent (11 intent types) via a 12-tool structured registry
 - Streams investigation steps and LLM-generated narrative via SSE
 - Generates RCA summaries, evidence timelines, charts, and runbooks
 - Lives in `accelerators/ayosa/` with its own router, models, service, adapters, and LLM analyst
+
+AYOSA agent-mode add-ons (`agent_mode=true`):
+
+- **Session memory** (`agent/session_store.py`) — `SessionStore` persists turns under `runtime/ayosa_sessions/` and infers blank `service` / `time_range` from prior turns in the same `session_id`.
+- **Workspace awareness** (`workspace_index/`) — lightweight JSON-on-disk index of services, dashboards, alerts, metrics, log indexes, traces, tools, and owners harvested from ObsCrawl / ObservaScore artifacts. Indexed with `index_workspace(run_id, artifact_path)`; queried via `search_workspace`, `get_service_context`, and `workspace_overview`. The planner attaches `workspace_context` to every plan; when the index is empty the response says `workspace index unavailable` and never fabricates facts.
+- **Run persistence** (`persistence/`) — SQLite (`runtime/ayosa.db`) with `ayosa_sessions`, `ayosa_messages`, `ayosa_runs`, `ayosa_tool_steps`, `ayosa_snapshots`. Every agent-mode chat is recorded best-effort via `persist_agent_result`; chat keeps working when persistence fails. Surfaces through `GET /api/ayosa/runs[/{id}|/compare]`.
 
 ### Observability Gap Map
 
@@ -145,6 +154,27 @@ Signal Connectivity layer:
 - Anomaly correlation engine + cascade/blast-radius BFS through service graph
 - Claude-formatted RCA JSON rendered via Jinja2 template
 - Runs inline (no subprocess) — service adds `accelerators/rca-agent/src` to `sys.path`
+
+### MCP Server (experimental)
+
+An opt-in Model Context Protocol stdio server that exposes AYOSA tools to MCP
+clients such as Claude Desktop, VS Code, and Cursor. Lives in `mcp_server/`.
+
+Exposed tools:
+
+- `query_prometheus`, `query_elasticsearch`, `query_splunk`, `query_alertmanager`, `query_jaeger`
+- `ayosa_investigate` — full agent loop across one or more tools
+- `ayosa_search_workspace` — query the workspace index
+- `ayosa_get_run` — fetch a persisted run by id
+
+Key properties:
+
+- The `mcp` Python package is **optional**. `mcp_server.schemas` and `mcp_server.tools` import cleanly without it.
+- `python -m mcp_server.server` prints an install hint and exits `2` when `mcp` is missing — never affects any other AYOSA functionality.
+- All `auth_token` / `api_key` / `password` / `secret` / `token` / `bearer` / `authorization` fields are flagged `sensitive: true` in the JSON Schema and scrubbed by `redact_for_log` before any log emission.
+- Tool handlers reuse the existing `accelerators/ayosa/registry.py` adapters and `agent_bridge.run_agent_chat` — no business-logic duplication.
+
+See [mcp_server/README.md](mcp_server/README.md) for client wiring (Claude Desktop / VS Code / Cursor).
 
 ## Frontend Hub
 
@@ -218,10 +248,14 @@ Generated artifacts are written to `runtime/<run_id>/<module>/` and typically in
 ```
 accelerators/
   ayosa/             # AYOSA chat copilot: router, service, adapters, LLM analyst
+    agent/             # Planner, dispatcher, synthesiser, tool_registry, session_store
+    workspace_index/   # JSON-on-disk index of services/dashboards/alerts/metrics/...
+    persistence/       # SQLite repository for run history (runtime/ayosa.db)
   obsco/             # ObsCo Q&A copilot (knowledge base + optional LLM)
   obscrawl/          # ObsCrawl single-tool extraction (re-exports from crawler service)
   observascore/      # Maturity scoring engine, COM model, adapters, rules, AI analyst, CLI
   rca-agent/         # RCA agent: signal collector, correlation, cascade detector, LLM formatter
+mcp_server/          # Experimental MCP stdio server exposing AYOSA tools (optional mcp dep)
 backend/app/
   main.py            # FastAPI app, CORS, feature-flag middleware
   routes/            # systems, export, assess, red_intelligence, observability_gap_map,
@@ -269,8 +303,11 @@ python -m observascore.cli list-rules
 pytest tests/ -v
 ```
 
-Smoke tests cover the platform health endpoint, observability gap map service,
-and RED panel intelligence.
+Current suite: **210 tests** covering:
+
+- `tests/ayosa/` — agent backbone, chat contract, streaming contract, tool registry, session memory, workspace index, run persistence
+- `tests/mcp/` — MCP tool-schema and redaction tests (no `mcp` dependency required)
+- `tests/` — platform smoke, observability gap map, RED panel intelligence
 
 ## Notes
 

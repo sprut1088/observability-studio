@@ -31,4 +31,6 @@ class ObsCoChatResponse(BaseModel):
     mentioned_tools: list[str] = []
     configured_tools: list[str] = []
     tool_facts: dict = {}
+    mentioned_accelerators: list[str] = []
+    studio_facts: dict = {}
     ai_used: bool = False
