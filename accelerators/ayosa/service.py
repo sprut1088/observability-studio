@@ -634,7 +634,10 @@ class AyosaService:
         service: str | None,
         time_range: str,
     ) -> list[dict[str, Any]]:
-        """Call get_charts() on every adapter that supports it."""
+        """Call get_charts() on every adapter that supports it.
+        Stage 3: drop charts that came back with no data points so the UI does
+        not render empty panels.
+        """
         charts: list[dict[str, Any]] = []
         for tool in tools:
             tool_key = tool.tool.lower().strip()
@@ -648,7 +651,8 @@ class AyosaService:
                 charts.extend(adapter.get_charts(service=service, time_range=time_range))
             except Exception as exc:
                 logger.warning("Chart collection failed for %s: %s", tool.tool, exc)
-        return charts
+        # Drop charts with no data points — never render empty panels.
+        return [c for c in charts if c.get("data")]
 
     # ------------------------------------------------------------------
     # Incident snapshot

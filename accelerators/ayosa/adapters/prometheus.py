@@ -34,46 +34,29 @@ class PrometheusAdapter:
         step = max(60, total_secs // 30)
 
         selector = f'service_name="{service}"' if service else ""
-
-        if service == "checkout":
-            chart_queries = [
-                {
-                    "title": "Latency Trend (p95)",
-                    "query": "histogram_quantile(0.95, sum(rate(app_cart_add_item_latency_seconds_bucket[5m])) by (le))",
-                },
-                {
-                    "title": "Request Rate Trend",
-                    "query": "sum(rate(app_cart_add_item_latency_seconds_count[5m]))",
-                },
-                {
-                    "title": "Error Rate Trend",
-                    "query": 'slo:sli_error:ratio_rate2h{service="checkout"}',
-                },
-            ]
-        else:
-            error_selector = f'{selector}, http_status_code=~"5.."' if selector else 'http_status_code=~"5.."'
-            chart_queries = [
-                {
-                    "title": "Latency Trend (p95)",
-                    "query": (
-                        f"histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket{{{selector}}}[5m])) by (le))"
-                        if selector
-                        else "histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket[5m])) by (le))"
-                    ),
-                },
-                {
-                    "title": "Request Rate Trend",
-                    "query": (
-                        f"sum(rate(http_server_duration_milliseconds_count{{{selector}}}[5m]))"
-                        if selector
-                        else "sum(rate(http_server_duration_milliseconds_count[5m]))"
-                    ),
-                },
-                {
-                    "title": "Error Rate Trend",
-                    "query": f"sum(rate(http_server_duration_milliseconds_count{{{error_selector}}}[5m]))",
-                },
-            ]
+        error_selector = f'{selector}, http_status_code=~"5.."' if selector else 'http_status_code=~"5.."'
+        chart_queries = [
+            {
+                "title": "Latency Trend (p95)",
+                "query": (
+                    f"histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket{{{selector}}}[5m])) by (le))"
+                    if selector
+                    else "histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket[5m])) by (le))"
+                ),
+            },
+            {
+                "title": "Request Rate Trend",
+                "query": (
+                    f"sum(rate(http_server_duration_milliseconds_count{{{selector}}}[5m]))"
+                    if selector
+                    else "sum(rate(http_server_duration_milliseconds_count[5m]))"
+                ),
+            },
+            {
+                "title": "Error Rate Trend",
+                "query": f"sum(rate(http_server_duration_milliseconds_count{{{error_selector}}}[5m]))",
+            },
+        ]
 
         charts = []
         for item in chart_queries:
@@ -108,56 +91,51 @@ class PrometheusAdapter:
 
         return charts
 
-    def investigate(self, service: str | None, time_range: str, message: str):
+    def investigate(self, service: str | None, time_range: str, message: str, plan: dict | None = None):
+        intent = (plan or {}).get("intent") if isinstance(plan, dict) else None
         selector = f'service_name="{service}"' if service else ""
 
-        if service == "checkout":
+        if intent == "environment_health":
             queries = [
-                {
-                    "name": "targets",
-                    "query": "up",
-                },
-                {
-                    "name": "checkout_cart_add_item_rate",
-                    "query": "sum(rate(app_cart_add_item_latency_seconds_count[5m]))",
-                },
-                {
-                    "name": "checkout_cart_add_item_p95_latency",
-                    "query": "histogram_quantile(0.95, sum(rate(app_cart_add_item_latency_seconds_bucket[5m])) by (le))",
-                },
-                {
-                    "name": "checkout_cart_get_cart_rate",
-                    "query": "sum(rate(app_cart_get_cart_latency_seconds_count[5m]))",
-                },
-                {
-                    "name": "checkout_cart_get_cart_p95_latency",
-                    "query": "histogram_quantile(0.95, sum(rate(app_cart_get_cart_latency_seconds_bucket[5m])) by (le))",
-                },
-                {
-                    "name": "checkout_slo_error_ratio_2h",
-                    "query": 'slo:sli_error:ratio_rate2h{service="checkout"}',
-                },
+                {"name": "targets_total", "query": "count(up)"},
+                {"name": "targets_up",    "query": "count(up == 1)"},
+                {"name": "targets_down",  "query": "count(up == 0)"},
+                {"name": "targets_by_job","query": "count by (job) (up == 1)"},
+            ]
+        elif intent == "healthy_services_list":
+            # Return per-target up/down so the orchestrator can group by service/job/instance.
+            queries = [
+                {"name": "up_by_target", "query": "up"},
+            ]
+        elif intent == "latency_issues":
+            if selector:
+                latency_q = (
+                    "histogram_quantile(0.95, "
+                    f"sum by (le, service_name) (rate(http_server_duration_milliseconds_bucket{{{selector}}}[5m])))"
+                )
+            else:
+                latency_q = (
+                    "histogram_quantile(0.95, "
+                    "sum by (le, service_name) (rate(http_server_duration_milliseconds_bucket[5m])))"
+                )
+            queries = [
+                {"name": "p95_latency_by_service", "query": latency_q},
+            ]
+        elif intent == "service_health":
+            up_q = f"up{{{selector}}}" if selector else "up"
+            queries = [
+                {"name": "targets", "query": up_q},
+                {"name": "request_rate", "query": f"sum(rate(http_server_duration_milliseconds_count{{{selector}}}[5m]))"},
+                {"name": "p95_latency",  "query": f"histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket{{{selector}}}[5m])) by (le))"},
+                {"name": "error_rate",   "query": f'sum(rate(http_server_duration_milliseconds_count{{{selector}, http_status_code=~"5.."}}[5m]))'},
             ]
         else:
-            selector = f'service_name="{service}"' if service else ""
-
+            # Default / fallback (error_investigation, general_observability_question, unknown)
             queries = [
-                {
-                    "name": "targets",
-                    "query": "up",
-                },
-                {
-                    "name": "request_rate",
-                    "query": f"sum(rate(http_server_duration_milliseconds_count{{{selector}}}[5m]))",
-                },
-                {
-                    "name": "p95_latency",
-                    "query": f"histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket{{{selector}}}[5m])) by (le))",
-                },
-                {
-                    "name": "error_rate",
-                    "query": f'sum(rate(http_server_duration_milliseconds_count{{{selector}, http_status_code=~"5.."}}[5m]))',
-                },
+                {"name": "targets",      "query": "up"},
+                {"name": "request_rate", "query": f"sum(rate(http_server_duration_milliseconds_count{{{selector}}}[5m]))"},
+                {"name": "p95_latency",  "query": f"histogram_quantile(0.95, sum(rate(http_server_duration_milliseconds_bucket{{{selector}}}[5m])) by (le))"},
+                {"name": "error_rate",   "query": f'sum(rate(http_server_duration_milliseconds_count{{{selector}, http_status_code=~"5.."}}[5m]))'},
             ]
 
         evidence = []

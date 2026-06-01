@@ -113,8 +113,42 @@ class JaegerAdapter:
             },
         ]
 
-    def investigate(self, service: str | None, time_range: str, message: str):
-        try:
+    def investigate(self, service: str | None, time_range: str, message: str, plan: dict | None = None):
+        intent = (plan or {}).get("intent") if isinstance(plan, dict) else None
+
+        # trace_lookup: needs a service. Without one, skip rather than dumping all services.
+        if intent == "trace_lookup":
+            if not service:
+                return [{
+                    "source": "jaeger", "signal": "traces",
+                    "finding": "Trace lookup requires a service name; none was provided or inferred.",
+                    "query": None, "status": "skipped", "raw": None,
+                }]
+            endpoint = "/api/traces"
+            params: dict = {"service": service, "limit": 20}
+
+        # latency_issues: prefer slow traces for the service (minDuration filter).
+        elif intent == "latency_issues":
+            if not service:
+                return [{
+                    "source": "jaeger", "signal": "traces",
+                    "finding": "Latency analysis from traces requires a service; none was provided.",
+                    "query": None, "status": "skipped", "raw": None,
+                }]
+            now_us = int(_time_module.time() * 1_000_000)
+            start_us = now_us - (self._parse_time_range_seconds(time_range) * 1_000_000)
+            endpoint = "/api/traces"
+            params = {
+                "service": service,
+                "start": start_us,
+                "end": now_us,
+                "limit": 50,
+                "minDuration": "500ms",
+            }
+
+        else:
+            # Default behaviour preserved for other intents (service_health,
+            # error_investigation, general_observability_question, etc.).
             if service:
                 endpoint = "/api/traces"
                 params = {"service": service, "limit": 20}
@@ -122,27 +156,52 @@ class JaegerAdapter:
                 endpoint = "/api/services"
                 params = {}
 
+        try:
             response = requests.get(
                 f"{self.base_url}{endpoint}",
                 params=params,
                 timeout=10,
             )
             response.raise_for_status()
+            data = response.json()
+            query_repr = f"{endpoint} {params}"
+
+            if intent == "latency_issues":
+                traces = data.get("data", []) or []
+                if not traces:
+                    return [{
+                        "source": "jaeger", "signal": "traces",
+                        "finding": "No slow traces (>500ms) found in the selected time window.",
+                        "query": query_repr, "status": "no_data", "raw": data,
+                    }]
+                return [{
+                    "source": "jaeger", "signal": "traces",
+                    "finding": f"Found {len(traces)} slow traces (>500ms) for {service}.",
+                    "query": query_repr, "status": "ok", "raw": data,
+                }]
+
+            if intent == "trace_lookup":
+                traces = data.get("data", []) or []
+                if not traces:
+                    return [{
+                        "source": "jaeger", "signal": "traces",
+                        "finding": f"No traces found for service '{service}' in Jaeger.",
+                        "query": query_repr, "status": "no_data", "raw": data,
+                    }]
+                return [{
+                    "source": "jaeger", "signal": "traces",
+                    "finding": f"Retrieved {len(traces)} recent traces for {service}.",
+                    "query": query_repr, "status": "ok", "raw": data,
+                }]
 
             return [{
-                "source": "jaeger",
-                "signal": "traces",
+                "source": "jaeger", "signal": "traces",
                 "finding": "Jaeger trace data retrieved successfully.",
-                "query": f"{endpoint} {params}",
-                "status": "ok",
-                "raw": response.json(),
+                "query": query_repr, "status": "ok", "raw": data,
             }]
         except Exception as exc:
             return [{
-                "source": "jaeger",
-                "signal": "traces",
+                "source": "jaeger", "signal": "traces",
                 "finding": f"Jaeger query failed: {exc}",
-                "query": None,
-                "status": "error",
-                "raw": None,
+                "query": None, "status": "error", "raw": None,
             }]

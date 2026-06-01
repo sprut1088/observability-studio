@@ -109,25 +109,64 @@ class SplunkAdapter:
 
         return charts
 
-    def _build_search_query(self, service: str | None, message: str | None) -> str:
-        search_query = "search index=user01-index"
+    _ERROR_KEYWORDS = ("error", "exception", "fail", "failed", "failure", "incident", "broken")
 
+    def _build_search_query(
+        self,
+        service: str | None,
+        message: str | None,
+        intent: str | None = None,
+    ) -> str | None:
+        """Build an intent-aware SPL query.
+        Returns None when the intent does not warrant a Splunk query.
+        """
+        base = "search index=user01-index"
         if service:
-            search_query += f" {service}"
+            base += f' "{service}"'
+        msg_l = (message or "").lower()
 
-        message_l = (message or "").lower()
+        if intent == "latency_issues":
+            return base + ' (latency OR slow OR timeout OR duration OR "response time")'
 
-        # Add broader incident/error keywords when the user is investigating failures.
-        if any(word in message_l for word in ["error", "fail", "failed", "failure", "timeout", "latency", "issue", "incident"]):
-            search_query += (
-                " (error OR exception OR timeout OR failed OR failure "
-                "OR unavailable OR refused OR broken OR eof "
-                'OR "invalid token" OR "request failed")'
+        if intent == "environment_health":
+            return (
+                base
+                + ' (error OR exception OR failed OR failure OR warn OR warning)'
+                + ' | stats count by host'
             )
 
-        return search_query
+        if intent == "healthy_services_list":
+            return (
+                base
+                + ' | stats count as total_events'
+                + ', count(eval(searchmatch("error OR exception OR failed OR failure"))) as error_count'
+                + ' by host'
+            )
 
-    def investigate(self, service: str | None, time_range: str, message: str):
+        if intent in ("latest_error", "error_investigation"):
+            return (
+                base
+                + ' (error OR exception OR timeout OR failed OR failure '
+                + 'OR unavailable OR refused OR broken OR eof '
+                + 'OR "invalid token" OR "request failed")'
+            )
+
+        if intent == "general_observability_question":
+            if not any(k in msg_l for k in self._ERROR_KEYWORDS):
+                return None
+            return base + ' (error OR exception OR failed OR failure)'
+
+        # Default / unknown intent: keep existing keyword-driven behaviour.
+        if any(word in msg_l for word in self._ERROR_KEYWORDS + ("timeout", "latency", "issue")):
+            return (
+                base
+                + ' (error OR exception OR timeout OR failed OR failure '
+                + 'OR unavailable OR refused OR broken OR eof '
+                + 'OR "invalid token" OR "request failed")'
+            )
+        return base
+
+    def investigate(self, service: str | None, time_range: str, message: str, plan: dict | None = None):
         if not self.auth_token:
             return [{
                 "source": "splunk",
@@ -138,7 +177,18 @@ class SplunkAdapter:
                 "raw": None,
             }]
 
-        search_query = self._build_search_query(service, message)
+        intent = (plan or {}).get("intent") if isinstance(plan, dict) else None
+        search_query = self._build_search_query(service, message, intent)
+
+        if search_query is None:
+            return [{
+                "source": "splunk",
+                "signal": "logs",
+                "finding": "Skipped Splunk error scan (general question with no error/failure keywords).",
+                "query": None,
+                "status": "skipped",
+                "raw": None,
+            }]
 
         headers = {
             "Authorization": f"Bearer {self.auth_token}"
@@ -173,10 +223,24 @@ class SplunkAdapter:
                 except Exception:
                     continue
 
+            if not events:
+                return [{
+                    "source": "splunk",
+                    "signal": "logs",
+                    "finding": "Splunk returned no matching events in the selected time window.",
+                    "query": search_query,
+                    "status": "no_data",
+                    "raw": {
+                        "results": [],
+                        "count": 0,
+                        "api_url_used": self.base_url,
+                    },
+                }]
+
             return [{
                 "source": "splunk",
                 "signal": "logs",
-                "finding": f"Retrieved {len(events)} recent log events from Splunk.",
+                "finding": f"Retrieved {len(events)} log events from Splunk.",
                 "query": search_query,
                 "status": "ok",
                 "raw": {
