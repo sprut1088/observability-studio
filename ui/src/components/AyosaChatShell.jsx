@@ -176,13 +176,28 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
   const intentLabel = INTENT_LABELS[result.intent] || "🔬 Investigation";
 
   // Only show non-empty charts
-  const allCharts     = result.charts || [];
-  const charts        = allCharts.filter((c) => (c.data || []).length > 0);
-  const hasEmptyCharts = allCharts.length > 0 && charts.length < allCharts.length;
+  const allCharts = result.charts || [];
+  const charts    = allCharts.filter((c) => c && c.data && c.data.length > 0);
 
   const timeline = result.timeline || [];
   const evidence = result.evidence || [];
-  const isSimple = ["current_time", "general_chat"].includes(result.intent);
+  const intent   = result.intent;
+  const isSimple = ["current_time", "general_chat"].includes(intent);
+
+  // Stage 4: intent-aware section gating.
+  // List-style intents shouldn't surface a Root Cause/Timeline meant for incidents.
+  const LIST_INTENTS    = ["healthy_services_list", "active_alerts", "latency_issues"];
+  const INCIDENT_INTENTS = ["latest_error", "error_investigation", "service_health", "incident_investigation"];
+
+  const showRootCause = !!result.probable_root_cause && !isSimple && !LIST_INTENTS.includes(intent);
+  const showTimeline  = timeline.length > 0 && !isSimple && !LIST_INTENTS.includes(intent);
+  const showPatterns  = (result.detected_patterns || []).length > 0
+                        && !isSimple
+                        && intent !== "latency_issues";
+
+  // For list-style intents, evidence IS the answer — open it by default.
+  const evidenceOpenByDefault = LIST_INTENTS.includes(intent)
+                                || INCIDENT_INTENTS.includes(intent);
 
   return (
     <div className="ayosa-message-assistant-wrap">
@@ -238,8 +253,8 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
         </div>
       )}
 
-      {/* Root Cause + Impact — investigation intents only */}
-      {!isSimple && result.probable_root_cause && (
+      {/* Root Cause + Impact — only when backend produced real RCA and intent is incident-like */}
+      {showRootCause && (
         <div className="ayosa-summary-grid">
           <div className="ayosa-result-card">
             <div className="ayosa-result-label">Root Cause</div>
@@ -276,7 +291,7 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
       )}
 
       {/* Detected Patterns */}
-      {(result.detected_patterns || []).length > 0 && (
+      {showPatterns && (
         <div className="ayosa-result-card">
           <div className="ayosa-result-label">Detected Patterns</div>
           <div className="ayosa-pattern-list">
@@ -287,7 +302,7 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
         </div>
       )}
 
-      {/* Charts — only rendered when data exists */}
+      {/* Charts — only rendered when data exists; never show empty-chart placeholders */}
       {charts.length > 0 && (
         <div>
           <div className="ayosa-section-title">📈 Metrics Charts</div>
@@ -298,30 +313,20 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
           </div>
         </div>
       )}
-      {allCharts.length > 0 && charts.length === 0 && (
-        <p className="ayosa-chart-note">
-          Metrics charts unavailable — no valid time-series data was returned by the connected tools.
-        </p>
-      )}
-      {hasEmptyCharts && charts.length > 0 && (
-        <p className="ayosa-chart-note">
-          Some metrics charts were omitted because no time-series data was available for them.
-        </p>
-      )}
 
-      {/* Timeline */}
-      {timeline.length > 0 && (
+      {/* Timeline — hidden for list-style intents to avoid unrelated noise */}
+      {showTimeline && (
         <div>
           <div className="ayosa-section-title">🕐 Incident Timeline</div>
           <AyosaTimeline items={timeline} />
         </div>
       )}
 
-      {/* Evidence — collapsible */}
+      {/* Evidence — collapsible; default-open for list/incident intents where it IS the answer */}
       {evidence.length > 0 && (
-        <details className="ayosa-evidence-section">
+        <details className="ayosa-evidence-section" open={evidenceOpenByDefault}>
           <summary className="ayosa-section-title ayosa-evidence-summary">
-            🔍 Evidence ({evidence.length} items — click to expand)
+            🔍 Evidence ({evidence.length} items — click to {evidenceOpenByDefault ? "collapse" : "expand"})
           </summary>
           <div className="ayosa-evidence-list">
             {evidence.map((item, i) => (
@@ -743,7 +748,7 @@ export default function AyosaChatShell({ tools, aiConfig }) {
             <textarea
               ref={inputRef}
               className="ayosa-chat-textarea"
-              placeholder="Ask AYOSA anything… e.g. Why is payment failing?"
+              placeholder="Ask AYOSA anything… e.g. What is the health of my environment?"
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               onKeyDown={handleKeyDown}
