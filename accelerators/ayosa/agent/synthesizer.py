@@ -64,7 +64,11 @@ class Synthesizer:
         # ── Optional LLM enhancement (gated by evidence sufficiency) ──
         llm_cfg = agent_input.llm
         if llm_cfg and llm_cfg.enabled and ok_obs:
-            enhanced = self._invoke_llm(llm_cfg, result)
+            try:
+                enhanced = self._invoke_llm(llm_cfg, result)
+            except Exception as exc:  # noqa: BLE001 — LLM must never break agent
+                logger.warning("Synthesizer LLM enrichment raised: %s", exc)
+                enhanced = None
             if enhanced is not None:
                 result.llm_analysis = enhanced
                 result.llm_used = True

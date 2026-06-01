@@ -10,13 +10,22 @@ from accelerators.ayosa.models import (
     AyosaChatResponse,
 )
 from accelerators.ayosa.service import AyosaService
+from accelerators.ayosa.agent_bridge import run_agent_chat
 
 router = APIRouter()
 
 
 @router.post("/chat", response_model=AyosaChatResponse)
 def chat(request: AyosaChatRequest):
-    return AyosaService().investigate(request)
+    if request.agent_mode:
+        return run_agent_chat(request)
+    result = AyosaService().investigate(request)
+    # Ensure the deterministic path always advertises its mode.
+    if isinstance(result, dict):
+        result.setdefault("mode", "deterministic")
+        result.setdefault("tool_steps", [])
+        result.setdefault("observations", result.get("evidence", []))
+    return result
 
 
 @router.post("/chat/stream")

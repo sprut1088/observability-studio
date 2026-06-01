@@ -1,0 +1,278 @@
+"""Bridge between the public AYOSA chat contract (`AyosaChatRequest` /
+`AyosaChatResponse`) and the internal `AyosaAgent` backbone.
+
+This is the *only* glue layer. It does NOT modify the existing
+`AyosaService` behaviour — when `agent_mode=False`, callers must keep
+using `AyosaService.investigate(...)`.
+
+Requirements honoured here:
+  1. Additive only. `AyosaService` is untouched.
+  6. LLM is additive: the agent's synthesizer already swallows LLM
+     errors, and we wrap the LLM enrichment call so a failure leaves
+     the deterministic answer in place.
+  7. No generic RCA unless intent requires investigation. We only
+     populate `probable_root_cause` / `impact` / `incident_snapshot`
+     for investigation-shaped intents.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from accelerators.ayosa.agent import AyosaAgent
+from accelerators.ayosa.agent.schemas import (
+    AgentAIConfig,
+    AgentInput,
+    AgentResult,
+    AgentToolConfig,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# Intents for which a root-cause / incident snapshot is meaningful.
+# Anything else (current_time, healthy_services_list, dashboard_lookup …)
+# must NOT auto-populate RCA fields.
+_INVESTIGATION_INTENTS: frozenset[str] = frozenset({
+    "error_investigation",
+    "latency_issues",
+    "service_health",
+    "active_alerts",
+    "latest_error",
+    "environment_health",
+})
+
+
+def run_agent_chat(
+    request: Any,
+    *,
+    agent: AyosaAgent | None = None,
+) -> dict[str, Any]:
+    """Run the agent loop and return a dict shaped like `AyosaChatResponse`.
+
+    `request` is an `AyosaChatRequest` (or duck-typed equivalent with the
+    same attributes). `agent` is injectable for tests.
+    """
+    agent = agent or AyosaAgent()
+    agent_input = _to_agent_input(request)
+
+    try:
+        result = agent.run(agent_input)
+    except Exception as exc:  # noqa: BLE001 — never propagate; chat must respond
+        logger.error("AyosaAgent run failed: %s", exc, exc_info=True)
+        return _error_response(request, str(exc))
+
+    return _agent_result_to_chat_response(result, request)
+
+
+# ──────────────────────────────────────────────────────────────────────── #
+# Input mapping
+# ──────────────────────────────────────────────────────────────────────── #
+def _to_agent_input(request: Any) -> AgentInput:
+    tools = [
+        AgentToolConfig(
+            tool=t.tool,
+            base_url=t.base_url,
+            auth_token=getattr(t, "auth_token", None),
+        )
+        for t in (request.tools or [])
+    ]
+
+    llm_cfg: AgentAIConfig | None = None
+    ai = getattr(request, "ai", None)
+    if ai is not None:
+        llm_cfg = AgentAIConfig(
+            enabled=bool(getattr(ai, "enabled", False)),
+            provider=getattr(ai, "provider", None),
+            api_key=getattr(ai, "api_key", None),
+            model=getattr(ai, "model", None),
+            azure_endpoint=getattr(ai, "azure_endpoint", None),
+            azure_deployment=getattr(ai, "azure_deployment", None),
+            openrouter_model=getattr(ai, "openrouter_model", None),
+        )
+
+    session_id = getattr(request, "session_id", None) or "default"
+
+    return AgentInput(
+        message=request.message,
+        service=getattr(request, "service", None),
+        time_range=getattr(request, "time_range", "30m") or "30m",
+        tools=tools,
+        llm=llm_cfg,
+        session_id=session_id,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────── #
+# Result mapping
+# ──────────────────────────────────────────────────────────────────────── #
+def _agent_result_to_chat_response(
+    result: AgentResult, request: Any
+) -> dict[str, Any]:
+    intent = result.intent or ""
+    is_investigation = intent in _INVESTIGATION_INTENTS
+
+    coverage = result.snapshot.coverage if result.snapshot else {}
+
+    evidence = [
+        {
+            "source": o.source,
+            "signal": o.signal,
+            "finding": o.finding,
+            "query": o.query,
+            "status": o.status,
+            "raw": o.raw,
+        }
+        for o in result.observations
+    ]
+
+    timeline = [
+        {
+            "timestamp": t.timestamp,
+            "source": t.source,
+            "event": t.event,
+            "severity": t.severity,
+        }
+        for t in result.timeline
+    ]
+
+    tool_steps = [
+        {
+            "index": s.index,
+            "tool": s.tool,
+            "label": s.label,
+            "status": s.status,
+            "error": s.error,
+        }
+        for s in result.tool_steps
+    ]
+
+    # Requirement #7 — only populate RCA fields for investigation intents,
+    # AND only when we have at least one ok observation or LLM output.
+    root_cause = ""
+    impact = ""
+    incident_snapshot: dict[str, Any] | None = None
+    if is_investigation and (evidence or result.llm_used):
+        snap = result.snapshot
+        if result.llm_analysis:
+            root_cause = (
+                result.llm_analysis.get("probable_root_cause")
+                or result.llm_analysis.get("root_cause")
+                or ""
+            )
+            impact = result.llm_analysis.get("impact", "") or ""
+        if snap is not None:
+            incident_snapshot = {
+                "root_cause": root_cause or snap.root_cause,
+                "impact": impact or snap.impact,
+                "confidence": snap.confidence,
+                "coverage": snap.coverage,
+                "top_findings": snap.top_findings,
+                "recommended_actions": snap.recommended_actions,
+                "timeline_summary": timeline[:5],
+            }
+
+    suggested_actions = _derive_suggested_actions(result)
+
+    llm_analysis: dict[str, Any] | None = None
+    if result.llm_analysis is not None:
+        # Normalise so the existing UI fields line up; never fabricate keys.
+        llm_analysis = {
+            "executive_summary": result.llm_analysis.get("executive_summary", ""),
+            "reasoning": result.llm_analysis.get("reasoning", ""),
+            "missing_information": result.llm_analysis.get("missing_information", []),
+            "recommended_next_steps": result.llm_analysis.get(
+                "recommended_next_steps", []
+            ),
+            "provider": result.llm_analysis.get("provider"),
+            "model": result.llm_analysis.get("model"),
+            "error": result.llm_analysis.get("error"),
+        }
+
+    return {
+        "mode": "agent",
+        "answer": result.final_response,
+        "service": getattr(request, "service", None),
+        "time_range": result.plan.time_range,
+        "confidence": result.confidence,
+        "intent": intent,
+        "plan": result.plan.model_dump(),
+        "tool_steps": tool_steps,
+        "observations": evidence,  # alias of evidence for consumers wanting both
+        "evidence": evidence,
+        "timeline": timeline,
+        "signal_coverage": coverage,
+        "missing_signals": result.plan.missing_signals,
+        "probable_root_cause": root_cause,
+        "impact": impact,
+        "detected_patterns": [],
+        "related_artifacts": [],
+        "suggested_actions": suggested_actions,
+        "ai_analysis": None,
+        "charts": [],
+        "llm_analysis": llm_analysis,
+        "incident_snapshot": incident_snapshot,
+    }
+
+
+def _derive_suggested_actions(result: AgentResult) -> list[str]:
+    """Build short, registry-driven action hints.
+
+    Never generic RCA prose — only concrete "do X" items derived from
+    reflections, missing signals, and (when present) the LLM's
+    recommended next steps.
+    """
+    actions: list[str] = []
+
+    # 1. From reflections that flagged a problem.
+    for note in result.reflections:
+        if note.status in ("missing", "empty"):
+            actions.append(
+                f"Collect '{note.signal}' data — none was usable in this run."
+            )
+
+    # 2. From the LLM, if it produced any.
+    if result.llm_analysis:
+        for step in result.llm_analysis.get("recommended_next_steps") or []:
+            if isinstance(step, str) and step.strip():
+                actions.append(step.strip())
+
+    # Dedupe while keeping order; cap to 5.
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for a in actions:
+        if a not in seen:
+            seen.add(a)
+            deduped.append(a)
+    return deduped[:5]
+
+
+def _error_response(request: Any, msg: str) -> dict[str, Any]:
+    return {
+        "mode": "agent",
+        "answer": f"Agent run failed: {msg}",
+        "service": getattr(request, "service", None),
+        "time_range": getattr(request, "time_range", "30m") or "30m",
+        "confidence": 0.0,
+        "intent": "",
+        "plan": None,
+        "tool_steps": [],
+        "observations": [],
+        "evidence": [],
+        "timeline": [],
+        "signal_coverage": {},
+        "missing_signals": [],
+        "probable_root_cause": "",
+        "impact": "",
+        "detected_patterns": [],
+        "related_artifacts": [],
+        "suggested_actions": [],
+        "ai_analysis": None,
+        "charts": [],
+        "llm_analysis": None,
+        "incident_snapshot": None,
+    }
+
+
+__all__ = ["run_agent_chat"]

@@ -58,6 +58,8 @@ class AyosaChatRequest(BaseModel):
     time_range: str = "30m"
     tools: list[AyosaToolConfig]
     ai: Optional[AyosaAIConfig] = None
+    agent_mode: bool = False
+    session_id: Optional[str] = None
 
 
 class EvidenceItem(BaseModel):
@@ -100,3 +102,8 @@ class AyosaChatResponse(BaseModel):
     incident_snapshot: Optional[IncidentSnapshot] = None
     intent: Optional[str] = None
     plan: Optional[dict[str, Any]] = None
+
+    # ── Agent-mode additions (always present so the UI can introspect) ──
+    mode: str = "deterministic"  # "deterministic" | "agent"
+    tool_steps: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
