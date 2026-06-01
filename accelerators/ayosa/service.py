@@ -12,32 +12,34 @@ from accelerators.ayosa.registry import ADAPTERS
 logger = logging.getLogger(__name__)
 
 # ── Intent keywords — checked in priority order (most-specific first) ────────
+# Stage 1 — Observability Copilot intent planner
 
 _INTENT_KEYWORDS: dict[str, list[str]] = {
-    "current_time":          ["what time", "current time", "what is the time", "what's the time",
-                               "what date", "today's date", "current date"],
-    "active_alerts":         ["active alert", "any alerts", "current alerts", "firing alert",
-                               "alert firing", "alarm firing", "alerts firing", "check alerts",
-                               "alert", "alerts", "firing", "alarm", "is there an alert"],
-    "latest_error":          ["last error", "recent error", "latest error", "last failure",
-                               "recent failure", "last exception", "latest exception", "last crash"],
-    "error_trend":           ["error trend", "error rate", "failure rate", "error over time",
-                               "errors in last", "error spike", "error count"],
-    "latency_trend":         ["latency trend", "latency over time", "p99", "p95", "response time",
-                               "throughput trend", "slow response", "latency spike"],
-    "trace_lookup":          ["trace", "traces", "span", "distributed trace",
-                               "slow request", "slow trace", "request trace"],
-    "dashboard_lookup":      ["dashboard", "dashboards", "grafana board", "panel", "visualization"],
-    "incident_investigation":["investigate", "incident", "outage", "root cause", "what caused",
-                               "why is", "why are", "debug", "diagnose"],
-    "service_health":        ["health of", "is healthy", "health check", "service health",
-                               "is it up", "is it down", "service status", "how is",
-                               "status of", "check health"],
-    "environment_health":    ["environment health", "overall health", "what happened",
-                               "what's happening", "system health", "infrastructure health",
-                               "platform health", "everything ok", "anything wrong"],
-    "general_chat":          ["hello", "hi there", "hey", "help me", "what can you do",
-                               "who are you", "what are you"],
+    # Most specific patterns first
+    "current_time":           ["what time", "current time", "what is the time", "what's the time",
+                                "what date", "today's date", "current date"],
+    "healthy_services_list":  ["which services are healthy", "list services", "list all services",
+                                "show services", "show all services", "healthy services",
+                                "list healthy"],
+    "environment_health":     ["environment health", "overall health", "overall status",
+                                "system health", "infrastructure health", "platform health",
+                                "everything ok", "anything wrong", "what's happening",
+                                "what is happening", "what happened"],
+    "latency_issues":         ["latency", "slow", "p95", "p99", "response time", "throughput",
+                                "slow response", "slow request"],
+    "latest_error":           ["latest error", "last error", "most recent error", "recent error",
+                                "last failure", "latest failure", "last exception",
+                                "latest exception", "last crash"],
+    "active_alerts":          ["alert", "alerts", "firing", "alarm", "incident", "incidents",
+                                "pagerduty", "opsgenie", "any alerts", "active alert",
+                                "is there an alert"],
+    "trace_lookup":           ["trace", "traces", "span", "spans", "distributed trace"],
+    "dashboard_lookup":       ["dashboard", "dashboards", "grafana board", "panel", "visualization"],
+    "service_health":         ["health of", "is healthy", "health check", "service health",
+                                "is it up", "is it down", "service status", "how is",
+                                "status of", "check health"],
+    "error_investigation":    ["error", "errors", "failed", "failure", "failures", "exception",
+                                "exceptions", "stacktrace", "stack trace", "broken", "not working"],
 }
 
 # ── Query planner ─────────────────────────────────────────────────────────────
@@ -54,17 +56,31 @@ _SIGNAL_TOOLS: dict[str, list[str]] = {
 # Which signal types each intent needs
 _INTENT_SIGNALS: dict[str, list[str]] = {
     "current_time":                   [],
-    "general_chat":                   [],
     "environment_health":             ["metrics", "alerts", "logs"],
     "service_health":                 ["metrics", "alerts", "logs", "traces"],
+    "healthy_services_list":          ["metrics", "alerts"],
+    "latency_issues":                 ["metrics", "traces"],
     "latest_error":                   ["logs"],
-    "error_trend":                    ["metrics", "logs"],
-    "latency_trend":                  ["metrics", "traces"],
+    "error_investigation":            ["logs", "metrics", "alerts"],
     "active_alerts":                  ["alerts"],
     "trace_lookup":                   ["traces"],
     "dashboard_lookup":               ["dashboards"],
-    "incident_investigation":         ["metrics", "logs", "alerts", "traces"],
     "general_observability_question": ["metrics", "logs", "alerts", "traces"],
+}
+
+# Human-readable focus hint per intent (used by UI and downstream LLM prompts)
+_INTENT_QUERY_FOCUS: dict[str, str] = {
+    "current_time":                   "Return current server time. No tool query needed.",
+    "environment_health":             "Aggregate health across all services using active alerts, error rates, and recent logs.",
+    "service_health":                 "Assess the named service using metrics, alerts, logs, and traces.",
+    "healthy_services_list":          "Enumerate services with no firing alerts and stable error rates.",
+    "latency_issues":                 "Inspect latency percentiles (p95/p99) and slow traces.",
+    "latest_error":                   "Return the most recent error log entry.",
+    "error_investigation":            "Investigate error patterns across logs, error-rate metrics, and related alerts.",
+    "active_alerts":                  "List currently firing alerts and their severity.",
+    "trace_lookup":                   "Look up traces or spans matching the request.",
+    "dashboard_lookup":               "Locate relevant dashboards for the question.",
+    "general_observability_question": "Broad observability query — gather available signals.",
 }
 
 # Time-range extraction patterns — first match wins
@@ -92,15 +108,25 @@ def _extract_time_range_from_message(msg: str) -> str | None:
     return None
 
 
+# Priority order for keyword matching — most specific first
+_INTENT_PRIORITY = [
+    "current_time",
+    "healthy_services_list",
+    "environment_health",
+    "latency_issues",
+    "latest_error",
+    "active_alerts",
+    "trace_lookup",
+    "dashboard_lookup",
+    "service_health",
+    "error_investigation",
+]
+
+
 def _classify_intent_standalone(message: str) -> str:
     """Pure-function intent classifier — no AyosaService instance needed."""
     msg = message.lower().strip()
-    for intent in (
-        "current_time", "active_alerts", "latest_error", "error_trend",
-        "latency_trend", "trace_lookup", "dashboard_lookup",
-        "incident_investigation", "service_health", "environment_health",
-        "general_chat",
-    ):
+    for intent in _INTENT_PRIORITY:
         if any(kw in msg for kw in _INTENT_KEYWORDS.get(intent, [])):
             return intent
     return "general_observability_question"
@@ -114,10 +140,13 @@ def build_ayosa_plan(
 ) -> dict[str, Any]:
     """Build a structured investigation plan from user intent + validated tools.
 
-    Returns:
-        intent, service, time_range,
-        required_signals, selected_tools, covered_signals,
-        missing_signals, skipped_tools, explanation
+    Returns a dict with the Stage 1 contract:
+      intent, service, time_range,
+      required_signals, selected_tools, query_focus,
+      should_query_metrics, should_query_logs, should_query_alerts,
+      should_query_traces, should_query_dashboards
+    plus extra diagnostic fields preserved for backwards compat:
+      covered_signals, missing_signals, skipped_tools, explanation
     """
     intent = _classify_intent_standalone(message)
     inferred_tr = _extract_time_range_from_message(message)
@@ -137,6 +166,8 @@ def build_ayosa_plan(
     missing = [s for s in required_signals if s not in covered]
     skipped = [t.tool for t in available_tools if t.tool.lower() not in selected]
 
+    required_set = set(required_signals)
+
     parts: list[str] = [f"Intent: {intent.replace('_', ' ')}"]
     if service:
         parts.append(f"service={service}")
@@ -148,16 +179,25 @@ def build_ayosa_plan(
         parts.append(f"missing signals: {', '.join(missing)}")
 
     return {
-        "intent":           intent,
-        "service":          service,
-        "time_range":       resolved_tr,
-        "required_signals": required_signals,
-        "selected_tools":   selected,
-        "covered_signals":  list(dict.fromkeys(covered)),
-        "missing_signals":  missing,
-        "skipped_tools":    skipped,
-        "explanation":      ". ".join(parts) + ".",
+        # ── Stage 1 contract ──
+        "intent":                  intent,
+        "service":                 service,
+        "time_range":              resolved_tr,
+        "required_signals":        required_signals,
+        "selected_tools":          selected,
+        "query_focus":             _INTENT_QUERY_FOCUS.get(intent, ""),
+        "should_query_metrics":    "metrics"    in required_set,
+        "should_query_logs":       "logs"       in required_set,
+        "should_query_alerts":     "alerts"     in required_set,
+        "should_query_traces":     "traces"     in required_set,
+        "should_query_dashboards": "dashboards" in required_set,
+        # ── Diagnostic extras (used by existing UI/streaming code) ──
+        "covered_signals":         list(dict.fromkeys(covered)),
+        "missing_signals":         missing,
+        "skipped_tools":           skipped,
+        "explanation":             ". ".join(parts) + ".",
     }
+
 
 
 
