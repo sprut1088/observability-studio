@@ -38,6 +38,7 @@ from accelerators.ayosa.workspace_index import (
     search_workspace,
     workspace_overview,
 )
+from accelerators.ayosa.persistence import persist_agent_result
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,16 @@ def run_agent_chat(
         )
     except Exception as exc:  # noqa: BLE001 — memory failures must not break chat
         logger.warning("Session memory persist failed: %s", exc)
+
+    # ── Persist run to SQLite (best-effort; never breaks chat) ──
+    try:
+        run_id = persist_agent_result(
+            chat_response, request_message=agent_input.message,
+        )
+        if run_id:
+            chat_response["run_id"] = run_id
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Run persistence failed: %s", exc)
 
     return chat_response
 

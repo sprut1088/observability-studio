@@ -110,3 +110,4 @@ class AyosaChatResponse(BaseModel):
     observations: list[dict[str, Any]] = []
     session_id: Optional[str] = None
     workspace_context: Optional[dict[str, Any]] = None
+    run_id: Optional[str] = None

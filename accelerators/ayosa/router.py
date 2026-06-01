@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from accelerators.ayosa.models import (
@@ -16,6 +16,7 @@ from accelerators.ayosa.agent_stream import (
     serialize_sse_event,
     stream_agent_chat,
 )
+from accelerators.ayosa.persistence import get_default_repository
 
 router = APIRouter()
 
@@ -85,3 +86,53 @@ def generate_runbook(request: AyosaChatRequest):
         "generated_runbook": runbook,
         "confidence": result.get("confidence"),
     }
+
+
+# ──────────────────────────────────────────────────────────────────────── #
+# Run history (persistence is optional — these endpoints degrade gracefully)
+# ──────────────────────────────────────────────────────────────────────── #
+@router.get("/runs")
+def list_runs(
+    session_id: str | None = Query(default=None),
+    service: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    repo = get_default_repository()
+    if repo is None:
+        return {"available": False, "runs": []}
+    runs = repo.list_runs(session_id=session_id, service=service, limit=limit)
+    return {
+        "available": True,
+        "runs": [r.model_dump() for r in runs],
+    }
+
+
+@router.get("/runs/compare")
+def compare_runs(
+    left: str = Query(..., min_length=1),
+    right: str = Query(..., min_length=1),
+):
+    repo = get_default_repository()
+    if repo is None:
+        raise HTTPException(status_code=503, detail="Persistence unavailable")
+    comparison = repo.compare_runs(left, right)
+    if comparison.missing_run_ids:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": "One or more runs not found",
+                "missing_run_ids": comparison.missing_run_ids,
+            },
+        )
+    return comparison.model_dump()
+
+
+@router.get("/runs/{run_id}")
+def get_run(run_id: str):
+    repo = get_default_repository()
+    if repo is None:
+        raise HTTPException(status_code=503, detail="Persistence unavailable")
+    run = repo.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    return run.model_dump()
