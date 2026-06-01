@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import re
 import types
@@ -44,22 +45,22 @@ _INTENT_KEYWORDS: dict[str, list[str]] = {
 
 # ── Query planner ─────────────────────────────────────────────────────────────
 
-# Which tool provides which signal type
+# Which tool provides which signal type (Stage 2 — capability mapping per spec)
 _SIGNAL_TOOLS: dict[str, list[str]] = {
     "metrics":    ["prometheus", "datadog", "dynatrace", "appdynamics"],
-    "logs":       ["elasticsearch", "opensearch", "splunk", "loki", "datadog", "dynatrace"],
+    "logs":       ["elasticsearch", "opensearch", "splunk", "loki"],
     "alerts":     ["alertmanager", "grafana", "splunk", "datadog", "dynatrace"],
     "traces":     ["jaeger", "tempo", "datadog", "dynatrace", "appdynamics"],
-    "dashboards": ["grafana", "splunk", "datadog", "dynatrace", "appdynamics"],
+    "dashboards": ["grafana", "splunk", "datadog", "dynatrace"],
 }
 
 # Which signal types each intent needs
 _INTENT_SIGNALS: dict[str, list[str]] = {
     "current_time":                   [],
-    "environment_health":             ["metrics", "alerts", "logs"],
+    "environment_health":             ["metrics", "alerts"],          # no generic error-log scan
     "service_health":                 ["metrics", "alerts", "logs", "traces"],
-    "healthy_services_list":          ["metrics", "alerts"],
-    "latency_issues":                 ["metrics", "traces"],
+    "healthy_services_list":          ["metrics", "alerts"],          # no generic error-log scan
+    "latency_issues":                 ["metrics", "traces"],          # no generic error-log scan
     "latest_error":                   ["logs"],
     "error_investigation":            ["logs", "metrics", "alerts"],
     "active_alerts":                  ["alerts"],
@@ -275,9 +276,15 @@ class AyosaService:
     # Single-tool query helper (used by both sync and streaming paths)
     # ------------------------------------------------------------------
 
-    def _query_single_tool(self, tool: Any, request: Any) -> list[dict[str, Any]]:
+    def _query_single_tool(
+        self,
+        tool: Any,
+        request: Any,
+        plan: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """Run one adapter's investigate() and return its evidence list.
         `request` may be a Pydantic model or a SimpleNamespace.
+        Passes `plan=` to adapters that declare it (backwards-compatible).
         """
         tool_key = tool.tool.lower().strip()
         adapter_cls = ADAPTERS.get(tool_key)
@@ -291,11 +298,25 @@ class AyosaService:
                 "raw": None,
             }]
         adapter = adapter_cls(base_url=tool.base_url, auth_token=tool.auth_token)
-        return adapter.investigate(
-            service=request.service,
-            time_range=request.time_range,
-            message=request.message,
-        )
+        kwargs: dict[str, Any] = {
+            "service":    request.service,
+            "time_range": request.time_range,
+            "message":    request.message,
+        }
+        # Pass `plan` only if the adapter's investigate() accepts it (or **kwargs)
+        if plan is not None:
+            try:
+                sig = inspect.signature(adapter.investigate)
+                params = sig.parameters
+                accepts_plan = (
+                    "plan" in params
+                    or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+                )
+            except (TypeError, ValueError):
+                accepts_plan = False
+            if accepts_plan:
+                kwargs["plan"] = plan
+        return adapter.investigate(**kwargs)
 
     # ------------------------------------------------------------------
     # Streaming investigation (yields SSE-friendly dicts)
@@ -370,7 +391,7 @@ class AyosaService:
 
             yield {"type": "step", "index": step_idx, "label": f"Querying {tool.tool}", "status": "running"}
             try:
-                tool_evidence = await asyncio.to_thread(self._query_single_tool, tool, effective)
+                tool_evidence = await asyncio.to_thread(self._query_single_tool, tool, effective, plan)
                 evidence.extend(tool_evidence)
                 yield {"type": "step", "index": step_idx, "label": f"Querying {tool.tool}", "status": "done"}
             except Exception as exc:
@@ -388,7 +409,8 @@ class AyosaService:
         signal_coverage = self._build_signal_coverage(
             [t for t in request.tools if t.tool.lower() in selected_names]
         )
-        missing_signals = self._missing_signals(signal_coverage)
+        # Stage 2: report missing signals relative to the plan's required signals
+        missing_signals = plan["missing_signals"]
         result = await asyncio.to_thread(
             self._build_deterministic_result, evidence, effective, signal_coverage, missing_signals
         )
@@ -577,12 +599,13 @@ class AyosaService:
             return result
 
         signal_coverage = self._build_signal_coverage(tools_to_query)
-        missing_signals  = self._missing_signals(signal_coverage)
+        # Stage 2: report missing signals from the plan (intent-relative), not the global default
+        missing_signals = plan["missing_signals"]
 
         evidence: list[dict[str, Any]] = []
         for tool in tools_to_query:
             try:
-                evidence.extend(self._query_single_tool(tool, effective))
+                evidence.extend(self._query_single_tool(tool, effective, plan=plan))
             except Exception as exc:
                 evidence.append({
                     "source": tool.tool, "signal": "unknown",
