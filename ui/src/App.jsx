@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { validateTool, exportExcel, runAssessment, API_HOST } from "./api";
 import HubPage from "./components/HubPage";
+import ObsCoBot from "./components/ObsCoBot";
 import "./styles.css";
 
 /* ── Tool catalogue ─────────────────────────────────── */
@@ -516,6 +517,9 @@ export default function App() {
       <footer className="footer">
         <span className="footer-brand">ObservaScore</span> &nbsp;·&nbsp; SRE Accelerator Platform &nbsp;·&nbsp; v0.2.0
       </footer>
+
+      {/* ════════════ ObsCo — floating Observability Copilot ════════════ */}
+      <ObsCoBot />
     </>
   );
 }

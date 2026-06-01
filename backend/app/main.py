@@ -71,6 +71,10 @@ async def enforce_feature_flags(request, call_next):
     if path == "/api/observability-gap-map":
         _require_flag("observability_gap_map")
 
+    # ObsCo (Observability Copilot) endpoints
+    if path.startswith("/api/v1/obsco"):
+        _require_flag("obsco")
+
     return await call_next(request)
 
 
