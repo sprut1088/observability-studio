@@ -32,6 +32,12 @@ from accelerators.ayosa.agent.session_store import (
     get_default_store,
     summarise_evidence,
 )
+from accelerators.ayosa.workspace_index import (
+    get_service_context,
+    is_available as workspace_index_available,
+    search_workspace,
+    workspace_overview,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,16 +86,28 @@ def run_agent_chat(
 
     agent_input = _to_agent_input(request, session_id=session_id, inferred=inferred)
 
+    # ── Pre-plan retrieval: workspace context (never fabricated) ──
+    workspace_ctx = _retrieve_workspace_context(
+        message=agent_input.message,
+        service=agent_input.service,
+    )
+
     try:
         result = agent.run(agent_input)
     except Exception as exc:  # noqa: BLE001 — never propagate; chat must respond
         logger.error("AyosaAgent run failed: %s", exc, exc_info=True)
         out = _error_response(request, str(exc))
         out["session_id"] = session_id
+        out["workspace_context"] = workspace_ctx
         return out
+
+    # Attach the retrieved workspace context to the plan so consumers
+    # (LLM synthesiser, UI, /chat callers) can see what was available.
+    result.plan.workspace_context = workspace_ctx
 
     chat_response = _agent_result_to_chat_response(result, request)
     chat_response["session_id"] = session_id
+    chat_response["workspace_context"] = workspace_ctx
 
     # ── Persist this turn so the next request can use it ──
     try:
@@ -335,3 +353,38 @@ def _error_response(request: Any, msg: str) -> dict[str, Any]:
 
 
 __all__ = ["run_agent_chat"]
+
+
+# ──────────────────────────────────────────────────────────────────────── #
+# Workspace retrieval — pure function, isolated for tests
+# ──────────────────────────────────────────────────────────────────────── #
+def _retrieve_workspace_context(
+    *,
+    message: str,
+    service: str | None,
+    limit: int = 5,
+) -> dict[str, Any]:
+    """Return a compact workspace snapshot for the plan + LLM context.
+
+    Never invents data: if the on-disk index is missing or empty, the
+    returned dict explicitly says so via `available=False` and
+    `message="workspace index unavailable"`. Callers must check
+    `available` before treating the payload as authoritative.
+    """
+    try:
+        if not workspace_index_available():
+            from accelerators.ayosa.workspace_index import EMPTY_INDEX_MESSAGE
+            return {"available": False, "message": EMPTY_INDEX_MESSAGE}
+
+        payload: dict[str, Any] = {
+            "available": True,
+            "overview": workspace_overview(),
+        }
+        if service:
+            payload["service_context"] = get_service_context(service)
+        if message:
+            payload["matches"] = search_workspace(message, limit=limit)
+        return payload
+    except Exception as exc:  # noqa: BLE001 — workspace must never break chat
+        logger.warning("Workspace retrieval failed: %s", exc)
+        return {"available": False, "message": "workspace index unavailable"}

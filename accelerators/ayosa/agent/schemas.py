@@ -63,6 +63,7 @@ class Plan(BaseModel):
     missing_signals: list[str] = []
     skipped_tools: list[str] = []
     explanation: str = ""
+    workspace_context: Optional[dict[str, Any]] = None
 
 
 # ──────────────────────────────────────────────────────────────────────── #

@@ -109,3 +109,4 @@ class AyosaChatResponse(BaseModel):
     tool_steps: list[dict[str, Any]] = []
     observations: list[dict[str, Any]] = []
     session_id: Optional[str] = None
+    workspace_context: Optional[dict[str, Any]] = None

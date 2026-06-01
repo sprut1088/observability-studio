@@ -239,6 +239,7 @@ def _build_llm_context(result: AgentResult) -> dict[str, Any]:
         "confidence": result.confidence,
         "signal_coverage": result.snapshot.coverage if result.snapshot else {},
         "missing_signals": result.plan.missing_signals,
+        "workspace_context": result.plan.workspace_context,
         "evidence": [
             {
                 "source": o.source,

@@ -1,0 +1,37 @@
+{
+  "services": [
+    {"name": "payments", "owner": "team-payments", "team": "platform"},
+    {"name": "orders", "owner": "team-orders"},
+    "checkout"
+  ],
+  "dashboards": [
+    {"name": "Payments Overview", "service": "payments", "tool": "grafana", "url": "https://grafana/d/payments"},
+    {"name": "Orders SLO", "service": "orders", "tool": "grafana"},
+    {"name": "Global Health", "tool": "grafana"}
+  ],
+  "alerts": [
+    {"name": "HighErrorRatePayments", "severity": "critical", "service": "payments"},
+    {"name": "PaymentsLatencyP99", "severity": "warning", "service": "payments"},
+    {"name": "OrdersQueueBackup", "severity": "warning", "service": "orders"}
+  ],
+  "metrics": [
+    {"name": "payments_http_requests_total", "service": "payments", "type": "counter"},
+    {"name": "payments_latency_seconds", "service": "payments", "type": "histogram"},
+    {"name": "orders_inflight", "service": "orders", "type": "gauge"}
+  ],
+  "log_indexes": [
+    {"name": "payments-prod-*", "service": "payments", "tool": "elasticsearch"},
+    {"name": "orders-prod-*", "service": "orders", "tool": "elasticsearch"}
+  ],
+  "traces": [
+    {"name": "payments.charge", "service": "payments"},
+    {"name": "payments.refund", "service": "payments"},
+    {"name": "orders.create", "service": "orders"}
+  ],
+  "tools": [
+    {"name": "prometheus", "base_url": "http://prom.local", "auth_token": "REDACT-ME"},
+    {"name": "grafana", "base_url": "http://grafana.local"},
+    "elasticsearch"
+  ],
+  "owners": ["sre-on-call"]
+}
