@@ -39,7 +39,10 @@ class Synthesizer:
     ) -> AgentResult:
         ok_obs = [o for o in observations if o.status == "ok"]
         confidence = calculate_confidence(plan, ok_obs, reflections)
-        answer = compose_deterministic_answer(plan, ok_obs, reflections)
+        configured_tool_names = [t.tool for t in agent_input.tools]
+        answer = compose_deterministic_answer(
+            plan, ok_obs, reflections, configured_tools=configured_tool_names
+        )
         snapshot = build_snapshot(plan, ok_obs, confidence)
 
         result = AgentResult(
@@ -132,6 +135,7 @@ def compose_deterministic_answer(
     plan: Plan,
     ok_observations: list[Observation],
     reflections: list[ReflectionNote],
+    configured_tools: list[str] | None = None,
 ) -> str:
     """Build a short natural-language answer purely from facts."""
     if not plan.required_signals:
@@ -141,6 +145,20 @@ def compose_deterministic_answer(
         )
 
     if not ok_observations:
+        # Prefer a registry-derived suggestion when we know what's missing.
+        if configured_tools is not None:
+            from accelerators.ayosa.agent.tool_registry import (
+                format_missing_signal_message,
+            )
+
+            msg = format_missing_signal_message(
+                intent=plan.intent,
+                required_signals=plan.required_signals,
+                configured_tools=configured_tools,
+            )
+            if msg:
+                return msg
+
         missing = [r.signal for r in reflections if r.status in ("missing", "empty")]
         if missing:
             return (

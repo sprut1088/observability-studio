@@ -1,9 +1,11 @@
-"""Planner — wraps the existing `build_ayosa_plan` into an OO-friendly
-component that the agent can compose.
+"""Planner — bridges the existing intent classifier with the structured
+tool registry.
 
-This is a thin, additive adapter; the underlying planning rules stay in
-`accelerators.ayosa.service.build_ayosa_plan` to guarantee parity with
-the existing /api/ayosa/chat behaviour.
+Intent → required-signals comes from `accelerators.ayosa.service.build_ayosa_plan`
+(so the agent and the legacy /api/ayosa/chat path stay aligned on intent
+semantics). Tool selection is then re-driven through
+`accelerators.ayosa.agent.tool_registry`, which is the single source of
+truth for what each tool can do.
 """
 
 from __future__ import annotations
@@ -12,6 +14,9 @@ from typing import Any
 
 from accelerators.ayosa.service import build_ayosa_plan
 from accelerators.ayosa.agent.schemas import AgentInput, Plan
+from accelerators.ayosa.agent.tool_registry import (
+    select_tools_for_signals,
+)
 
 
 class Planner:
@@ -27,9 +32,30 @@ class Planner:
             time_range=agent_input.time_range,
             available_tools=[_tool_shim(t) for t in agent_input.tools],
         )
-        # `build_ayosa_plan` overrides intent from the message anyway.
         if intent_hint and not plan_dict.get("intent"):
             plan_dict["intent"] = intent_hint
+
+        # ── Override tool selection using the structured tool registry ──
+        required = list(plan_dict.get("required_signals") or [])
+        configured = [t.tool for t in agent_input.tools]
+        selected, covered = select_tools_for_signals(required, configured)
+        missing = [s for s in required if s not in covered]
+        skipped = [
+            t.tool for t in agent_input.tools
+            if t.tool.strip().lower() not in selected
+        ]
+
+        plan_dict["selected_tools"] = selected
+        plan_dict["covered_signals"] = covered
+        plan_dict["missing_signals"] = missing
+        plan_dict["skipped_tools"] = skipped
+        plan_dict["explanation"] = _build_explanation(
+            intent=plan_dict.get("intent", ""),
+            service=plan_dict.get("service"),
+            selected=selected,
+            missing=missing,
+        )
+
         return _dict_to_plan(plan_dict)
 
 
@@ -47,6 +73,24 @@ class _ToolShim:
 
 def _tool_shim(t: Any) -> _ToolShim:
     return _ToolShim(t.tool)
+
+
+def _build_explanation(
+    intent: str,
+    service: str | None,
+    selected: list[str],
+    missing: list[str],
+) -> str:
+    parts = [f"Intent: {(intent or '').replace('_', ' ')}"]
+    if service:
+        parts.append(f"service={service}")
+    parts.append(
+        f"querying {', '.join(selected)}" if selected
+        else "no observability queries needed"
+    )
+    if missing:
+        parts.append(f"missing signals: {', '.join(missing)}")
+    return ". ".join(parts) + "."
 
 
 def _dict_to_plan(d: dict[str, Any]) -> Plan:
