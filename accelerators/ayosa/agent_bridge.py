@@ -304,6 +304,61 @@ def _agent_result_to_chat_response(
     }
 
 
+def _apply_service_table_shape(
+    response: dict[str, Any],
+    result: AgentResult,
+) -> dict[str, Any]:
+    """Reshape an agent response for the ``service_stability_ranking`` intent.
+
+    Strips investigation-shaped fields and surfaces the structured
+    ``service_stability`` table extracted from Prometheus evidence raws.
+    """
+    plan = result.plan
+    threshold = getattr(plan, "threshold_percent", None) or 1.0
+    time_range = plan.time_range or ""
+
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for obs in result.observations:
+        raw = obs.raw
+        if not isinstance(raw, dict):
+            continue
+        for row in raw.get("service_stability") or []:
+            if not isinstance(row, dict):
+                continue
+            svc = (row.get("service") or "").strip()
+            if not svc or svc in seen:
+                continue
+            seen.add(svc)
+            rows.append(row)
+
+    rows.sort(key=lambda r: float(r.get("error_rate_percent") or 0.0))
+
+    if rows:
+        answer = (
+            f"Found {len(rows)} service(s) with error rate below "
+            f"{float(threshold):g}% over the last {time_range}."
+        )
+    else:
+        answer = (
+            f"No services found with error rate below {float(threshold):g}% "
+            f"over the last {time_range}."
+        )
+
+    response["answer"] = answer
+    response["answer_type"] = "service_table"
+    response["service_stability"] = rows
+    response["probable_root_cause"] = ""
+    response["impact"] = ""
+    response["incident_snapshot"] = None
+    response["timeline"] = []
+    response["detected_patterns"] = []
+    response["suggested_actions"] = []
+    response["ai_analysis"] = None
+    response["llm_analysis"] = None
+    return response
+
+
 def _derive_suggested_actions(result: AgentResult) -> list[str]:
     """Build short, registry-driven action hints.
 

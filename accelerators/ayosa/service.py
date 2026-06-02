@@ -19,6 +19,18 @@ _INTENT_KEYWORDS: dict[str, list[str]] = {
     # Most specific patterns first
     "current_time":           ["what time", "current time", "what is the time", "what's the time",
                                 "what date", "today's date", "current date"],
+    # Service stability / error-rate ranking — must win over both
+    # `healthy_services_list` and `error_investigation`. Multi-word
+    # phrases only, to avoid false positives on generic words.
+    "service_stability_ranking": [
+        "most stable", "stable services", "service stability",
+        "stability ranking", "rank services", "services that had less than",
+        "services with less than", "services with error rate",
+        "error rate below", "error rate under", "error rate ranking",
+        "error rate less than", "service error rate",
+        "less than 1% errors", "less than 1% of errors",
+        "under 1% errors", "below 1%", "below 0.5%", "under 0.5%",
+    ],
     "healthy_services_list":  ["which services are healthy", "list services", "list all services",
                                 "show services", "show all services", "healthy services",
                                 "list healthy"],
@@ -60,6 +72,7 @@ _INTENT_SIGNALS: dict[str, list[str]] = {
     "environment_health":             ["metrics", "alerts"],          # no generic error-log scan
     "service_health":                 ["metrics", "alerts", "logs", "traces"],
     "healthy_services_list":          ["metrics", "alerts"],          # no generic error-log scan
+    "service_stability_ranking":      ["metrics"],                    # metrics-only; never RCA
     "latency_issues":                 ["metrics", "traces"],          # no generic error-log scan
     "latest_error":                   ["logs"],
     "error_investigation":            ["logs", "metrics", "alerts"],
@@ -75,6 +88,7 @@ _INTENT_QUERY_FOCUS: dict[str, str] = {
     "environment_health":             "Aggregate health across all services using active alerts, error rates, and recent logs.",
     "service_health":                 "Assess the named service using metrics, alerts, logs, and traces.",
     "healthy_services_list":          "Enumerate services with no firing alerts and stable error rates.",
+    "service_stability_ranking":      "Rank services by HTTP error rate over the requested window; return only those below the requested threshold.",
     "latency_issues":                 "Inspect latency percentiles (p95/p99) and slow traces.",
     "latest_error":                   "Return the most recent error log entry.",
     "error_investigation":            "Investigate error patterns across logs, error-rate metrics, and related alerts.",
@@ -112,6 +126,7 @@ def _extract_time_range_from_message(msg: str) -> str | None:
 # Priority order for keyword matching — most specific first
 _INTENT_PRIORITY = [
     "current_time",
+    "service_stability_ranking",   # must beat healthy_services_list + error_investigation
     "healthy_services_list",
     "environment_health",
     "latency_issues",
@@ -122,6 +137,34 @@ _INTENT_PRIORITY = [
     "service_health",
     "error_investigation",
 ]
+
+
+# Error-rate threshold extraction. Defaults to 1.0%.
+_THRESHOLD_PATTERNS = [
+    r"(?:less\s+than|below|under|<)\s*([\d.]+)\s*%",
+    r"([\d.]+)\s*%\s+(?:or\s+less|errors?|error\s+rate)",
+]
+
+
+def _extract_error_threshold(message: str) -> float:
+    """Return the error-rate threshold (percent) the user requested.
+
+    Defaults to ``1.0`` when not explicitly specified.  Parsing failures
+    fall back to the default rather than raising.
+    """
+    if not message:
+        return 1.0
+    msg = message.lower()
+    for pattern in _THRESHOLD_PATTERNS:
+        m = re.search(pattern, msg)
+        if m:
+            try:
+                value = float(m.group(1))
+            except (TypeError, ValueError):
+                continue
+            if 0 < value <= 100:
+                return value
+    return 1.0
 
 
 def _classify_intent_standalone(message: str) -> str:
@@ -179,6 +222,14 @@ def build_ayosa_plan(
     if missing:
         parts.append(f"missing signals: {', '.join(missing)}")
 
+    # ── Mode hints (answer_type / threshold) ──
+    if intent == "service_stability_ranking":
+        answer_type = "service_table"
+        threshold_percent: float | None = _extract_error_threshold(message)
+    else:
+        answer_type = "investigation"
+        threshold_percent = None
+
     return {
         # ── Stage 1 contract ──
         "intent":                  intent,
@@ -192,6 +243,9 @@ def build_ayosa_plan(
         "should_query_alerts":     "alerts"     in required_set,
         "should_query_traces":     "traces"     in required_set,
         "should_query_dashboards": "dashboards" in required_set,
+        # ── Mode hint — UI uses this to choose between table / RCA layouts ──
+        "answer_type":             answer_type,
+        "threshold_percent":       threshold_percent,
         # ── Diagnostic extras (used by existing UI/streaming code) ──
         "covered_signals":         list(dict.fromkeys(covered)),
         "missing_signals":         missing,
@@ -200,6 +254,73 @@ def build_ayosa_plan(
     }
 
 
+def apply_service_table_mode(
+    result: dict[str, Any],
+    *,
+    plan: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """In-place post-processor for ``service_stability_ranking`` results.
+
+    Strips investigation-shaped fields (root cause, impact, timeline,
+    incident snapshot) and surfaces the structured ``service_stability``
+    table from Prometheus evidence raws.  Mutates and returns ``result``.
+
+    Safe to call when no evidence is present — yields an empty table.
+    """
+    plan = plan or {}
+    threshold = plan.get("threshold_percent")
+    if threshold is None:
+        threshold = 1.0
+    time_range = plan.get("time_range") or result.get("time_range") or ""
+
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in result.get("evidence") or []:
+        raw = item.get("raw")
+        if not isinstance(raw, dict):
+            continue
+        for row in raw.get("service_stability") or []:
+            if not isinstance(row, dict):
+                continue
+            svc = (row.get("service") or "").strip()
+            if not svc or svc in seen:
+                continue
+            seen.add(svc)
+            rows.append(row)
+
+    rows.sort(key=lambda r: float(r.get("error_rate_percent") or 0.0))
+
+    if rows:
+        answer = (
+            f"Found {len(rows)} service(s) with error rate below "
+            f"{float(threshold):g}% over the last {time_range}."
+            if time_range
+            else f"Found {len(rows)} service(s) with error rate below "
+                 f"{float(threshold):g}%."
+        )
+    else:
+        answer = (
+            f"No services found with error rate below {float(threshold):g}% "
+            f"over the last {time_range}."
+            if time_range
+            else f"No services found with error rate below {float(threshold):g}%."
+        )
+
+    # ── Strip investigation-shaped fields ──
+    result["answer"] = answer
+    result["answer_type"] = "service_table"
+    result["service_stability"] = rows
+    result["probable_root_cause"] = ""
+    result["impact"] = ""
+    result["detected_patterns"] = []
+    result["timeline"] = []
+    result["incident_snapshot"] = None
+    # LLM / AI must not run for table-mode answers.
+    result["ai_analysis"] = None
+    result["llm_analysis"] = None
+    # Suggested actions are RCA-style \u2014 not relevant to a stability table.
+    result["suggested_actions"] = []
+    return result
 
 
 SIGNAL_CAPABILITIES = {
@@ -417,6 +538,13 @@ class AyosaService:
         result["plan"] = plan
         yield {"type": "step", "index": correlate_idx, "label": "Correlating evidence", "status": "done"}
 
+        # ── Service-stability ranking: metrics-only, no RCA, no LLM ──
+        if plan.get("intent") == "service_stability_ranking":
+            apply_service_table_mode(result, plan=plan)
+            yield {"type": "step", "index": n_tools + 3, "label": "Generating answer", "status": "done"}
+            yield {"type": "result", "data": result}
+            return
+
         # ── AI analysis step (streaming LLM text) ──
         ai_cfg = getattr(request, "ai", None)
         if ai_cfg and ai_cfg.enabled:
@@ -615,6 +743,11 @@ class AyosaService:
 
         result = self._build_deterministic_result(evidence, effective, signal_coverage, missing_signals)
         result["plan"] = plan
+
+        # ── Service-stability ranking is metrics-only and must never auto-RCA ──
+        if plan.get("intent") == "service_stability_ranking":
+            apply_service_table_mode(result, plan=plan)
+            return result
 
         # Optional LLM enrichment
         ai_cfg = getattr(request, "ai", None)

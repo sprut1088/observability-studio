@@ -95,6 +95,18 @@ class PrometheusAdapter:
         intent = (plan or {}).get("intent") if isinstance(plan, dict) else None
         selector = f'service_name="{service}"' if service else ""
 
+        # ── Service-stability / error-rate ranking ──
+        # Metrics-only path; never used for RCA. Tries OTEL-style and
+        # Spring-style HTTP server counters in order and uses the first
+        # that returns data. Filters to services strictly below the
+        # requested threshold and returns a single evidence dict whose
+        # `raw.service_stability` carries the structured table.
+        if intent == "service_stability_ranking":
+            return self._rank_service_stability(
+                time_range=time_range,
+                threshold=float((plan or {}).get("threshold_percent") or 1.0),
+            )
+
         if intent == "environment_health":
             queries = [
                 {"name": "targets_total", "query": "count(up)"},
@@ -180,3 +192,179 @@ class PrometheusAdapter:
                 })
 
         return evidence
+
+    # ──────────────────────────────────────────────────────────────────
+    # Service stability ranking
+    # ──────────────────────────────────────────────────────────────────
+    # PromQL templates tried in order. Replace `__RANGE__` with the
+    # caller-supplied time range (e.g. "48h"). The first template that
+    # returns a non-empty result wins.
+    _STABILITY_TEMPLATES = [
+        (
+            "otel_http_server_duration_milliseconds_count",
+            'sum by (service_name) (rate(http_server_duration_milliseconds_count'
+            '{http_status_code=~"5.."}[__RANGE__]))'
+            ' / '
+            'sum by (service_name) (rate(http_server_duration_milliseconds_count'
+            '[__RANGE__]))'
+            ' * 100',
+        ),
+        (
+            "otel_http_server_duration_count",
+            'sum by (service_name) (rate(http_server_duration_count'
+            '{http_status_code=~"5.."}[__RANGE__]))'
+            ' / '
+            'sum by (service_name) (rate(http_server_duration_count'
+            '[__RANGE__]))'
+            ' * 100',
+        ),
+        (
+            "spring_http_server_requests_total",
+            'sum by (service_name) (rate(http_server_requests_total'
+            '{status=~"5.."}[__RANGE__]))'
+            ' / '
+            'sum by (service_name) (rate(http_server_requests_total'
+            '[__RANGE__]))'
+            ' * 100',
+        ),
+    ]
+
+    def _rank_service_stability(
+        self,
+        *,
+        time_range: str,
+        threshold: float,
+    ) -> list[dict]:
+        """Return a single evidence dict carrying the stability ranking.
+
+        Tries each PromQL template in order; uses whichever first returns
+        data. Filters services to those strictly below `threshold` and
+        sorts ascending by error rate. Never raises — failures become an
+        ``error``-status evidence entry.
+        """
+        tr = (time_range or "").strip() or "30m"
+        if threshold <= 0:
+            threshold = 1.0
+
+        last_query = ""
+        last_error: str | None = None
+
+        for template_name, template in self._STABILITY_TEMPLATES:
+            query = template.replace("__RANGE__", tr)
+            last_query = query
+            try:
+                response = requests.get(
+                    f"{self.base_url}/api/v1/query",
+                    headers=self._headers(),
+                    params={"query": query},
+                    timeout=15,
+                )
+                response.raise_for_status()
+                data = response.json()
+            except Exception as exc:
+                last_error = f"{template_name}: {exc}"
+                continue
+
+            results = (data.get("data") or {}).get("result") or []
+            if not results:
+                continue
+
+            ranked = self._parse_stability_results(
+                results=results,
+                threshold=threshold,
+                query=query,
+            )
+
+            finding = (
+                f"Found {len(ranked)} service(s) with error rate below "
+                f"{threshold:g}% over the last {tr}."
+                if ranked
+                else f"No services found below {threshold:g}% error rate over the last {tr}."
+            )
+
+            return [{
+                "source": "prometheus",
+                "signal": "metrics",
+                "finding": finding,
+                "query": query,
+                "status": "ok",
+                "raw": {
+                    "answer_type": "service_table",
+                    "service_stability": ranked,
+                    "threshold_percent": threshold,
+                    "time_range": tr,
+                    "template_used": template_name,
+                    "raw_result_count": len(results),
+                },
+            }]
+
+        # All templates exhausted without data
+        finding_msg = (
+            "No HTTP server metrics found in Prometheus for service "
+            f"stability ranking over the last {tr}. "
+            "Tried OTEL and Spring HTTP server counters."
+        )
+        if last_error:
+            finding_msg += f" Last adapter error: {last_error}"
+
+        return [{
+            "source": "prometheus",
+            "signal": "metrics",
+            "finding": finding_msg,
+            "query": last_query,
+            "status": "no_data" if last_error is None else "error",
+            "raw": {
+                "answer_type": "service_table",
+                "service_stability": [],
+                "threshold_percent": threshold,
+                "time_range": tr,
+                "templates_tried": [name for name, _ in self._STABILITY_TEMPLATES],
+            },
+        }]
+
+    @staticmethod
+    def _parse_stability_results(
+        *,
+        results: list[dict],
+        threshold: float,
+        query: str,
+    ) -> list[dict]:
+        """Parse Prometheus instant-vector results into a stability table.
+
+        Skips entries with missing `service_name`, non-numeric values,
+        or NaN. Returns only services strictly below the threshold,
+        sorted ascending by error rate.
+        """
+        rows: list[dict] = []
+        seen: set[str] = set()
+        for item in results:
+            metric = item.get("metric") or {}
+            svc = metric.get("service_name") or metric.get("service") or ""
+            svc = str(svc).strip()
+            if not svc or svc in seen:
+                continue
+
+            value = item.get("value") or [None, None]
+            try:
+                raw_pct = float(value[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            if raw_pct != raw_pct:  # NaN guard
+                continue
+
+            pct = round(raw_pct, 4)
+            if pct >= threshold:
+                continue
+
+            seen.add(svc)
+            rows.append({
+                "service": svc,
+                "error_rate_percent": pct,
+                "status": "stable",
+                "threshold_percent": threshold,
+                "source": "prometheus",
+                "query": query,
+            })
+
+        rows.sort(key=lambda r: r["error_rate_percent"])
+        return rows

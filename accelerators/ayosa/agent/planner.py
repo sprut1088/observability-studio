@@ -110,6 +110,8 @@ def _dict_to_plan(d: dict[str, Any]) -> Plan:
         missing_signals=list(d.get("missing_signals", [])),
         skipped_tools=list(d.get("skipped_tools", [])),
         explanation=d.get("explanation", ""),
+        answer_type=d.get("answer_type", "investigation"),
+        threshold_percent=d.get("threshold_percent"),
     )
 
 

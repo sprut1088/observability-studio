@@ -64,6 +64,9 @@ class Plan(BaseModel):
     skipped_tools: list[str] = []
     explanation: str = ""
     workspace_context: Optional[dict[str, Any]] = None
+    # ── Output-shape hints (lets renderers pick table vs investigation) ──
+    answer_type: str = "investigation"
+    threshold_percent: Optional[float] = None
 
 
 # ──────────────────────────────────────────────────────────────────────── #

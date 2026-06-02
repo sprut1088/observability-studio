@@ -83,6 +83,7 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
             "environment_health",
             "service_health",
             "healthy_services_list",
+            "service_stability_ranking",
             "latency_issues",
             "error_investigation",
             "general_observability_question",

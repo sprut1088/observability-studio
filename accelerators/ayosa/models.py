@@ -111,3 +111,7 @@ class AyosaChatResponse(BaseModel):
     session_id: Optional[str] = None
     workspace_context: Optional[dict[str, Any]] = None
     run_id: Optional[str] = None
+
+    # ── Output-shape additions (table-style answers, e.g. stability ranking) ──
+    answer_type: str = "investigation"  # "investigation" | "service_table"
+    service_stability: list[dict[str, Any]] = []
