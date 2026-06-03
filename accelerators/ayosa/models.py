@@ -110,8 +110,14 @@ class AyosaChatResponse(BaseModel):
     observations: list[dict[str, Any]] = []
     session_id: Optional[str] = None
     workspace_context: Optional[dict[str, Any]] = None
+    prior_runs: Optional[dict[str, Any]] = None
     run_id: Optional[str] = None
 
     # ── Output-shape additions (table-style answers, e.g. stability ranking) ──
     answer_type: str = "investigation"  # "investigation" | "service_table"
     service_stability: list[dict[str, Any]] = []
+
+    # ── Agent iteration accounting (populated by AyosaAgent.run) ──
+    intent_meta: Optional[dict[str, Any]] = None
+    iterations: int = 1
+    replan_reason: Optional[str] = None

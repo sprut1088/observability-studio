@@ -82,3 +82,15 @@ export async function streamAyosaInvestigation(payload, onEvent) {
 export function generateAyosaRunbook(payload) {
   return api.post("/ayosa/runbook", payload);
 }
+
+// Step 8: run-history endpoints (persistence-optional; backend returns
+// 503 when SQLite is unavailable).
+export function getAyosaRun(runId) {
+  return api.get(`/ayosa/runs/${encodeURIComponent(runId)}`);
+}
+
+export function compareAyosaRuns(leftRunId, rightRunId) {
+  return api.get("/ayosa/runs/compare", {
+    params: { left: leftRunId, right: rightRunId },
+  });
+}

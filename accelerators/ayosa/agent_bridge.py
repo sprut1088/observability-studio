@@ -21,6 +21,7 @@ import logging
 from typing import Any
 
 from accelerators.ayosa.agent import AyosaAgent
+from accelerators.ayosa.agent.history_retriever import retrieve_prior_runs
 from accelerators.ayosa.agent.schemas import (
     AgentAIConfig,
     AgentInput,
@@ -93,6 +94,13 @@ def run_agent_chat(
         service=agent_input.service,
     )
 
+    # ── Pre-plan retrieval: prior investigation runs (best-effort) ──
+    prior_runs = retrieve_prior_runs(
+        message=agent_input.message,
+        service=agent_input.service,
+        session_id=session_id,
+    )
+
     try:
         result = agent.run(agent_input)
     except Exception as exc:  # noqa: BLE001 — never propagate; chat must respond
@@ -100,15 +108,18 @@ def run_agent_chat(
         out = _error_response(request, str(exc))
         out["session_id"] = session_id
         out["workspace_context"] = workspace_ctx
+        out["prior_runs"] = prior_runs
         return out
 
     # Attach the retrieved workspace context to the plan so consumers
     # (LLM synthesiser, UI, /chat callers) can see what was available.
     result.plan.workspace_context = workspace_ctx
+    result.plan.prior_runs = prior_runs
 
     chat_response = _agent_result_to_chat_response(result, request)
     chat_response["session_id"] = session_id
     chat_response["workspace_context"] = workspace_ctx
+    chat_response["prior_runs"] = prior_runs
 
     # ── Persist this turn so the next request can use it ──
     try:
@@ -301,6 +312,11 @@ def _agent_result_to_chat_response(
         "charts": [],
         "llm_analysis": llm_analysis,
         "incident_snapshot": incident_snapshot,
+        "intent_meta": result.intent_meta,
+        "iterations": result.iterations,
+        "replan_reason": result.replan_reason,
+        "workspace_context": result.plan.workspace_context,
+        "prior_runs": result.plan.prior_runs,
     }
 
 

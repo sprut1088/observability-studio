@@ -6,7 +6,7 @@
  *                   |  sticky input bar
  */
 import { useEffect, useRef, useState } from "react";
-import { generateAyosaRunbook, streamAyosaInvestigation } from "../api";
+import { compareAyosaRuns, generateAyosaRunbook, streamAyosaInvestigation } from "../api";
 import AyosaChartCard from "./AyosaChartCard";
 import AyosaEvidenceCard from "./AyosaEvidenceCard";
 import AyosaIncidentSnapshot from "./AyosaIncidentSnapshot";
@@ -114,8 +114,216 @@ function ToolSteps({ steps }) {
   );
 }
 
+// ── Step 8: Prior runs card with per-row "Compare" affordance ─────────
+function PriorRunsCard({ matches, scanned, currentRunId }) {
+  const [activeCompare, setActiveCompare] = useState(null); // { runId }
+  const [comparison, setComparison] = useState(null);       // backend payload
+  const [compareError, setCompareError] = useState(null);
+  const [comparing, setComparing] = useState(false);
+
+  const handleCompare = async (runId) => {
+    if (!currentRunId) {
+      setCompareError("Current run hasn't been persisted yet — nothing to compare against.");
+      setActiveCompare({ runId });
+      setComparison(null);
+      return;
+    }
+    if (runId === currentRunId) {
+      setCompareError("That's the same run as the current one.");
+      setActiveCompare({ runId });
+      setComparison(null);
+      return;
+    }
+    setActiveCompare({ runId });
+    setComparing(true);
+    setCompareError(null);
+    setComparison(null);
+    try {
+      const { data } = await compareAyosaRuns(currentRunId, runId);
+      setComparison(data);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      const msg = typeof detail === "string"
+        ? detail
+        : detail?.message || err?.message || "Compare failed";
+      setCompareError(msg);
+    } finally {
+      setComparing(false);
+    }
+  };
+
+  return (
+    <details className="ayosa-prior-runs-card" open={false}>
+      <summary className="ayosa-prior-runs-summary">
+        <span className="ayosa-prior-runs-icon">📚</span>
+        <span className="ayosa-prior-runs-title">Prior investigations</span>
+        <span className="ayosa-prior-runs-meta">
+          {matches.length} related run{matches.length === 1 ? "" : "s"}
+          {scanned ? ` · scanned ${scanned}` : ""}
+        </span>
+      </summary>
+      <ul className="ayosa-prior-runs-list">
+        {matches.map((r) => {
+          const isActive = activeCompare?.runId === r.run_id;
+          return (
+            <li key={r.run_id} className="ayosa-prior-run">
+              <div className="ayosa-prior-run-head">
+                <span className="ayosa-prior-run-intent">
+                  {INTENT_LABELS[r.intent] || r.intent || "investigation"}
+                </span>
+                {r.service && (
+                  <span className="ayosa-prior-run-service">{r.service}</span>
+                )}
+                {r.time_range && (
+                  <span className="ayosa-prior-run-time">{r.time_range}</span>
+                )}
+                <span
+                  className="ayosa-prior-run-score"
+                  title={`Matched on: ${(r.matched_on || []).join(", ") || "recency"}`}
+                >
+                  {r.score?.toFixed(2)}
+                </span>
+                <button
+                  type="button"
+                  className="ayosa-prior-run-compare-btn"
+                  onClick={() => handleCompare(r.run_id)}
+                  disabled={comparing && isActive}
+                  title={
+                    currentRunId
+                      ? `Compare current run with ${r.run_id}`
+                      : "Current run not yet persisted"
+                  }
+                >
+                  {comparing && isActive ? "Comparing…" : "Compare"}
+                </button>
+              </div>
+              {r.message && (
+                <div className="ayosa-prior-run-message">{r.message}</div>
+              )}
+              <div className="ayosa-prior-run-foot">
+                {(r.tools_used || []).slice(0, 6).map((t) => (
+                  <span key={t} className="ayosa-prior-run-tool">
+                    {TOOL_ICONS[t] || "🔧"} {t}
+                  </span>
+                ))}
+                {typeof r.confidence === "number" && (
+                  <span className="ayosa-prior-run-conf">
+                    confidence {Math.round((r.confidence || 0) * 100)}%
+                  </span>
+                )}
+                {r.created_at && (
+                  <span className="ayosa-prior-run-when">{r.created_at}</span>
+                )}
+              </div>
+              {isActive && (
+                <RunComparisonPanel
+                  comparing={comparing}
+                  error={compareError}
+                  comparison={comparison}
+                  currentRunId={currentRunId}
+                  otherRunId={r.run_id}
+                  onClose={() => {
+                    setActiveCompare(null);
+                    setComparison(null);
+                    setCompareError(null);
+                  }}
+                />
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </details>
+  );
+}
+
+function RunComparisonPanel({ comparing, error, comparison, currentRunId, otherRunId, onClose }) {
+  return (
+    <div className="ayosa-compare-panel">
+      <div className="ayosa-compare-head">
+        <strong>Comparing</strong>
+        <span className="ayosa-compare-ids">
+          current ({currentRunId ? currentRunId.slice(0, 10) : "—"}…) ↔ {otherRunId.slice(0, 10)}…
+        </span>
+        <button
+          type="button"
+          className="ayosa-compare-close"
+          onClick={onClose}
+          aria-label="Close comparison"
+        >
+          ×
+        </button>
+      </div>
+      {comparing && <div className="ayosa-compare-loading">Loading…</div>}
+      {error && (
+        <div className="ayosa-compare-error">{error}</div>
+      )}
+      {comparison && (() => {
+        const diffs = comparison.differences || {};
+        const keys = Object.keys(diffs).filter((k) => k !== "snapshot");
+        const snapDiff = diffs.snapshot || null;
+        if (keys.length === 0 && !snapDiff) {
+          return (
+            <div className="ayosa-compare-empty">
+              No differences across compared fields.
+            </div>
+          );
+        }
+        return (
+          <table className="ayosa-compare-table">
+            <thead>
+              <tr>
+                <th>Field</th>
+                <th>Current</th>
+                <th>Prior</th>
+              </tr>
+            </thead>
+            <tbody>
+              {keys.map((k) => (
+                <tr key={k}>
+                  <td className="ayosa-compare-field">{k}</td>
+                  <td>{formatCompareValue(diffs[k]?.left)}</td>
+                  <td>{formatCompareValue(diffs[k]?.right)}</td>
+                </tr>
+              ))}
+              {snapDiff && Object.keys(snapDiff).map((sk) => (
+                <tr key={`snap.${sk}`}>
+                  <td className="ayosa-compare-field">snapshot.{sk}</td>
+                  <td>{formatCompareValue(snapDiff[sk]?.left)}</td>
+                  <td>{formatCompareValue(snapDiff[sk]?.right)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        );
+      })()}
+    </div>
+  );
+}
+
+function formatCompareValue(v) {
+  if (v == null) return <span className="ayosa-compare-null">—</span>;
+  if (Array.isArray(v)) return v.length ? v.join(", ") : <span className="ayosa-compare-null">[]</span>;
+  if (typeof v === "object") {
+    try { return JSON.stringify(v); } catch { return String(v); }
+  }
+  if (typeof v === "number") return Number.isInteger(v) ? String(v) : v.toFixed(3);
+  return String(v);
+}
+
 function AssistantMessage({ msg, onGenerateRunbook }) {
-  const { status, steps = [], result, error, streamingText = "" } = msg;
+  const {
+    status,
+    steps = [],
+    result,
+    error,
+    streamingText = "",
+    intentMeta,         // captured live from stream `intent` event
+    replanReason,       // captured live from stream `replan` event
+    replanIteration,
+    workspaceContext,   // captured live from stream `workspace_context` event
+    priorRuns,          // captured live from stream `prior_runs` event
+  } = msg;
 
   // ── Loading state ──
   if (status === "pending") {
@@ -129,9 +337,28 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
           <span className="ayosa-response-icon">🧠</span>
           <div>
             <div className="ayosa-response-title">AYOSA is investigating…</div>
-            <div className="ayosa-response-meta">{metaLabel}</div>
+            <div className="ayosa-response-meta">
+              {metaLabel}
+              {intentMeta?.source && (
+                <span className={`ayosa-intent-source ayosa-intent-source-${intentMeta.source}`}>
+                  {intentMeta.source === "llm" ? "🤖 LLM"
+                    : intentMeta.source === "fast_path" ? "⚡ Fast-path"
+                    : intentMeta.source === "llm_fallback" ? "🤖→📖 LLM→KW"
+                    : "📖 Keyword"}
+                </span>
+              )}
+            </div>
           </div>
         </div>
+        {replanReason && (
+          <div className="ayosa-replan-banner">
+            <span className="ayosa-replan-icon">🔄</span>
+            <span>
+              <strong>Re-planning (pass {(replanIteration || 1) + 1}):</strong>{" "}
+              {replanReason}
+            </span>
+          </div>
+        )}
         <ToolSteps steps={steps} />
         {streamingText && (
           <div className="ayosa-stream-preview">
@@ -216,11 +443,33 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
           <div className="ayosa-response-title">AYOSA Response</div>
           <div className="ayosa-response-meta">
             {intentLabel}
+            {result.intent_meta?.source && (
+              <span
+                className={`ayosa-intent-source ayosa-intent-source-${result.intent_meta.source}`}
+                title={`Intent routed via ${result.intent_meta.source}`}
+              >
+                {result.intent_meta.source === "llm" ? "🤖 LLM"
+                  : result.intent_meta.source === "fast_path" ? "⚡ Fast-path"
+                  : result.intent_meta.source === "llm_fallback" ? "🤖→📖 LLM→KW"
+                  : "📖 Keyword"}
+              </span>
+            )}
+            {(result.iterations || 0) > 1 && (
+              <span className="ayosa-iter-badge" title={result.replan_reason || "Agent re-planned mid-investigation"}>
+                🔄 {result.iterations} passes
+              </span>
+            )}
             {!isSimple && (
               <> · Confidence: <strong>{confidence}%</strong></>
             )}
             {hasAi && <span className="ayosa-ai-badge">✨ AI Enhanced</span>}
           </div>
+          {result.replan_reason && (
+            <div className="ayosa-replan-reason">
+              <span className="ayosa-replan-icon">🔄</span>
+              <span>{result.replan_reason}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -236,6 +485,19 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
           <span className="ayosa-plan-intent">
             {INTENT_LABELS[result.plan.intent] || result.plan.intent}
           </span>
+          {/* Step 8: selection mode badge — deterministic vs LLM-picked */}
+          {result.plan.selection_meta && (
+            <span
+              className={`ayosa-selection-mode ayosa-selection-mode-${result.plan.selection_meta.mode}`}
+              title={
+                result.plan.selection_meta.mode === "llm"
+                  ? `LLM tool selection (${result.plan.selection_meta.provider || "?"}${result.plan.selection_meta.model ? " · " + result.plan.selection_meta.model : ""})${result.plan.selection_meta.reasoning ? "\n\n" + result.plan.selection_meta.reasoning : ""}`
+                  : "Deterministic registry-based tool selection"
+              }
+            >
+              {result.plan.selection_meta.mode === "llm" ? "🤖 LLM-picked" : "⚙️ Auto"}
+            </span>
+          )}
           {result.plan.selected_tools && result.plan.selected_tools.length > 0 && (
             <div className="ayosa-plan-tools">
               {result.plan.selected_tools.map((t) => (
@@ -250,8 +512,100 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
               Missing: {result.plan.missing_signals.join(", ")}
             </span>
           )}
+          {result.plan.selection_meta && result.plan.selection_meta.mode === "llm" && result.plan.selection_meta.reasoning && (
+            <div className="ayosa-selection-reasoning">
+              <span className="ayosa-selection-reasoning-label">Why these tools:</span>{" "}
+              {result.plan.selection_meta.reasoning}
+            </div>
+          )}
         </div>
       )}
+
+      {/* Step 4: Workspace knowledge card — known artifacts cited from index */}
+      {!isSimple && (() => {
+        const wsc = result.workspace_context || workspaceContext;
+        if (!wsc || wsc.available === false) return null;
+        const overview = wsc.overview || {};
+        const counts = overview.counts || {};
+        const services = overview.services || [];
+        const matches = (wsc.matches && wsc.matches.results) || [];
+        const svcCtx = wsc.service_context && wsc.service_context.context;
+        const hasAnything = matches.length > 0 || services.length > 0 || svcCtx;
+        if (!hasAnything) return null;
+        return (
+          <details className="ayosa-workspace-card" open={matches.length > 0}>
+            <summary className="ayosa-workspace-summary">
+              <span className="ayosa-workspace-icon">🗂️</span>
+              <span className="ayosa-workspace-title">Workspace knowledge</span>
+              <span className="ayosa-workspace-meta">
+                {overview.total ? `${overview.total} indexed` : "indexed"}
+                {matches.length > 0 && ` · ${matches.length} match${matches.length === 1 ? "" : "es"}`}
+              </span>
+            </summary>
+            {matches.length > 0 && (
+              <div className="ayosa-workspace-section">
+                <div className="ayosa-workspace-section-label">Top matches</div>
+                <ul className="ayosa-workspace-match-list">
+                  {matches.slice(0, 6).map((m, i) => (
+                    <li key={`${m.kind}-${m.name}-${i}`} className="ayosa-workspace-match">
+                      <span className={`ayosa-workspace-kind ayosa-workspace-kind-${m.kind}`}>
+                        {m.kind}
+                      </span>
+                      <span className="ayosa-workspace-name">{m.name}</span>
+                      {m.service && (
+                        <span className="ayosa-workspace-service">· {m.service}</span>
+                      )}
+                      <span className="ayosa-workspace-score" title="Token-overlap score">
+                        {m.score?.toFixed(2)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {svcCtx && (
+              ["dashboards", "alerts", "metrics", "log_indexes", "traces", "owners"]
+                .filter((k) => (svcCtx[k] || []).length > 0)
+                .map((k) => (
+                  <div key={k} className="ayosa-workspace-section">
+                    <div className="ayosa-workspace-section-label">
+                      {k.replace("_", " ")} for {svcCtx.service}
+                    </div>
+                    <div className="ayosa-workspace-pills">
+                      {svcCtx[k].slice(0, 12).map((name) => (
+                        <span key={name} className="ayosa-workspace-pill">{name}</span>
+                      ))}
+                    </div>
+                  </div>
+                ))
+            )}
+            {Object.keys(counts).length > 0 && (
+              <div className="ayosa-workspace-counts">
+                {Object.entries(counts).map(([k, v]) => (
+                  <span key={k} className="ayosa-workspace-count">
+                    {k}: <strong>{v}</strong>
+                  </span>
+                ))}
+              </div>
+            )}
+          </details>
+        );
+      })()}
+
+      {/* Step 6 + 8: Prior investigation runs — with compare affordance */}
+      {!isSimple && (() => {
+        const pr = result.prior_runs || priorRuns;
+        if (!pr || pr.available === false) return null;
+        const matches = pr.matches || [];
+        if (matches.length === 0) return null;
+        return (
+          <PriorRunsCard
+            matches={matches}
+            scanned={pr.scanned}
+            currentRunId={result.run_id}
+          />
+        );
+      })()}
 
       {/* Root Cause + Impact — only when backend produced real RCA and intent is incident-like */}
       {showRootCause && (
@@ -433,6 +787,15 @@ export default function AyosaChatShell({ tools, aiConfig }) {
   const [timeRange, setTimeRange]     = useState("30m");
   const [sessions, setSessions]       = useState([]);
   const [sessionTitle, setSessionTitle] = useState(null);
+  // Step 3b: Agent Mode opt-in. Persisted so power users don't toggle every reload.
+  const [agentMode, setAgentMode] = useState(() => {
+    try { return localStorage.getItem("ayosa.agentMode") === "1"; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("ayosa.agentMode", agentMode ? "1" : "0"); }
+    catch { /* ignore quota / privacy errors */ }
+  }, [agentMode]);
 
   const threadRef = useRef(null);
   const inputRef  = useRef(null);
@@ -546,6 +909,7 @@ export default function AyosaChatShell({ tools, aiConfig }) {
       message:    input,
       service:    service.trim() || null,
       time_range: timeRange.trim() || "30m",
+      agent_mode: agentMode,
       tools: tools.map((t) => ({
         tool:       t.toolName,
         base_url:   t.baseUrl,
@@ -572,6 +936,17 @@ export default function AyosaChatShell({ tools, aiConfig }) {
         if (event.type === "plan") {
           // Store the plan on the pending message so we can show it in the UI
           updateMsg({ plan: event.data });
+        } else if (event.type === "intent") {
+          // Step 3: capture intent + routing source so we can show a badge while the
+          // investigation is still running (final result will also carry intent_meta).
+          updateMsg({ intentMeta: event.meta || null, intent: event.intent });
+        } else if (event.type === "replan") {
+          // Step 3: agent re-planned mid-investigation. Show a transient banner so
+          // the user understands why extra tools are being queried.
+          updateMsg({
+            replanIteration: event.iteration,
+            replanReason:    event.reason,
+          });
         } else if (event.type === "step") {
           // Update the specific step by index with the real status from the backend
           setMessages((prev) =>
@@ -592,14 +967,31 @@ export default function AyosaChatShell({ tools, aiConfig }) {
                 : m
             )
           );
-        } else if (event.type === "result") {
-          // result.data.plan already set by backend; merge into message
+        } else if (event.type === "workspace_context") {
+          // Step 4: surface what the workspace index returned for this turn.
+          updateMsg({ workspaceContext: event.data });
+        } else if (event.type === "prior_runs") {
+          // Step 6: surface related prior investigation runs persisted to SQLite.
+          updateMsg({ priorRuns: event.data });
+        } else if (event.type === "result" || event.type === "final_snapshot") {
+          // `result` = legacy stream, `final_snapshot` = agent-mode stream.
           updateMsg({
             status:       "complete",
             steps:        steps.map((s) => ({ ...s, status: "done" })),
             result:       event.data,
             streamingText: "",
           });
+        } else if (event.type === "done") {
+          // Agent-mode emits a terminal `done` after `final_snapshot`. Ensure
+          // the message is marked complete even if `final_snapshot` was skipped
+          // (e.g. tool-less intents).
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId && m.status !== "complete"
+                ? { ...m, status: "complete", streamingText: "" }
+                : m
+            )
+          );
         } else if (event.type === "error") {
           updateMsg({
             status: "error",
@@ -648,6 +1040,31 @@ export default function AyosaChatShell({ tools, aiConfig }) {
             <span>{t.toolName}</span>
           </div>
         ))}
+
+        {/* Step 3b: Agent Mode toggle ----------------------------- */}
+        <div className="ayosa-sidebar-section">Mode</div>
+        <label
+          className={`ayosa-agent-toggle${agentMode ? " on" : ""}${isRunning ? " disabled" : ""}`}
+          title={
+            agentMode
+              ? "Agent mode: LLM intent routing + iterative re-plan"
+              : "Legacy deterministic mode"
+          }
+        >
+          <input
+            type="checkbox"
+            checked={agentMode}
+            disabled={isRunning}
+            onChange={(e) => setAgentMode(e.target.checked)}
+          />
+          <span className="ayosa-agent-toggle-track">
+            <span className="ayosa-agent-toggle-thumb" />
+          </span>
+          <span className="ayosa-agent-toggle-label">
+            🤖 Agent Mode
+            {agentMode && <span className="ayosa-agent-toggle-on">ON</span>}
+          </span>
+        </label>
 
         {/* Recent sessions */}
         {sessions.length > 0 && (

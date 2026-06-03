@@ -35,6 +35,7 @@ KNOWN_INTENTS = {
     "trace_lookup",
     "dashboard_lookup",
     "service_health",
+    "service_stability_ranking",
     "error_investigation",
     "general_observability_question",
 }
@@ -431,11 +432,152 @@ def validate_tool_config(name: str, fields: dict) -> list[str]:
     return missing
 
 
+# ─────────────────────────────────────────────────────────────────────── #
+# Step 5: JSON-Schema tool contracts for LLM tool-calling
+# ─────────────────────────────────────────────────────────────────────── #
+# Every adapter currently accepts the same logical inputs (service,
+# time range, optional raw query/expression). We expose that as a single
+# canonical argument schema so the LLM emits well-formed tool calls. The
+# AYOSA dispatcher continues to ignore unknown fields, so this stays
+# additive even when an adapter consumes only a subset.
+TOOL_CALL_ARGUMENTS_SCHEMA: dict = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "service": {
+            "type": ["string", "null"],
+            "description": "Service name to scope the query to. Null when not service-specific.",
+        },
+        "time_range": {
+            "type": ["string", "null"],
+            "description": "Lookback window like '15m', '1h', '24h'. Null = use planner default.",
+        },
+        "query": {
+            "type": ["string", "null"],
+            "description": "Optional raw query (PromQL, LogQL, KQL, SPL, TraceQL, …) when the LLM wants a specific filter.",
+        },
+        "reason": {
+            "type": "string",
+            "description": "One-sentence justification for why this tool was selected.",
+        },
+    },
+    "required": ["reason"],
+}
+
+
+def _description_for_tool(td: "ToolDefinition") -> str:
+    """Human-readable summary used as the tool's LLM-facing description."""
+    signals = ", ".join(td.signal_types) or "no signals"
+    intents = ", ".join(td.supported_intents) or "any intent"
+    examples = "; ".join(td.example_queries[:2]) if td.example_queries else ""
+    parts = [
+        f"{td.name}: provides {signals}.",
+        f"Supports intents: {intents}.",
+    ]
+    if examples:
+        parts.append(f"Example queries: {examples}.")
+    return " ".join(parts)
+
+
+def to_anthropic_tool_schema(td: "ToolDefinition") -> dict:
+    """Return an Anthropic Messages API `tools[*]` entry for this tool."""
+    return {
+        "name": td.name,
+        "description": _description_for_tool(td),
+        "input_schema": TOOL_CALL_ARGUMENTS_SCHEMA,
+    }
+
+
+def to_openai_tool_schema(td: "ToolDefinition") -> dict:
+    """Return an OpenAI / Azure / OpenRouter `tools[*]` entry (function-calling)."""
+    return {
+        "type": "function",
+        "function": {
+            "name": td.name,
+            "description": _description_for_tool(td),
+            "parameters": TOOL_CALL_ARGUMENTS_SCHEMA,
+        },
+    }
+
+
+def _coerce_configured(configured_tools: Optional[Iterable[str]]) -> Optional[set[str]]:
+    if configured_tools is None:
+        return None
+    return {(c or "").strip().lower() for c in configured_tools if (c or "").strip()}
+
+
+def build_anthropic_tool_schemas(
+    configured_tools: Optional[Iterable[str]] = None,
+) -> list[dict]:
+    """List of Anthropic tool specs. When `configured_tools` is provided,
+    only tools present in that set are emitted (and only enabled ones).
+    """
+    allow = _coerce_configured(configured_tools)
+    return [
+        to_anthropic_tool_schema(td)
+        for td in TOOL_DEFINITIONS
+        if td.enabled and (allow is None or td.name in allow)
+    ]
+
+
+def build_openai_tool_schemas(
+    configured_tools: Optional[Iterable[str]] = None,
+) -> list[dict]:
+    """List of OpenAI-compatible tool specs. Same filtering rules as the
+    Anthropic variant."""
+    allow = _coerce_configured(configured_tools)
+    return [
+        to_openai_tool_schema(td)
+        for td in TOOL_DEFINITIONS
+        if td.enabled and (allow is None or td.name in allow)
+    ]
+
+
+def validate_tool_call(name: str, arguments: dict) -> list[str]:
+    """Validate an LLM-emitted tool call against the canonical schema.
+
+    Returns a list of human-readable error strings (empty = valid). Used
+    by the agent dispatcher when it eventually consumes LLM `tool_use`
+    blocks so malformed calls never reach an adapter.
+    """
+    errors: list[str] = []
+    td = get_tool(name)
+    if td is None:
+        errors.append(f"unknown tool '{name}'")
+        return errors
+    if not isinstance(arguments, dict):
+        errors.append("arguments must be a JSON object")
+        return errors
+
+    allowed_keys = set(TOOL_CALL_ARGUMENTS_SCHEMA["properties"].keys())
+    for k in arguments:
+        if k not in allowed_keys:
+            errors.append(f"unknown argument '{k}'")
+
+    for req in TOOL_CALL_ARGUMENTS_SCHEMA.get("required", []):
+        v = arguments.get(req)
+        if v is None or (isinstance(v, str) and not v.strip()):
+            errors.append(f"missing required argument '{req}'")
+
+    # Per-property light typing — JSON Schema "string|null".
+    for key, spec in TOOL_CALL_ARGUMENTS_SCHEMA["properties"].items():
+        if key not in arguments:
+            continue
+        v = arguments[key]
+        allowed_types = spec["type"] if isinstance(spec["type"], list) else [spec["type"]]
+        if v is None and "null" in allowed_types:
+            continue
+        if "string" in allowed_types and not isinstance(v, str):
+            errors.append(f"argument '{key}' must be a string or null")
+    return errors
+
+
 __all__ = [
     "SignalType",
     "ToolDefinition",
     "TOOL_DEFINITIONS",
     "TOOL_REGISTRY",
+    "TOOL_CALL_ARGUMENTS_SCHEMA",
     "KNOWN_INTENTS",
     "get_tool",
     "list_tools",
@@ -445,4 +587,9 @@ __all__ = [
     "describe_missing_signals",
     "format_missing_signal_message",
     "validate_tool_config",
+    "to_anthropic_tool_schema",
+    "to_openai_tool_schema",
+    "build_anthropic_tool_schemas",
+    "build_openai_tool_schemas",
+    "validate_tool_call",
 ]

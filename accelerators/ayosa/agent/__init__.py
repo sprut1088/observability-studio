@@ -23,8 +23,16 @@ from accelerators.ayosa.agent.schemas import (
     ToolStep,
     ConversationTurn,
 )
-from accelerators.ayosa.agent.intent_classifier import classify_intent
+from accelerators.ayosa.agent.intent_classifier import (
+    classify_intent,
+    classify_intent_smart,
+)
 from accelerators.ayosa.agent.planner import Planner
+from accelerators.ayosa.agent.replanner import (
+    build_replan,
+    derived_input_for_replan,
+    replan_reason,
+)
 from accelerators.ayosa.agent.tool_dispatcher import ToolDispatcher
 from accelerators.ayosa.agent.context_manager import ContextManager
 from accelerators.ayosa.agent.synthesizer import Synthesizer
@@ -50,30 +58,91 @@ class AyosaAgent:
         dispatcher: ToolDispatcher | None = None,
         synthesizer: Synthesizer | None = None,
         context: ContextManager | None = None,
+        max_iterations: int = 2,
     ) -> None:
         self.planner = planner or Planner()
         self.dispatcher = dispatcher or ToolDispatcher()
         self.synthesizer = synthesizer or Synthesizer()
         self.context = context or ContextManager()
+        # Hard floor of 1 keeps single-pass semantics when callers
+        # pass 0 or a negative value by accident.
+        self.max_iterations = max(1, int(max_iterations))
 
     # ------------------------------------------------------------------ #
     # Sync entry point
     # ------------------------------------------------------------------ #
     def run(self, agent_input: AgentInput) -> AgentResult:
-        """Run the full loop synchronously."""
-        intent = classify_intent(agent_input.message)
+        """Run the full loop synchronously.
+
+        Implements Plan → Act → Observe → [Re-plan if gaps] → Synthesize.
+        Re-plan iterations are capped by ``self.max_iterations`` and only
+        trigger when reflections show missing/empty required signals AND
+        additional tools are configured that could cover them.
+        """
+        intent, intent_meta = classify_intent_smart(
+            agent_input.message,
+            llm_config=agent_input.llm,
+            service_hint=agent_input.service,
+        )
         plan = self.planner.build(agent_input, intent)
 
-        tool_steps, observations = self.dispatcher.dispatch(plan, agent_input)
-        reflections = self._reflect(plan, observations)
+        all_steps: list[ToolStep] = []
+        all_observations: list[Observation] = []
+        dispatched: set[str] = set()
+        iterations_run = 0
+        replan_explanation: str | None = None
+
+        current_plan = plan
+        current_input = agent_input
+
+        for iteration in range(self.max_iterations):
+            iterations_run += 1
+            steps, observations = self.dispatcher.dispatch(
+                current_plan, current_input
+            )
+            for s in steps:
+                s.iteration = iteration
+                if s.status in ("done", "error"):
+                    dispatched.add(s.tool.lower().strip())
+            all_steps.extend(steps)
+            all_observations.extend(observations)
+
+            # Reflect against the ORIGINAL plan so required_signals
+            # accounting stays canonical across iterations.
+            reflections = self._reflect(plan, all_observations)
+
+            if iteration + 1 >= self.max_iterations:
+                break
+
+            next_plan = build_replan(
+                original_plan=plan,
+                agent_input=agent_input,
+                reflections=reflections,
+                already_dispatched=dispatched,
+            )
+            if next_plan is None:
+                break
+
+            replan_explanation = replan_reason(
+                reflections, next_plan.covered_signals
+            )
+            current_plan = next_plan
+            current_input = derived_input_for_replan(
+                agent_input, next_plan.selected_tools
+            )
+
+        final_reflections = self._reflect(plan, all_observations)
 
         result = self.synthesizer.synthesize(
             agent_input=agent_input,
             plan=plan,
-            tool_steps=tool_steps,
-            observations=observations,
-            reflections=reflections,
+            tool_steps=all_steps,
+            observations=all_observations,
+            reflections=final_reflections,
         )
+        result.intent_meta = intent_meta
+        result.iterations = iterations_run
+        result.replan_reason = replan_explanation
 
         # Persist turn so subsequent runs in the same session can use history.
         self.context.append(

@@ -64,6 +64,12 @@ class Plan(BaseModel):
     skipped_tools: list[str] = []
     explanation: str = ""
     workspace_context: Optional[dict[str, Any]] = None
+    prior_runs: Optional[dict[str, Any]] = None
+    selection_meta: Optional[dict[str, Any]] = None
+    # ── Step 9: per-tool arguments emitted by the LLM tool-selector ──
+    # Shape: { "<tool_name>": {service?, time_range?, query?, reason} }
+    # Populated only when the LLM picks tools with explicit arguments.
+    tool_args: Optional[dict[str, dict[str, Any]]] = None
     # ── Output-shape hints (lets renderers pick table vs investigation) ──
     answer_type: str = "investigation"
     threshold_percent: Optional[float] = None
@@ -82,6 +88,8 @@ class ToolStep(BaseModel):
     label: str
     status: ToolStepStatus = "pending"
     error: Optional[str] = None
+    # 0 = initial pass, 1+ = re-plan iterations
+    iteration: int = 0
 
 
 class Observation(BaseModel):
@@ -153,6 +161,16 @@ class AgentResult(BaseModel):
 
     llm_used: bool = False
     llm_analysis: Optional[dict[str, Any]] = None
+
+    # ── Intent routing metadata (populated by classify_intent_smart) ──
+    # Shape: {source, confidence, llm_reasoning, llm_provider,
+    #         llm_model, service_hint, time_hint}
+    intent_meta: Optional[dict[str, Any]] = None
+
+    # ── Iteration accounting (populated by AyosaAgent.run) ──
+    # 1 = single-pass; >1 = re-plan triggered to fill signal gaps.
+    iterations: int = 1
+    replan_reason: Optional[str] = None
 
 
 # ──────────────────────────────────────────────────────────────────────── #

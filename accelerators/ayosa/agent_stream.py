@@ -37,11 +37,21 @@ from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
 
 from accelerators.ayosa.agent import AyosaAgent
-from accelerators.ayosa.agent.intent_classifier import classify_intent
+from accelerators.ayosa.agent.intent_classifier import (
+    classify_intent,
+    classify_intent_smart,
+)
+from accelerators.ayosa.agent.replanner import (
+    build_replan,
+    derived_input_for_replan,
+    replan_reason,
+)
 from accelerators.ayosa.agent_bridge import (
     _agent_result_to_chat_response,
+    _retrieve_workspace_context,
     _to_agent_input,
 )
+from accelerators.ayosa.agent.history_retriever import retrieve_prior_runs
 
 logger = logging.getLogger(__name__)
 
@@ -121,92 +131,171 @@ async def stream_agent_chat(
         }
 
         # ── intent ────────────────────────────────────────────────── #
-        intent = classify_intent(agent_input.message)
-        yield {"type": "intent", "intent": intent}
+        intent, intent_meta = classify_intent_smart(
+            agent_input.message,
+            llm_config=agent_input.llm,
+            service_hint=agent_input.service,
+        )
+        yield {"type": "intent", "intent": intent, "meta": intent_meta}
 
         # ── plan ──────────────────────────────────────────────────── #
         plan = agent.planner.build(agent_input, intent)
-        yield {"type": "plan", "plan": plan.model_dump()}
 
-        # ── tool dispatch loop ────────────────────────────────────── #
-        selected = set(plan.selected_tools)
+        # ── Step 4: workspace context retrieval (pre-Act) ───────── #
+        # Runs off the event loop. Retrieval is pure-Python today but a
+        # ChromaDB backend can drop in behind the same API. Result is
+        # attached to the plan so the synthesiser's LLM context picks it
+        # up automatically (analyst already serialises plan.workspace_context).
+        workspace_ctx = await asyncio.to_thread(
+            _retrieve_workspace_context,
+            message=agent_input.message,
+            service=agent_input.service,
+        )
+        plan.workspace_context = workspace_ctx
+
+        # ── Step 6: prior-run retrieval (pre-Act) ──────────────── #
+        # Same best-effort contract as workspace_context: never breaks the
+        # stream, never fabricates rows. Synthesiser picks this up via
+        # plan.prior_runs in compose_llm_context.
+        prior_runs = await asyncio.to_thread(
+            retrieve_prior_runs,
+            message=agent_input.message,
+            service=agent_input.service,
+            intent=intent,
+            session_id=agent_input.session_id,
+        )
+        plan.prior_runs = prior_runs
+
+        yield {"type": "plan", "plan": plan.model_dump()}
+        yield {"type": "workspace_context", "data": workspace_ctx}
+        yield {"type": "prior_runs", "data": prior_runs}
+
+        # ── iterative dispatch loop (plan → act → observe → [replan]) ── #
         observations: list[Any] = []
         tool_steps: list[Any] = []
+        dispatched: set[str] = set()
+        current_plan = plan
+        current_input = agent_input
+        iterations_run = 0
+        replan_explanation: str | None = None
 
-        for idx, tool in enumerate(agent_input.tools):
-            tool_key = tool.tool.lower().strip()
-            label = f"Querying {tool.tool}"
+        for iteration in range(agent.max_iterations):
+            iterations_run += 1
+            selected = set(current_plan.selected_tools)
 
-            if tool_key not in selected:
-                tool_steps.append(
-                    _step(idx, tool.tool, label, "skipped", None)
-                )
-                # Skipped tools don't get a tool_start; keep the stream tight.
-                continue
+            for idx, tool in enumerate(current_input.tools):
+                tool_key = tool.tool.lower().strip()
+                label = f"Querying {tool.tool}"
 
-            # tool_start
-            yield {
-                "type": "tool_start",
-                "index": idx,
-                "tool": tool.tool,
-                "label": label,
-            }
+                if tool_key not in selected:
+                    tool_steps.append(
+                        _step(idx, tool.tool, label, "skipped", None, iteration)
+                    )
+                    # Skipped tools don't get a tool_start; keep the stream tight.
+                    continue
 
-            try:
-                tool_obs = await asyncio.to_thread(
-                    agent.dispatcher._invoke_adapter, tool, agent_input, plan
-                )
-                observations.extend(tool_obs)
-                tool_steps.append(_step(idx, tool.tool, label, "done", None))
-
-                # tool_result (success)
+                # tool_start
                 yield {
-                    "type": "tool_result",
+                    "type": "tool_start",
                     "index": idx,
                     "tool": tool.tool,
-                    "status": "done",
-                    "findings_count": len(tool_obs),
+                    "label": label,
+                    "iteration": iteration,
                 }
 
-                # one `observation` per finding + timeline_event for those with ts
-                for obs in tool_obs:
+                try:
+                    tool_obs = await asyncio.to_thread(
+                        agent.dispatcher._invoke_adapter,
+                        tool,
+                        current_input,
+                        current_plan,
+                    )
+                    observations.extend(tool_obs)
+                    tool_steps.append(
+                        _step(idx, tool.tool, label, "done", None, iteration)
+                    )
+                    dispatched.add(tool_key)
+
+                    # tool_result (success)
                     yield {
-                        "type": "observation",
-                        "source": obs.source,
-                        "signal": obs.signal,
-                        "finding": obs.finding,
-                        "query": obs.query,
-                        "status": obs.status,
+                        "type": "tool_result",
+                        "index": idx,
+                        "tool": tool.tool,
+                        "status": "done",
+                        "findings_count": len(tool_obs),
+                        "iteration": iteration,
                     }
-                    ts = _extract_timestamp(obs)
-                    if ts:
+
+                    # one `observation` per finding + timeline_event for those with ts
+                    for obs in tool_obs:
                         yield {
-                            "type": "timeline_event",
-                            "timestamp": ts,
+                            "type": "observation",
                             "source": obs.source,
-                            "event": (obs.finding or "")[:200],
-                            "severity": _extract_severity(obs),
+                            "signal": obs.signal,
+                            "finding": obs.finding,
+                            "query": obs.query,
+                            "status": obs.status,
                         }
-            except Exception as exc:  # noqa: BLE001 — req #5: continue on tool failure
-                logger.warning("Streaming tool %s failed: %s", tool.tool, exc)
-                tool_steps.append(_step(idx, tool.tool, label, "error", str(exc)))
-                # Synthetic error observation so the final snapshot is consistent
-                from accelerators.ayosa.agent.schemas import Observation
-                err_obs = Observation(
-                    source=tool.tool,
-                    signal="unknown",
-                    finding=f"Adapter failed: {exc}",
-                    status="error",
-                )
-                observations.append(err_obs)
-                yield {
-                    "type": "tool_result",
-                    "index": idx,
-                    "tool": tool.tool,
-                    "status": "error",
-                    "error": str(exc),
-                }
-                # then keep going with the next tool
+                        ts = _extract_timestamp(obs)
+                        if ts:
+                            yield {
+                                "type": "timeline_event",
+                                "timestamp": ts,
+                                "source": obs.source,
+                                "event": (obs.finding or "")[:200],
+                                "severity": _extract_severity(obs),
+                            }
+                except Exception as exc:  # noqa: BLE001 — req #5: continue on tool failure
+                    logger.warning("Streaming tool %s failed: %s", tool.tool, exc)
+                    tool_steps.append(
+                        _step(idx, tool.tool, label, "error", str(exc), iteration)
+                    )
+                    dispatched.add(tool_key)
+                    # Synthetic error observation so the final snapshot is consistent
+                    from accelerators.ayosa.agent.schemas import Observation
+                    err_obs = Observation(
+                        source=tool.tool,
+                        signal="unknown",
+                        finding=f"Adapter failed: {exc}",
+                        status="error",
+                    )
+                    observations.append(err_obs)
+                    yield {
+                        "type": "tool_result",
+                        "index": idx,
+                        "tool": tool.tool,
+                        "status": "error",
+                        "error": str(exc),
+                        "iteration": iteration,
+                    }
+                    # then keep going with the next tool
+
+            # Decide whether to re-plan (only between iterations).
+            if iteration + 1 >= agent.max_iterations:
+                break
+            from accelerators.ayosa.agent import reflect_on_observations as _reflect_mid
+            mid_reflections = _reflect_mid(plan, observations)
+            next_plan = build_replan(
+                original_plan=plan,
+                agent_input=agent_input,
+                reflections=mid_reflections,
+                already_dispatched=dispatched,
+            )
+            if next_plan is None:
+                break
+            replan_explanation = replan_reason(
+                mid_reflections, next_plan.covered_signals
+            )
+            current_plan = next_plan
+            current_input = derived_input_for_replan(
+                agent_input, next_plan.selected_tools
+            )
+            yield {
+                "type": "replan",
+                "iteration": iteration + 1,
+                "reason": replan_explanation,
+                "plan": next_plan.model_dump(),
+            }
 
         # ── reflect + synthesize (deterministic, no LLM yet) ──────── #
         from accelerators.ayosa.agent import reflect_on_observations
@@ -224,6 +313,9 @@ async def stream_agent_chat(
             observations=observations,
             reflections=reflections,
         )
+        result.intent_meta = intent_meta
+        result.iterations = iterations_run
+        result.replan_reason = replan_explanation
 
         # ── llm_chunk stream (if AI enabled and we have evidence) ── #
         llm_payload: dict[str, Any] | None = None
@@ -277,10 +369,13 @@ async def stream_agent_chat_sse(
 # ──────────────────────────────────────────────────────────────────────── #
 # Internal helpers
 # ──────────────────────────────────────────────────────────────────────── #
-def _step(idx: int, tool: str, label: str, status: str, error: str | None):
+def _step(idx: int, tool: str, label: str, status: str, error: str | None, iteration: int = 0):
     from accelerators.ayosa.agent.schemas import ToolStep
 
-    return ToolStep(index=idx, tool=tool, label=label, status=status, error=error)
+    return ToolStep(
+        index=idx, tool=tool, label=label, status=status,
+        error=error, iteration=iteration,
+    )
 
 
 def _extract_timestamp(obs: Any) -> str | None:

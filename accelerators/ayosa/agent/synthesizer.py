@@ -240,6 +240,7 @@ def _build_llm_context(result: AgentResult) -> dict[str, Any]:
         "signal_coverage": result.snapshot.coverage if result.snapshot else {},
         "missing_signals": result.plan.missing_signals,
         "workspace_context": result.plan.workspace_context,
+        "prior_runs": result.plan.prior_runs,
         "evidence": [
             {
                 "source": o.source,

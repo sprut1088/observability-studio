@@ -181,6 +181,8 @@ def build_ayosa_plan(
     service: str | None,
     time_range: str,
     available_tools: list[Any],
+    *,
+    intent_override: str | None = None,
 ) -> dict[str, Any]:
     """Build a structured investigation plan from user intent + validated tools.
 
@@ -191,8 +193,15 @@ def build_ayosa_plan(
       should_query_traces, should_query_dashboards
     plus extra diagnostic fields preserved for backwards compat:
       covered_signals, missing_signals, skipped_tools, explanation
+
+    ``intent_override`` lets an upstream classifier (e.g. the LLM intent
+    router) replace the deterministic keyword classification. The
+    override is only used when it names a known canonical intent.
     """
-    intent = _classify_intent_standalone(message)
+    if intent_override and intent_override in _INTENT_SIGNALS:
+        intent = intent_override
+    else:
+        intent = _classify_intent_standalone(message)
     inferred_tr = _extract_time_range_from_message(message)
     resolved_tr = inferred_tr or time_range
 

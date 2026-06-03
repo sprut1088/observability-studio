@@ -104,15 +104,35 @@ class ToolDispatcher:
             ]
 
         adapter = adapter_cls(base_url=tool.base_url, auth_token=tool.auth_token)
+
+        # Step 9: per-tool argument overrides from the LLM tool-selector.
+        # When ``plan.tool_args`` carries an entry for this tool, prefer
+        # its ``service`` / ``time_range`` over the planner defaults. The
+        # raw ``query`` and ``reason`` are carried into the ``plan`` dict
+        # so plan-accepting adapters can read them; they are NOT passed
+        # as kwargs because legacy adapter signatures don't accept them.
+        ta = (plan.tool_args or {}).get(tool_key) or {}
+        service = ta.get("service") or agent_input.service
+        time_range = (
+            ta.get("time_range")
+            or plan.time_range
+            or agent_input.time_range
+        )
+
         kwargs: dict[str, Any] = {
-            "service": agent_input.service,
-            "time_range": plan.time_range or agent_input.time_range,
+            "service": service,
+            "time_range": time_range,
             "message": agent_input.message,
         }
 
         # Pass `plan` only if the adapter's investigate() declares it (or **kwargs).
         if _adapter_accepts_plan(adapter):
-            kwargs["plan"] = plan.model_dump()
+            plan_payload = plan.model_dump()
+            if ta:
+                # Surface the active per-tool args under a stable key so
+                # adapters can opt-in to using ``query`` / ``reason``.
+                plan_payload["active_tool_args"] = ta
+            kwargs["plan"] = plan_payload
 
         raw = adapter.investigate(**kwargs)
         return [normalise_observation(item) for item in (raw or [])]
