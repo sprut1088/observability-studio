@@ -93,21 +93,57 @@ function downloadBlob(content, filename, type) {
 // ── Sub-components ───────────────────────────────────────────────────
 
 function ToolSteps({ steps }) {
+  // Step 14: group steps by `iteration` so users can see the LLM's
+  // multi-pass investigation trajectory. Falls back to a flat render
+  // when iteration metadata is absent (legacy single-pass results).
+  const groups = new Map();
+  for (const step of steps) {
+    const it = Number.isFinite(step?.iteration) ? step.iteration : 0;
+    if (!groups.has(it)) groups.set(it, []);
+    groups.get(it).push(step);
+  }
+  const iterations = [...groups.keys()].sort((a, b) => a - b);
+  const multi = iterations.length > 1;
+
+  const renderStep = (step, i) => (
+    <div
+      key={`${step.iteration ?? 0}-${i}-${step.tool}`}
+      className={`ayosa-tool-step ayosa-step-${step.status}${step.status === "skipped" ? " ayosa-step-skipped" : ""}`}
+    >
+      <span className="ayosa-step-icon">
+        {step.status === "done"    ? "✓"
+         : step.status === "error" ? "✗"
+         : step.status === "skipped" ? "–"
+         : step.icon}
+      </span>
+      <span className="ayosa-step-label">{step.label}</span>
+      {step.status === "running" && <span className="spinner ayosa-step-spinner" />}
+    </div>
+  );
+
+  if (!multi) {
+    return (
+      <div className="ayosa-tool-steps">
+        {(groups.get(iterations[0]) || steps).map(renderStep)}
+      </div>
+    );
+  }
+
   return (
-    <div className="ayosa-tool-steps">
-      {steps.map((step, i) => (
-        <div
-          key={i}
-          className={`ayosa-tool-step ayosa-step-${step.status}${step.status === "skipped" ? " ayosa-step-skipped" : ""}`}
-        >
-          <span className="ayosa-step-icon">
-            {step.status === "done"    ? "✓"
-             : step.status === "error" ? "✗"
-             : step.status === "skipped" ? "–"
-             : step.icon}
-          </span>
-          <span className="ayosa-step-label">{step.label}</span>
-          {step.status === "running" && <span className="spinner ayosa-step-spinner" />}
+    <div className="ayosa-tool-steps-grouped">
+      {iterations.map((it) => (
+        <div key={it} className="ayosa-tool-step-group">
+          <div className="ayosa-tool-step-group-header">
+            <span className="ayosa-tool-step-group-badge">
+              {it === 0 ? "Pass 1 · Initial" : `Pass ${it + 1} · Re-plan`}
+            </span>
+            <span className="ayosa-tool-step-group-count">
+              {groups.get(it).length} step{groups.get(it).length !== 1 ? "s" : ""}
+            </span>
+          </div>
+          <div className="ayosa-tool-steps">
+            {groups.get(it).map(renderStep)}
+          </div>
         </div>
       ))}
     </div>
@@ -323,6 +359,7 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
     replanIteration,
     workspaceContext,   // captured live from stream `workspace_context` event
     priorRuns,          // captured live from stream `prior_runs` event
+    liveToolSteps = [], // Step 15: per-tool start/result events grouped by iteration
   } = msg;
 
   // ── Loading state ──
@@ -330,6 +367,14 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
     // Derive a human-readable current action from the running step
     const runningStep = steps.find((s) => s.status === "running");
     const metaLabel   = runningStep ? runningStep.label : "Preparing…";
+    // Step 15: prefer the live, iteration-aware trajectory once any tool has been
+    // dispatched. The canned ``steps`` list is only meaningful before the agent
+    // begins acting (it is a static "Understanding question / Selecting tools / …"
+    // checklist that doesn't reflect re-plans).
+    const useLiveTrajectory = liveToolSteps.length > 0;
+    const livePassCount = useLiveTrajectory
+      ? new Set(liveToolSteps.map((s) => s.iteration ?? 0)).size
+      : 0;
 
     return (
       <div className="ayosa-message-assistant-wrap">
@@ -347,6 +392,14 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
                     : "📖 Keyword"}
                 </span>
               )}
+              {livePassCount > 1 && (
+                <span
+                  className="ayosa-iter-badge"
+                  title={replanReason || "Agent re-planned mid-investigation"}
+                >
+                  🔄 {livePassCount} passes
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -359,7 +412,7 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
             </span>
           </div>
         )}
-        <ToolSteps steps={steps} />
+        <ToolSteps steps={useLiveTrajectory ? liveToolSteps : steps} />
         {streamingText && (
           <div className="ayosa-stream-preview">
             <div className="ayosa-stream-preview-label">
@@ -492,10 +545,14 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
               title={
                 result.plan.selection_meta.mode === "llm"
                   ? `LLM tool selection (${result.plan.selection_meta.provider || "?"}${result.plan.selection_meta.model ? " · " + result.plan.selection_meta.model : ""})${result.plan.selection_meta.reasoning ? "\n\n" + result.plan.selection_meta.reasoning : ""}`
+                  : result.plan.selection_meta.mode === "llm_iterative"
+                  ? `LLM iterative re-plan (${result.plan.selection_meta.provider || "?"}${result.plan.selection_meta.model ? " · " + result.plan.selection_meta.model : ""})${result.plan.selection_meta.reasoning ? "\n\n" + result.plan.selection_meta.reasoning : ""}`
                   : "Deterministic registry-based tool selection"
               }
             >
-              {result.plan.selection_meta.mode === "llm" ? "🤖 LLM-picked" : "⚙️ Auto"}
+              {result.plan.selection_meta.mode === "llm" ? "🤖 LLM-picked"
+                : result.plan.selection_meta.mode === "llm_iterative" ? "🔁 LLM iterative"
+                : "⚙️ Auto"}
             </span>
           )}
           {result.plan.selected_tools && result.plan.selected_tools.length > 0 && (
@@ -899,6 +956,7 @@ export default function AyosaChatShell({ tools, aiConfig }) {
         result:       null,
         error:        null,
         streamingText: "",
+        liveToolSteps: [],
         runbook:      null,
         runbookBusy:  false,
         timestamp:    new Date(),
@@ -956,6 +1014,43 @@ export default function AyosaChatShell({ tools, aiConfig }) {
                 i === event.index ? { ...s, status: event.status } : s
               );
               return { ...m, steps: updatedSteps };
+            })
+          );
+        } else if (event.type === "tool_start") {
+          // Step 15: live trajectory — append a running entry tagged with the
+          // current iteration so the assistant bubble groups by pass while the
+          // agent is still acting.
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== assistantMsgId) return m;
+              const next = [
+                ...(m.liveToolSteps || []),
+                {
+                  index:     event.index,
+                  tool:      event.tool,
+                  label:     event.label || `Querying ${event.tool}`,
+                  status:    "running",
+                  iteration: event.iteration ?? 0,
+                  icon:      "🔍",
+                },
+              ];
+              return { ...m, liveToolSteps: next };
+            })
+          );
+        } else if (event.type === "tool_result") {
+          // Step 15: mark the matching live entry done/error. Match by
+          // (iteration, index, tool) so re-plans on the same tool don't collide
+          // with the first pass.
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== assistantMsgId) return m;
+              const iter = event.iteration ?? 0;
+              const live = (m.liveToolSteps || []).map((s) =>
+                s.iteration === iter && s.index === event.index && s.tool === event.tool
+                  ? { ...s, status: event.status || "done", error: event.error || null }
+                  : s
+              );
+              return { ...m, liveToolSteps: live };
             })
           );
         } else if (event.type === "llm_chunk") {

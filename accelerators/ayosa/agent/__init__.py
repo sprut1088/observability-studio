@@ -33,6 +33,7 @@ from accelerators.ayosa.agent.replanner import (
     derived_input_for_replan,
     replan_reason,
 )
+from accelerators.ayosa.agent.iterative_replanner import build_llm_replan
 from accelerators.ayosa.agent.tool_dispatcher import ToolDispatcher
 from accelerators.ayosa.agent.context_manager import ContextManager
 from accelerators.ayosa.agent.synthesizer import Synthesizer
@@ -114,18 +115,37 @@ class AyosaAgent:
             if iteration + 1 >= self.max_iterations:
                 break
 
-            next_plan = build_replan(
+            # Step 13: try the LLM-driven iterative re-plan first. It can
+            # both pick previously-unused tools AND re-call an already
+            # dispatched tool with a refined query. Falls back to the
+            # deterministic gap-filling re-plan when the LLM is disabled
+            # or returns nothing useful.
+            next_plan = build_llm_replan(
                 original_plan=plan,
                 agent_input=agent_input,
-                reflections=reflections,
+                observations=all_observations,
                 already_dispatched=dispatched,
             )
             if next_plan is None:
+                next_plan = build_replan(
+                    original_plan=plan,
+                    agent_input=agent_input,
+                    reflections=reflections,
+                    already_dispatched=dispatched,
+                )
+            if next_plan is None:
                 break
 
-            replan_explanation = replan_reason(
-                reflections, next_plan.covered_signals
-            )
+            mode = (next_plan.selection_meta or {}).get("mode", "deterministic")
+            if mode == "llm_iterative":
+                replan_explanation = (
+                    f"LLM iterative re-plan: {', '.join(next_plan.selected_tools)}. "
+                    f"{(next_plan.selection_meta or {}).get('reasoning', '')}"
+                ).strip()
+            else:
+                replan_explanation = replan_reason(
+                    reflections, next_plan.covered_signals
+                )
             current_plan = next_plan
             current_input = derived_input_for_replan(
                 agent_input, next_plan.selected_tools

@@ -95,6 +95,13 @@ class PrometheusAdapter:
         intent = (plan or {}).get("intent") if isinstance(plan, dict) else None
         selector = f'service_name="{service}"' if service else ""
 
+        # ── Step 10: LLM-emitted PromQL ──
+        # When the LLM tool-selector chose this adapter with an explicit
+        # ``query`` argument, run it FIRST as an additional evidence row.
+        # The existing intent-driven probes still run below as a safety
+        # net, so a too-narrow LLM query never reduces coverage.
+        llm_evidence = self._run_llm_query(plan)
+
         # ── Service-stability / error-rate ranking ──
         # Metrics-only path; never used for RCA. Tries OTEL-style and
         # Spring-style HTTP server counters in order and uses the first
@@ -102,7 +109,7 @@ class PrometheusAdapter:
         # requested threshold and returns a single evidence dict whose
         # `raw.service_stability` carries the structured table.
         if intent == "service_stability_ranking":
-            return self._rank_service_stability(
+            return llm_evidence + self._rank_service_stability(
                 time_range=time_range,
                 threshold=float((plan or {}).get("threshold_percent") or 1.0),
             )
@@ -191,7 +198,60 @@ class PrometheusAdapter:
                     "raw": None,
                 })
 
-        return evidence
+        return llm_evidence + evidence
+
+    # ──────────────────────────────────────────────────────────────────
+    # Step 10: execute the LLM-chosen PromQL
+    # ──────────────────────────────────────────────────────────────────
+    def _run_llm_query(self, plan: dict | None) -> list[dict]:
+        """Run ``plan['active_tool_args']['query']`` as a single PromQL
+        instant query. Returns an empty list when no query was provided
+        so the call site can always prepend the result.
+        """
+        if not isinstance(plan, dict):
+            return []
+        ta = plan.get("active_tool_args")
+        if not isinstance(ta, dict):
+            return []
+        promql = ta.get("query")
+        if not isinstance(promql, str) or not promql.strip():
+            return []
+        reason = str(ta.get("reason") or "").strip()
+        try:
+            response = requests.get(
+                f"{self.base_url}/api/v1/query",
+                headers=self._headers(),
+                params={"query": promql},
+                timeout=10,
+            )
+            response.raise_for_status()
+            data = response.json()
+            result = data.get("data", {}).get("result", [])
+            status = "ok" if result else "no_data"
+            finding = (
+                f"LLM-selected PromQL executed: {reason}" if reason
+                else "LLM-selected PromQL executed."
+            ) if result else (
+                f"LLM-selected PromQL returned no data: {reason}" if reason
+                else "LLM-selected PromQL returned no data."
+            )
+            return [{
+                "source": "prometheus",
+                "signal": "metrics",
+                "finding": finding,
+                "query": promql,
+                "status": status,
+                "raw": data,
+            }]
+        except Exception as exc:
+            return [{
+                "source": "prometheus",
+                "signal": "metrics",
+                "finding": f"LLM-selected PromQL failed: {exc}",
+                "query": promql,
+                "status": "error",
+                "raw": None,
+            }]
 
     # ──────────────────────────────────────────────────────────────────
     # Service stability ranking

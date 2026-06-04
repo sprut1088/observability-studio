@@ -46,6 +46,7 @@ from accelerators.ayosa.agent.replanner import (
     derived_input_for_replan,
     replan_reason,
 )
+from accelerators.ayosa.agent.iterative_replanner import build_llm_replan
 from accelerators.ayosa.agent_bridge import (
     _agent_result_to_chat_response,
     _retrieve_workspace_context,
@@ -275,17 +276,32 @@ async def stream_agent_chat(
                 break
             from accelerators.ayosa.agent import reflect_on_observations as _reflect_mid
             mid_reflections = _reflect_mid(plan, observations)
-            next_plan = build_replan(
+            # Step 13: prefer LLM iterative re-plan when available.
+            next_plan = build_llm_replan(
                 original_plan=plan,
                 agent_input=agent_input,
-                reflections=mid_reflections,
+                observations=observations,
                 already_dispatched=dispatched,
             )
             if next_plan is None:
+                next_plan = build_replan(
+                    original_plan=plan,
+                    agent_input=agent_input,
+                    reflections=mid_reflections,
+                    already_dispatched=dispatched,
+                )
+            if next_plan is None:
                 break
-            replan_explanation = replan_reason(
-                mid_reflections, next_plan.covered_signals
-            )
+            mode = (next_plan.selection_meta or {}).get("mode", "deterministic")
+            if mode == "llm_iterative":
+                replan_explanation = (
+                    f"LLM iterative re-plan: {', '.join(next_plan.selected_tools)}. "
+                    f"{(next_plan.selection_meta or {}).get('reasoning', '')}"
+                ).strip()
+            else:
+                replan_explanation = replan_reason(
+                    mid_reflections, next_plan.covered_signals
+                )
             current_plan = next_plan
             current_input = derived_input_for_replan(
                 agent_input, next_plan.selected_tools
@@ -325,10 +341,12 @@ async def stream_agent_chat(
             and any(o.status == "ok" for o in observations)
         ):
             async for chunk_event in _stream_llm(agent_input.llm, result):
-                if chunk_event["type"] == "llm_chunk":
+                event_type = chunk_event.get("type")
+                if event_type == "llm_chunk":
                     yield chunk_event
-                elif chunk_event["type"] == "llm_done":
+                elif event_type == "llm_done":
                     llm_payload = chunk_event.get("data")
+
         if llm_payload is not None:
             result.llm_analysis = llm_payload
             result.llm_used = True
@@ -434,6 +452,13 @@ async def _stream_llm(
 
     while True:
         ev = await queue.get()
+
+        if not isinstance(ev, dict):
+            ev = {"type": "llm_chunk", "text": str(ev)}
+
+        if "type" not in ev:
+            ev = {"type": "llm_chunk", "text": str(ev)}
+
         yield ev
         if ev["type"] == "llm_done":
             break

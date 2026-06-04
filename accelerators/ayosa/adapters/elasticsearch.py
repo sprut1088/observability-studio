@@ -1,4 +1,5 @@
 import datetime
+import json
 import time as _time_module
 
 import requests
@@ -335,22 +336,25 @@ class ElasticsearchAdapter:
         intent = (plan or {}).get("intent") if isinstance(plan, dict) else None
         msg_l = (message or "").lower()
 
+        # ── Step 11: run LLM-emitted query first (additive) ──
+        llm_evidence = self._run_llm_query(plan, service, time_range)
+
         if intent == "latency_issues":
-            return self._search_logs(
+            return llm_evidence + self._search_logs(
                 service, time_range,
                 pattern='latency OR slow OR timeout OR duration OR "response time"',
                 description="latency-related log events",
             )
 
         if intent == "environment_health":
-            return self._aggregate_errors_by_service(service, time_range)
+            return llm_evidence + self._aggregate_errors_by_service(service, time_range)
 
         if intent == "healthy_services_list":
-            return self._discover_services_with_errors(time_range)
+            return llm_evidence + self._discover_services_with_errors(time_range)
 
         if intent == "general_observability_question":
             if not any(k in msg_l for k in self._ERROR_KEYWORDS):
-                return [{
+                return llm_evidence + [{
                     "source": "elasticsearch", "signal": "logs",
                     "finding": "Skipped generic error log scan (question did not mention errors/failures).",
                     "query": None, "status": "skipped", "raw": None,
@@ -358,8 +362,81 @@ class ElasticsearchAdapter:
             # fall through to default error search
 
         # Default: latest_error, error_investigation, and fallback for unknown intents.
-        return self._search_logs(
+        return llm_evidence + self._search_logs(
             service, time_range,
             pattern="error OR exception OR failed OR failure OR timeout",
             description="recent error-like events",
         )
+
+    # ──────────────────────────────────────────────────────────────────
+    # Step 11: execute the LLM-chosen Elasticsearch query
+    # ──────────────────────────────────────────────────────────────────
+    def _run_llm_query(
+        self, plan: dict | None, service: str | None, time_range: str,
+    ) -> list[dict]:
+        """Run ``plan['active_tool_args']['query']`` against /_search.
+
+        Accepts two forms in the query string:
+        * a JSON object  → used verbatim as the request body (after a
+          time-range filter is merged in when the LLM omitted one);
+        * any other text → wrapped in a Lucene ``query_string`` query.
+        Returns an empty list when no query was emitted.
+        """
+        if not isinstance(plan, dict):
+            return []
+        ta = plan.get("active_tool_args")
+        if not isinstance(ta, dict):
+            return []
+        raw_q = ta.get("query")
+        if not isinstance(raw_q, str) or not raw_q.strip():
+            return []
+        reason = str(ta.get("reason") or "").strip()
+
+        try:
+            parsed = json.loads(raw_q)
+        except (TypeError, ValueError):
+            parsed = None
+
+        if isinstance(parsed, dict):
+            body = parsed
+            body.setdefault("size", 20)
+        else:
+            body = {
+                "size": 20,
+                "query": {
+                    "bool": {
+                        "must": self._service_filter(service) + [
+                            {"query_string": {"query": raw_q}},
+                        ],
+                        "filter": [self._time_filter(time_range)],
+                    }
+                },
+                "sort": [{"@timestamp": {"order": "desc", "unmapped_type": "date"}}],
+            }
+
+        try:
+            data = self._post_search(body)
+            hits = data.get("hits", {}).get("hits", [])
+            status = "ok" if hits else "no_data"
+            base = (
+                f"LLM-selected ES query executed: {reason}" if reason
+                else "LLM-selected ES query executed."
+            ) if hits else (
+                f"LLM-selected ES query returned no hits: {reason}" if reason
+                else "LLM-selected ES query returned no hits."
+            )
+            return [{
+                "source": "elasticsearch", "signal": "logs",
+                "finding": base,
+                "query": raw_q,
+                "status": status,
+                "raw": data,
+            }]
+        except Exception as exc:
+            return [{
+                "source": "elasticsearch", "signal": "logs",
+                "finding": f"LLM-selected ES query failed: {exc}",
+                "query": raw_q,
+                "status": "error",
+                "raw": None,
+            }]

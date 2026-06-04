@@ -178,7 +178,16 @@ class SplunkAdapter:
             }]
 
         intent = (plan or {}).get("intent") if isinstance(plan, dict) else None
-        search_query = self._build_search_query(service, message, intent)
+
+        # ── Step 10: prefer the LLM-emitted SPL when present ──
+        # When the tool-selector chose splunk with an explicit ``query``
+        # argument we run it verbatim instead of the heuristic search.
+        # Empty / non-string values fall through to the legacy builder.
+        llm_query = _extract_llm_query(plan)
+        if llm_query:
+            search_query = llm_query
+        else:
+            search_query = self._build_search_query(service, message, intent)
 
         if search_query is None:
             return [{
@@ -261,3 +270,21 @@ class SplunkAdapter:
                     "api_url_used": self.base_url,
                 },
             }]
+
+
+# ────────────────────────────────────────────────────────────────────── #
+# Step 10 helper: pull the LLM-emitted query off the carried plan dict
+# ────────────────────────────────────────────────────────────────────── #
+def _extract_llm_query(plan: dict | None) -> str | None:
+    """Return the LLM-chosen ``query`` from ``plan['active_tool_args']``
+    or ``None`` when absent / blank. Defensive against malformed shapes.
+    """
+    if not isinstance(plan, dict):
+        return None
+    ta = plan.get("active_tool_args")
+    if not isinstance(ta, dict):
+        return None
+    q = ta.get("query")
+    if isinstance(q, str) and q.strip():
+        return q.strip()
+    return None

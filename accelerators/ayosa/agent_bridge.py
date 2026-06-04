@@ -243,6 +243,7 @@ def _agent_result_to_chat_response(
             "label": s.label,
             "status": s.status,
             "error": s.error,
+            "iteration": s.iteration,
         }
         for s in result.tool_steps
     ]

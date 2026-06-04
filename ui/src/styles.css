@@ -3733,6 +3733,11 @@ html[data-theme="dark"] .ayosa-prior-run-tool   { color: #c4b5fd; }
   color: #475569;
   border: 1px solid rgba(100, 116, 139, 0.25);
 }
+.ayosa-selection-mode-llm_iterative {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.30);
+}
 html[data-theme="dark"] .ayosa-selection-mode-llm {
   background: rgba(139, 92, 246, 0.20);
   color: #c4b5fd;
@@ -3742,6 +3747,51 @@ html[data-theme="dark"] .ayosa-selection-mode-deterministic {
   background: rgba(148, 163, 184, 0.15);
   color: #cbd5e1;
   border-color: rgba(148, 163, 184, 0.30);
+}
+html[data-theme="dark"] .ayosa-selection-mode-llm_iterative {
+  background: rgba(245, 158, 11, 0.20);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+/* ── Step 14: per-iteration tool-step grouping ──────────────────── */
+.ayosa-tool-steps-grouped {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ayosa-tool-step-group {
+  border: 1px solid var(--border-soft, rgba(0,0,0,0.08));
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: rgba(245, 158, 11, 0.04);
+}
+.ayosa-tool-step-group:first-child {
+  background: rgba(99, 102, 241, 0.04);
+}
+.ayosa-tool-step-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ayosa-tool-step-group-badge {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.ayosa-tool-step-group-count {
+  font-size: 10.5px;
+  opacity: 0.8;
+}
+html[data-theme="dark"] .ayosa-tool-step-group {
+  background: rgba(245, 158, 11, 0.07);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+html[data-theme="dark"] .ayosa-tool-step-group:first-child {
+  background: rgba(99, 102, 241, 0.10);
 }
 .ayosa-selection-reasoning {
   margin-top: 6px;

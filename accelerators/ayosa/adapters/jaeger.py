@@ -1,4 +1,5 @@
 import datetime
+import json
 import time as _time_module
 
 import requests
@@ -116,10 +117,13 @@ class JaegerAdapter:
     def investigate(self, service: str | None, time_range: str, message: str, plan: dict | None = None):
         intent = (plan or {}).get("intent") if isinstance(plan, dict) else None
 
+        # ── Step 11: run LLM-emitted query first (additive) ──
+        llm_evidence = self._run_llm_query(plan, service, time_range)
+
         # trace_lookup: needs a service. Without one, skip rather than dumping all services.
         if intent == "trace_lookup":
             if not service:
-                return [{
+                return llm_evidence + [{
                     "source": "jaeger", "signal": "traces",
                     "finding": "Trace lookup requires a service name; none was provided or inferred.",
                     "query": None, "status": "skipped", "raw": None,
@@ -130,7 +134,7 @@ class JaegerAdapter:
         # latency_issues: prefer slow traces for the service (minDuration filter).
         elif intent == "latency_issues":
             if not service:
-                return [{
+                return llm_evidence + [{
                     "source": "jaeger", "signal": "traces",
                     "finding": "Latency analysis from traces requires a service; none was provided.",
                     "query": None, "status": "skipped", "raw": None,
@@ -169,12 +173,12 @@ class JaegerAdapter:
             if intent == "latency_issues":
                 traces = data.get("data", []) or []
                 if not traces:
-                    return [{
+                    return llm_evidence + [{
                         "source": "jaeger", "signal": "traces",
                         "finding": "No slow traces (>500ms) found in the selected time window.",
                         "query": query_repr, "status": "no_data", "raw": data,
                     }]
-                return [{
+                return llm_evidence + [{
                     "source": "jaeger", "signal": "traces",
                     "finding": f"Found {len(traces)} slow traces (>500ms) for {service}.",
                     "query": query_repr, "status": "ok", "raw": data,
@@ -183,25 +187,102 @@ class JaegerAdapter:
             if intent == "trace_lookup":
                 traces = data.get("data", []) or []
                 if not traces:
-                    return [{
+                    return llm_evidence + [{
                         "source": "jaeger", "signal": "traces",
                         "finding": f"No traces found for service '{service}' in Jaeger.",
                         "query": query_repr, "status": "no_data", "raw": data,
                     }]
-                return [{
+                return llm_evidence + [{
                     "source": "jaeger", "signal": "traces",
                     "finding": f"Retrieved {len(traces)} recent traces for {service}.",
                     "query": query_repr, "status": "ok", "raw": data,
                 }]
 
-            return [{
+            return llm_evidence + [{
                 "source": "jaeger", "signal": "traces",
                 "finding": "Jaeger trace data retrieved successfully.",
                 "query": query_repr, "status": "ok", "raw": data,
             }]
         except Exception as exc:
-            return [{
+            return llm_evidence + [{
                 "source": "jaeger", "signal": "traces",
                 "finding": f"Jaeger query failed: {exc}",
                 "query": None, "status": "error", "raw": None,
+            }]
+
+    # ──────────────────────────────────────────────────────────────────
+    # Step 11: execute the LLM-chosen Jaeger query
+    # ──────────────────────────────────────────────────────────────────
+    def _run_llm_query(
+        self, plan: dict | None, service: str | None, time_range: str,
+    ) -> list[dict]:
+        """Run ``plan['active_tool_args']['query']`` against Jaeger.
+
+        Accepts two shapes:
+        * a JSON object → merged as query parameters to ``/api/traces``
+          (e.g. ``{"service":"api","operation":"POST /pay","tags":"{\\"http.status_code\\":\\"500\\"}"}``);
+        * any other text → used as the ``operation`` parameter, scoped
+          to ``service`` when provided.
+        Returns an empty list when no LLM query was emitted.
+        """
+        if not isinstance(plan, dict):
+            return []
+        ta = plan.get("active_tool_args")
+        if not isinstance(ta, dict):
+            return []
+        raw_q = ta.get("query")
+        if not isinstance(raw_q, str) or not raw_q.strip():
+            return []
+        reason = str(ta.get("reason") or "").strip()
+
+        try:
+            parsed = json.loads(raw_q)
+        except (TypeError, ValueError):
+            parsed = None
+
+        if isinstance(parsed, dict):
+            params: dict = {"limit": 20}
+            if service:
+                params["service"] = service
+            params.update({k: v for k, v in parsed.items() if v is not None})
+        else:
+            if not service:
+                return [{
+                    "source": "jaeger", "signal": "traces",
+                    "finding": "LLM-selected Jaeger query skipped: needs a service.",
+                    "query": raw_q, "status": "skipped", "raw": None,
+                }]
+            params = {"service": service, "operation": raw_q, "limit": 20}
+
+        try:
+            response = requests.get(
+                f"{self.base_url}/api/traces",
+                params=params,
+                timeout=10,
+            )
+            response.raise_for_status()
+            data = response.json()
+            traces = data.get("data", []) or []
+            status = "ok" if traces else "no_data"
+            finding = (
+                f"LLM-selected Jaeger query executed: {reason}" if reason
+                else "LLM-selected Jaeger query executed."
+            ) if traces else (
+                f"LLM-selected Jaeger query returned no traces: {reason}" if reason
+                else "LLM-selected Jaeger query returned no traces."
+            )
+            return [{
+                "source": "jaeger", "signal": "traces",
+                "finding": finding,
+                "query": raw_q,
+                "status": status,
+                "raw": data,
+            }]
+        except Exception as exc:
+            return [{
+                "source": "jaeger", "signal": "traces",
+                "finding": f"LLM-selected Jaeger query failed: {exc}",
+                "query": raw_q,
+                "status": "error",
+                "raw": None,
             }]
