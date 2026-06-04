@@ -3474,6 +3474,93 @@ html[data-theme="dark"] .ayosa-agent-toggle.on {
   background: rgba(124, 58, 237, 0.16);
 }
 
+/* ── Step 25: Tool-use loop toggle (amber accent to differentiate from
+       Agent Mode's violet). Mirrors the agent-toggle structure so a11y
+       and disabled states match exactly. ─────────────────────────────── */
+.ayosa-toolUse-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin: 0 0 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: rgba(245, 158, 11, 0.05);
+  border: 1px solid rgba(245, 158, 11, 0.20);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.ayosa-toolUse-toggle:hover {
+  background: rgba(245, 158, 11, 0.10);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+.ayosa-toolUse-toggle.on {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.50);
+}
+.ayosa-toolUse-toggle.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ayosa-toolUse-toggle-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+.ayosa-toolUse-toggle-track {
+  position: relative;
+  display: inline-block;
+  width: 30px;
+  height: 16px;
+  background: rgba(120, 120, 140, 0.30);
+  border-radius: 999px;
+  transition: background 0.18s ease;
+  flex-shrink: 0;
+}
+.ayosa-toolUse-toggle.on .ayosa-toolUse-toggle-track {
+  background: var(--amber, #f59e0b);
+}
+.ayosa-toolUse-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  transition: transform 0.18s ease;
+}
+.ayosa-toolUse-toggle.on .ayosa-toolUse-toggle-thumb {
+  transform: translateX(14px);
+}
+.ayosa-toolUse-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ayosa-toolUse-toggle-on {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: var(--amber, #f59e0b);
+  color: #1f1300;
+  letter-spacing: 0.5px;
+}
+html[data-theme="dark"] .ayosa-toolUse-toggle {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.28);
+}
+html[data-theme="dark"] .ayosa-toolUse-toggle.on {
+  background: rgba(245, 158, 11, 0.18);
+}
+
 /* ── Step 19: Max-passes override field (next to Agent Mode toggle) ── */
 .ayosa-max-iter-field {
   display: flex;

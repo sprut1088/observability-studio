@@ -540,3 +540,145 @@ class TestIterativeLoopContract:
                 f"loop_summary mismatch on {key}: "
                 f"final_snapshot={snap_ls[key]!r} vs event={evt_ls[key]!r}"
             )
+
+
+# ──────────────────────────────────────────────────────────────────────── #
+# Step 25 — Tool-use loop wire contract
+#
+# Pins the SSE envelope when ``use_tool_use_loop=True`` so the frontend
+# (which reuses the same tool_start/tool_result vocabulary) keeps
+# working when Claude — not the deterministic planner — chose each call.
+# ──────────────────────────────────────────────────────────────────────── #
+from dataclasses import dataclass as _tu_dataclass, field as _tu_field  # noqa: E402
+from typing import Any as _TUAny  # noqa: E402
+
+from accelerators.ayosa.agent import tool_use_loop as _tul  # noqa: E402
+from accelerators.ayosa import agent_stream as _agent_stream  # noqa: E402
+
+
+@_tu_dataclass
+class _TUFakeMessage:
+    content: list[_TUAny]
+    stop_reason: str = "end_turn"
+
+
+@_tu_dataclass
+class _TUFakeBlock:
+    type: str
+    text: str | None = None
+    id: str | None = None
+    name: str | None = None
+    input: dict[str, _TUAny] = _tu_field(default_factory=dict)
+
+
+class _TUFakeMessages:
+    def __init__(self, scripted):
+        self._scripted = list(scripted)
+        self.calls: list[dict[str, _TUAny]] = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if not self._scripted:
+            raise AssertionError("scripted client exhausted")
+        return self._scripted.pop(0)
+
+
+class _TUFakeClient:
+    def __init__(self, scripted):
+        self.messages = _TUFakeMessages(scripted)
+
+
+class TestToolUseLoopContract:
+    """Pins the SSE envelope for the Step 25 tool-use branch."""
+
+    def _build_client(self):
+        return _TUFakeClient([
+            _TUFakeMessage(
+                content=[
+                    _TUFakeBlock(
+                        type="tool_use",
+                        id="t1",
+                        name="prometheus_investigate",
+                        input={"service": "payments", "time_range": "15m"},
+                    )
+                ],
+                stop_reason="tool_use",
+            ),
+            _TUFakeMessage(
+                content=[_TUFakeBlock(type="text", text="Looks like elevated 5xx on payments.")],
+                stop_reason="end_turn",
+            ),
+        ])
+
+    def _run(self, monkeypatch):
+        client = self._build_client()
+        # The agent_stream module imports build_anthropic_client at top
+        # of file, so we must patch the local binding there (and on the
+        # source module too, for symmetry).
+        monkeypatch.setattr(_tul, "build_anthropic_client", lambda inp: client)
+        monkeypatch.setattr(_agent_stream, "build_anthropic_client", lambda inp: client)
+
+        ai = AyosaAIConfig(
+            enabled=True,
+            provider="anthropic",
+            api_key="sk-test",
+            use_tool_use_loop=True,
+        )
+        req = _req("why is payments slow?", ai=ai)
+
+        async def _run():
+            return await _collect(
+                stream_agent_chat(req, agent=_agent({"prometheus": _FakePromAdapter}))
+            )
+
+        return asyncio.run(_run()), client
+
+    def test_event_order_includes_tool_pair_and_terminal_envelope(self, monkeypatch):
+        events, _client = self._run(monkeypatch)
+        types = [e["type"] for e in events]
+
+        assert types[0] == "session_start"
+        assert "intent" in types
+        assert "plan" in types
+        assert "tool_start" in types
+        assert "tool_result" in types
+        ts_idx = types.index("tool_start")
+        tr_idx = types.index("tool_result", ts_idx)
+        assert tr_idx == ts_idx + 1, "tool_start must be immediately followed by tool_result"
+
+        assert types[-3:] == ["final_snapshot", "loop_summary", "done"]
+        assert types.count("final_snapshot") == 1
+        assert types.count("done") == 1
+
+    def test_tool_steps_carry_iteration_index(self, monkeypatch):
+        events, _client = self._run(monkeypatch)
+        tool_starts = [e for e in events if e["type"] == "tool_start"]
+        assert tool_starts
+        for ts in tool_starts:
+            assert "iteration" in ts
+            assert isinstance(ts["iteration"], int)
+
+    def test_final_snapshot_loop_summary_present_and_match(self, monkeypatch):
+        events, _client = self._run(monkeypatch)
+        snap = next(e for e in events if e["type"] == "final_snapshot")
+        evt = next(e for e in events if e["type"] == "loop_summary")
+        snap_ls = snap["data"].get("loop_summary")
+        assert snap_ls is not None
+        for key in ("iterations_run", "max_iterations", "replanned", "replan_reason"):
+            assert snap_ls[key] == evt[key]
+
+    def test_no_secrets_in_tool_use_stream(self, monkeypatch):
+        events, _client = self._run(monkeypatch)
+        blob = json.dumps(events, default=str)
+        assert "super-secret-token-DO-NOT-LEAK" not in blob
+        assert "sk-test" not in blob
+
+    def test_each_decision_makes_one_llm_call_with_tools(self, monkeypatch):
+        _events, client = self._run(monkeypatch)
+        assert len(client.messages.calls) == 2
+        for call in client.messages.calls:
+            assert "tools" in call
+            assert isinstance(call["tools"], list)
+            assert call["tools"]
+
+

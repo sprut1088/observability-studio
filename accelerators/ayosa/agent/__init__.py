@@ -37,6 +37,12 @@ from accelerators.ayosa.agent.iterative_replanner import build_llm_replan
 from accelerators.ayosa.agent.tool_dispatcher import ToolDispatcher
 from accelerators.ayosa.agent.context_manager import ContextManager
 from accelerators.ayosa.agent.synthesizer import Synthesizer
+from accelerators.ayosa.agent.tool_use_loop import (
+    ToolUseLoop,
+    build_anthropic_client,
+    should_use_tool_use_loop,
+    synthesize_agent_result_from_loop,
+)
 
 import asyncio
 import logging
@@ -85,6 +91,46 @@ class AyosaAgent:
             llm_config=agent_input.llm,
             service_hint=agent_input.service,
         )
+
+        # ── Step 25: Anthropic tool-use loop short-circuit ────────── #
+        # When the request opts into the experimental tool-use loop AND
+        # a real Anthropic client can be built, delegate the whole
+        # investigation to Claude. The deterministic planner / replanner
+        # path below is skipped entirely; we still record the
+        # conversation turn at the end so session memory stays unified.
+        if should_use_tool_use_loop(agent_input):
+            client = build_anthropic_client(agent_input)
+            if client is not None:
+                loop_model = (
+                    getattr(agent_input.llm, "model", None)
+                    or "claude-sonnet-4-6"
+                )
+                loop = ToolUseLoop(
+                    client=client,
+                    dispatcher=self.dispatcher,
+                    model=loop_model,
+                    max_iterations=self.max_iterations,
+                )
+                loop_result = loop.run(agent_input)
+                result = synthesize_agent_result_from_loop(
+                    loop_result=loop_result,
+                    agent_input=agent_input,
+                    intent=intent,
+                    intent_meta=intent_meta,
+                )
+                self.context.append(
+                    session_id=agent_input.session_id,
+                    turn=ConversationTurn(
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        user_message=agent_input.message,
+                        intent=intent,
+                        plan_summary=result.plan.explanation,
+                        answer=result.final_response,
+                    ),
+                )
+                return result
+            # client is None → fall through to the deterministic path.
+
         plan = self.planner.build(agent_input, intent)
 
         all_steps: list[ToolStep] = []

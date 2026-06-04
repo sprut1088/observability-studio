@@ -47,6 +47,12 @@ from accelerators.ayosa.agent.replanner import (
     replan_reason,
 )
 from accelerators.ayosa.agent.iterative_replanner import build_llm_replan
+from accelerators.ayosa.agent.tool_use_loop import (
+    ToolUseLoop,
+    build_anthropic_client,
+    should_use_tool_use_loop,
+    synthesize_agent_result_from_loop,
+)
 from accelerators.ayosa.agent_bridge import (
     _agent_result_to_chat_response,
     _retrieve_workspace_context,
@@ -172,6 +178,121 @@ async def stream_agent_chat(
         yield {"type": "plan", "plan": plan.model_dump()}
         yield {"type": "workspace_context", "data": workspace_ctx}
         yield {"type": "prior_runs", "data": prior_runs}
+
+        # ── Step 25: Anthropic tool-use loop branch ─────────────── #
+        # When the request opts in AND a real client can be built, run
+        # the Anthropic tool-use conversation in a worker thread, then
+        # replay its history as the existing SSE event vocabulary so
+        # the frontend (live tool grouping, loop_summary, debug strip)
+        # keeps working unchanged. The deterministic dispatch loop
+        # below is skipped entirely in this branch.
+        if should_use_tool_use_loop(agent_input):
+            client = build_anthropic_client(agent_input)
+            if client is not None:
+                loop_model = (
+                    getattr(agent_input.llm, "model", None)
+                    or "claude-sonnet-4-6"
+                )
+                loop = ToolUseLoop(
+                    client=client,
+                    dispatcher=agent.dispatcher,
+                    model=loop_model,
+                    max_iterations=agent.max_iterations,
+                )
+                loop_result = await asyncio.to_thread(loop.run, agent_input)
+
+                # Replay tool calls as the existing tool_start/tool_result
+                # event pair so live UI grouping by ``iteration`` still
+                # works. We pair each step with its observations by
+                # walking both lists in lockstep: the dispatcher emits
+                # observations in the same order as the steps that
+                # produced them.
+                obs_cursor = 0
+                for step in loop_result.tool_steps:
+                    yield {
+                        "type": "tool_start",
+                        "index": step.index,
+                        "tool": step.tool,
+                        "label": step.label or f"Querying {step.tool}",
+                        "iteration": step.iteration,
+                    }
+                    # All observations belonging to this step share the
+                    # same source as the tool. Consume up to the next
+                    # step's source-boundary.
+                    step_obs: list[Any] = []
+                    while obs_cursor < len(loop_result.observations):
+                        cand = loop_result.observations[obs_cursor]
+                        if (cand.source or "").lower() == step.tool.lower():
+                            step_obs.append(cand)
+                            obs_cursor += 1
+                        else:
+                            break
+                    yield {
+                        "type": "tool_result",
+                        "index": step.index,
+                        "tool": step.tool,
+                        "status": step.status,
+                        "findings_count": len(step_obs),
+                        "iteration": step.iteration,
+                        **({"error": step.error} if step.error else {}),
+                    }
+                    for obs in step_obs:
+                        yield {
+                            "type": "observation",
+                            "source": obs.source,
+                            "signal": obs.signal,
+                            "finding": obs.finding,
+                            "query": obs.query,
+                            "status": obs.status,
+                        }
+                        ts = _extract_timestamp(obs)
+                        if ts:
+                            yield {
+                                "type": "timeline_event",
+                                "timestamp": ts,
+                                "source": obs.source,
+                                "event": (obs.finding or "")[:200],
+                                "severity": _extract_severity(obs),
+                            }
+
+                # Synthesise the final AgentResult, attach context, and
+                # emit the same terminal envelope (final_snapshot →
+                # loop_summary → done) that Steps 20/21/23 pinned.
+                result = synthesize_agent_result_from_loop(
+                    loop_result=loop_result,
+                    agent_input=agent_input,
+                    intent=intent,
+                    intent_meta=intent_meta,
+                )
+                result.plan.workspace_context = workspace_ctx
+                result.plan.prior_runs = prior_runs
+
+                iterations_run = loop_result.iterations_run
+                replan_explanation = result.replan_reason
+                chat_response = _agent_result_to_chat_response(result, request)
+                chat_response["max_iterations"] = agent.max_iterations
+                chat_response["loop_summary"] = {
+                    "iterations_run": iterations_run,
+                    "max_iterations": agent.max_iterations,
+                    "replanned": iterations_run > 1,
+                    "replan_reason": replan_explanation,
+                }
+                yield {"type": "final_snapshot", "data": chat_response}
+                yield {
+                    "type": "loop_summary",
+                    "iterations_run": iterations_run,
+                    "max_iterations": agent.max_iterations,
+                    "replanned": iterations_run > 1,
+                    "replan_reason": replan_explanation,
+                }
+                yield {
+                    "type": "done",
+                    "mode": "agent",
+                    "confidence": result.confidence,
+                    "session_id": session_id,
+                }
+                return
+            # client is None → fall through to deterministic loop.
 
         # ── iterative dispatch loop (plan → act → observe → [replan]) ── #
         observations: list[Any] = []

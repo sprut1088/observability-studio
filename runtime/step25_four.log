@@ -1,0 +1,15 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0 -- C:\git_repos\observability-studio\observability-studio\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\git_repos\observability-studio\observability-studio
+configfile: pyproject.toml
+plugins: anyio-4.13.0, cov-7.1.0
+collecting ... collected 5 items
+
+tests/ayosa/test_streaming_contract.py::TestToolUseLoopContract::test_event_order_includes_tool_pair_and_terminal_envelope PASSED [ 20%]
+tests/ayosa/test_streaming_contract.py::TestToolUseLoopContract::test_tool_steps_carry_iteration_index PASSED [ 40%]
+tests/ayosa/test_streaming_contract.py::TestToolUseLoopContract::test_final_snapshot_loop_summary_present_and_match PASSED [ 60%]
+tests/ayosa/test_streaming_contract.py::TestToolUseLoopContract::test_no_secrets_in_tool_use_stream PASSED [ 80%]
+tests/ayosa/test_streaming_contract.py::TestToolUseLoopContract::test_each_decision_makes_one_llm_call_with_tools PASSED [100%]
+
+============================= 5 passed in 29.77s ==============================

@@ -31,6 +31,8 @@ class AgentAIConfig(BaseModel):
     azure_endpoint: Optional[str] = None
     azure_deployment: Optional[str] = None
     openrouter_model: Optional[str] = None
+    # Step 25: opt-in Anthropic tool-use loop (see ``models.AyosaAIConfig``).
+    use_tool_use_loop: bool = False
 
 
 class AgentInput(BaseModel):

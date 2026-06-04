@@ -50,6 +50,13 @@ class AyosaAIConfig(BaseModel):
     azure_deployment: Optional[str] = None
     openrouter_model: Optional[str] = None
     model: Optional[str] = None
+    # Step 25: opt-in experimental Anthropic tool-use loop. When True
+    # AND ``enabled`` is True AND provider == "anthropic" AND ``api_key``
+    # is present, the agent delegates the investigation to
+    # :class:`ToolUseLoop` (Claude decides which tool to call next).
+    # Otherwise the flag is silently ignored and the deterministic
+    # planner / replanner path runs as before. Safe to leave on.
+    use_tool_use_loop: bool = False
 
 
 class AyosaChatRequest(BaseModel):

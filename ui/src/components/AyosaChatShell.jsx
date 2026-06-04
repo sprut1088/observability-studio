@@ -1036,6 +1036,19 @@ export default function AyosaChatShell({ tools, aiConfig }) {
     catch { /* ignore quota / privacy errors */ }
   }, [maxIterationsOverride]);
 
+  // Step 25: opt-in Anthropic tool-use loop. When ON, the backend
+  // delegates the investigation to Claude's native tool-use API rather
+  // than the deterministic planner/replanner. Requires an Anthropic API
+  // key + at least one tool configured + Agent Mode (we force it).
+  const [useToolUseLoop, setUseToolUseLoop] = useState(() => {
+    try { return localStorage.getItem("ayosa.useToolUseLoop") === "1"; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("ayosa.useToolUseLoop", useToolUseLoop ? "1" : "0"); }
+    catch { /* ignore quota / privacy errors */ }
+  }, [useToolUseLoop]);
+
   // Step 21: opt-in agent-debug strip toggle. When on, the assistant
   // message renders a one-line summary of the canonical loop telemetry
   // emitted by the backend's ``loop_summary`` SSE event.
@@ -1161,7 +1174,9 @@ export default function AyosaChatShell({ tools, aiConfig }) {
       message:    input,
       service:    service.trim() || null,
       time_range: timeRange.trim() || "30m",
-      agent_mode: agentMode,
+      // Step 25: tool-use mode requires Agent Mode; force it on so
+      // toggling tool-use can't accidentally degrade to chat-only.
+      agent_mode: agentMode || useToolUseLoop,
       tools: tools.map((t) => ({
         tool:       t.toolName,
         base_url:   t.baseUrl,
@@ -1174,6 +1189,7 @@ export default function AyosaChatShell({ tools, aiConfig }) {
         azure_endpoint:   aiConfig.azureEndpoint   || null,
         azure_deployment: aiConfig.azureDeployment || null,
         openrouter_model: aiConfig.openrouterModel || null,
+        use_tool_use_loop: useToolUseLoop,
       },
     };
 
@@ -1384,6 +1400,34 @@ export default function AyosaChatShell({ tools, aiConfig }) {
           <span className="ayosa-agent-toggle-label">
             🤖 Agent Mode
             {agentMode && <span className="ayosa-agent-toggle-on">ON</span>}
+          </span>
+        </label>
+
+        {/* Step 25: Anthropic tool-use loop toggle. When ON, forces
+            Agent Mode and routes the run through Claude's native
+            tool-use API. Requires an Anthropic API key + at least one
+            tool. Falls back silently if either is missing. */}
+        <label
+          className={`ayosa-toolUse-toggle${useToolUseLoop ? " on" : ""}${isRunning ? " disabled" : ""}`}
+          title={
+            useToolUseLoop
+              ? "Tool-use mode is ON. Claude picks each tool call (forces Agent Mode)."
+              : "Let Claude decide each tool call via the native tool-use API. Forces Agent Mode + Anthropic provider. Experimental."
+          }
+        >
+          <input
+            type="checkbox"
+            className="ayosa-toolUse-toggle-input"
+            checked={useToolUseLoop}
+            disabled={isRunning}
+            onChange={(e) => setUseToolUseLoop(e.target.checked)}
+          />
+          <span className="ayosa-toolUse-toggle-track">
+            <span className="ayosa-toolUse-toggle-thumb" />
+          </span>
+          <span className="ayosa-toolUse-toggle-label">
+            🛠️ Tool-use mode
+            {useToolUseLoop && <span className="ayosa-toolUse-toggle-on">ON</span>}
           </span>
         </label>
 

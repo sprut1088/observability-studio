@@ -223,6 +223,7 @@ def _to_agent_input(
             azure_endpoint=getattr(ai, "azure_endpoint", None),
             azure_deployment=getattr(ai, "azure_deployment", None),
             openrouter_model=getattr(ai, "openrouter_model", None),
+            use_tool_use_loop=bool(getattr(ai, "use_tool_use_loop", False)),
         )
 
     sid = session_id or getattr(request, "session_id", None) or "default"

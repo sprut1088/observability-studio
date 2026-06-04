@@ -541,4 +541,135 @@ __all__ = [
     "ToolUseLoop",
     "ToolUseLoopResult",
     "build_anthropic_tool_schemas",
+    "build_anthropic_client",
+    "should_use_tool_use_loop",
+    "synthesize_agent_result_from_loop",
 ]
+
+
+# ──────────────────────────────────────────────────────────────────────── #
+# Step 25 — wiring helpers
+#
+# These three helpers live here (rather than in agent_bridge or
+# AyosaAgent) so the ToolUseLoop module owns every decision about
+# *when* and *how* its loop is run. The agent/stream paths only need to
+# call one of these to delegate cleanly.
+# ──────────────────────────────────────────────────────────────────────── #
+def should_use_tool_use_loop(agent_input: "AgentInput") -> bool:
+    """Return True when the request is eligible for the tool-use loop.
+
+    All four conditions must hold:
+      * ``llm.enabled`` is True
+      * ``llm.use_tool_use_loop`` is True
+      * ``llm.provider`` is ``"anthropic"`` (or unset → defaults to anthropic)
+      * ``llm.api_key`` is a non-empty string
+      * At least one tool is configured (otherwise the loop has nothing to call)
+    """
+    llm = getattr(agent_input, "llm", None)
+    if llm is None or not getattr(llm, "enabled", False):
+        return False
+    if not getattr(llm, "use_tool_use_loop", False):
+        return False
+    provider = (getattr(llm, "provider", None) or "anthropic").strip().lower()
+    if provider != "anthropic":
+        return False
+    api_key = (getattr(llm, "api_key", None) or "").strip()
+    if not api_key:
+        return False
+    tools = getattr(agent_input, "tools", None) or []
+    return len(tools) > 0
+
+
+def build_anthropic_client(agent_input: "AgentInput") -> Any | None:
+    """Construct an ``anthropic.Anthropic`` client from the agent input.
+
+    Returns ``None`` (and logs a warning) when the ``anthropic`` package
+    is not installed or the API key is missing — callers fall back to
+    the deterministic planner path.
+    """
+    llm = getattr(agent_input, "llm", None)
+    if llm is None:
+        return None
+    api_key = (getattr(llm, "api_key", None) or "").strip()
+    if not api_key:
+        logger.warning("Tool-use loop requested but no Anthropic API key supplied.")
+        return None
+    try:
+        import anthropic  # type: ignore
+    except ImportError:
+        logger.warning(
+            "Tool-use loop requested but the 'anthropic' package is not "
+            "installed. Falling back to deterministic planner."
+        )
+        return None
+    return anthropic.Anthropic(api_key=api_key)
+
+
+def synthesize_agent_result_from_loop(
+    *,
+    loop_result: ToolUseLoopResult,
+    agent_input: "AgentInput",
+    intent: str,
+    intent_meta: dict[str, Any] | None = None,
+):
+    """Convert a :class:`ToolUseLoopResult` into a full :class:`AgentResult`.
+
+    Keeps the public ``AgentResult`` contract unchanged so all downstream
+    consumers (synthesizer, chat-response mapper, persistence,
+    ``loop_summary``, Compare panel) keep working without any branching
+    on whether the run was tool-use or planner-driven.
+    """
+    # Imported lazily to avoid circular import with ``agent/__init__.py``.
+    from accelerators.ayosa.agent.schemas import AgentResult, Plan
+
+    selected = []
+    for s in loop_result.tool_steps:
+        key = (s.tool or "").lower().strip()
+        if key and key not in selected:
+            selected.append(key)
+
+    plan = Plan(
+        intent=intent or "tool_use",
+        service=agent_input.service,
+        time_range=agent_input.time_range,
+        selected_tools=selected,
+        explanation=(
+            f"Tool-use loop selected {len(selected)} tool(s) over "
+            f"{loop_result.iterations_run} LLM turn(s)."
+        ),
+        selection_meta={
+            "mode": "tool_use_llm",
+            "stop_reason": loop_result.stop_reason,
+        },
+    )
+
+    result = AgentResult(
+        intent=intent or "tool_use",
+        plan=plan,
+        tool_steps=list(loop_result.tool_steps),
+        observations=list(loop_result.observations),
+        reflections=[],  # tool-use loop self-terminates; no separate reflection phase
+        final_response=loop_result.final_response,
+        confidence=0.7 if loop_result.stop_reason == "end_turn" else 0.4,
+        evidence=list(loop_result.observations),
+        llm_used=True,
+        llm_analysis={
+            "mode": "tool_use_loop",
+            "stop_reason": loop_result.stop_reason,
+            "iterations_run": loop_result.iterations_run,
+        },
+    )
+    result.intent_meta = intent_meta
+    result.iterations = loop_result.iterations_run
+    # The tool-use loop never re-plans in the deterministic sense, but
+    # iterations > 1 means Claude made multiple decisions. Surface that
+    # through the existing ``replan_reason`` field so the loop_summary
+    # downstream still reads usefully.
+    if loop_result.iterations_run > 1:
+        result.replan_reason = (
+            f"Tool-use loop: Claude made {loop_result.iterations_run} "
+            f"decisions (stop_reason={loop_result.stop_reason})."
+        )
+    else:
+        result.replan_reason = None
+    return result
