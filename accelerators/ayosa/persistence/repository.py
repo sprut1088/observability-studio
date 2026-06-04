@@ -93,6 +93,8 @@ class Repository:
         evidence_summary: dict[str, Any] | None = None,
         tool_steps: Iterable[dict[str, Any]] | None = None,
         created_at: str | None = None,
+        iterations: int = 1,
+        replan_reason: str | None = None,
     ) -> str | None:
         """Persist a single run; returns its `run_id`, or None on failure."""
         rid = (run_id or f"run-{uuid.uuid4().hex[:12]}").strip()
@@ -110,8 +112,9 @@ class Repository:
                     INSERT OR REPLACE INTO ayosa_runs (
                         run_id, session_id, message, intent, service,
                         time_range, tools_used_json, confidence, answer,
-                        snapshot_json, evidence_summary_json, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        snapshot_json, evidence_summary_json, created_at,
+                        iterations, replan_reason
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         rid, session_id, message, intent, service,
@@ -121,6 +124,8 @@ class Repository:
                         json.dumps(evidence_summary)
                         if evidence_summary is not None else None,
                         ts,
+                        max(1, int(iterations or 1)),
+                        replan_reason,
                     ),
                 )
 
@@ -132,8 +137,8 @@ class Repository:
                     conn.execute(
                         """
                         INSERT INTO ayosa_tool_steps
-                            (run_id, step_index, tool, label, status, error)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                            (run_id, step_index, tool, label, status, error, iteration)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             rid,
@@ -142,6 +147,7 @@ class Repository:
                             step.get("label"),
                             step.get("status"),
                             step.get("error"),
+                            int(step.get("iteration", 0) or 0),
                         ),
                     )
 
@@ -207,10 +213,10 @@ class Repository:
 
                 steps = conn.execute(
                     """
-                    SELECT step_index, tool, label, status, error
+                    SELECT step_index, tool, label, status, error, iteration
                       FROM ayosa_tool_steps
                      WHERE run_id = ?
-                  ORDER BY step_index ASC
+                  ORDER BY iteration ASC, step_index ASC
                     """,
                     (run_id,),
                 ).fetchall()
@@ -236,10 +242,13 @@ class Repository:
                             "label": s["label"],
                             "status": s["status"],
                             "error": s["error"],
+                            "iteration": int(s["iteration"] or 0),
                         }
                         for s in steps
                     ],
                     created_at=row["created_at"] or "",
+                    iterations=int(_row_get(row, "iterations", 1) or 1),
+                    replan_reason=_row_get(row, "replan_reason", None),
                 )
         except sqlite3.Error as exc:
             logger.warning("get_run(%s) failed: %s", run_id, exc)
@@ -272,7 +281,8 @@ class Repository:
                 rows = conn.execute(
                     f"""
                     SELECT run_id, session_id, message, intent, service,
-                           time_range, tools_used_json, confidence, created_at
+                           time_range, tools_used_json, confidence, created_at,
+                           iterations
                       FROM ayosa_runs
                       {where}
                   ORDER BY datetime(created_at) DESC, run_id DESC
@@ -291,6 +301,7 @@ class Repository:
                     tools_used=_loads_list(r["tools_used_json"]),
                     confidence=float(r["confidence"] or 0.0),
                     created_at=r["created_at"] or "",
+                    iterations=int(_row_get(r, "iterations", 1) or 1),
                 )
                 for r in rows
             ]
@@ -369,6 +380,8 @@ def persist_agent_result(
                 "evidence_count": len(chat_response.get("evidence") or []),
             },
             tool_steps=chat_response.get("tool_steps") or [],
+            iterations=int(chat_response.get("iterations") or 1),
+            replan_reason=chat_response.get("replan_reason"),
         )
     except Exception as exc:  # noqa: BLE001 — never break chat
         logger.warning("persist_agent_result failed: %s", exc)
@@ -398,6 +411,34 @@ def _loads_dict_or_none(raw: Any) -> Optional[dict[str, Any]]:
         return None
 
 
+def _row_get(row: Any, key: str, default: Any) -> Any:
+    """Tolerant accessor: pre-Step-16 rows may lack new columns."""
+    try:
+        if key in row.keys():
+            return row[key]
+    except Exception:  # noqa: BLE001
+        pass
+    return default
+
+
+def _trajectory_from_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group tool steps by iteration so two runs can be compared per pass."""
+    by_it: dict[int, list[dict[str, Any]]] = {}
+    for s in steps or []:
+        it = int(s.get("iteration", 0) or 0)
+        by_it.setdefault(it, []).append(s)
+    out: list[dict[str, Any]] = []
+    for it in sorted(by_it):
+        tools = [s.get("tool") for s in by_it[it] if s.get("tool")]
+        statuses = [s.get("status") for s in by_it[it]]
+        out.append({
+            "iteration": it,
+            "tools": tools,
+            "statuses": statuses,
+        })
+    return out
+
+
 def _diff_runs(a: PersistedRun, b: PersistedRun) -> dict[str, Any]:
     fields = (
         "intent", "service", "time_range", "confidence",
@@ -419,6 +460,38 @@ def _diff_runs(a: PersistedRun, b: PersistedRun) -> dict[str, Any]:
             snap_diff[k] = {"left": snap_a.get(k), "right": snap_b.get(k)}
     if snap_diff:
         out["snapshot"] = snap_diff
+
+    # Step 16: trajectory diff — iteration count + per-pass tool sets.
+    traj_a = _trajectory_from_steps(a.tool_steps)
+    traj_b = _trajectory_from_steps(b.tool_steps)
+    traj_diff: dict[str, Any] = {}
+    if a.iterations != b.iterations:
+        traj_diff["iterations"] = {"left": a.iterations, "right": b.iterations}
+    if traj_a != traj_b:
+        traj_diff["passes"] = {"left": traj_a, "right": traj_b}
+        # Tools added on right but not on left, per iteration.
+        added: list[dict[str, Any]] = []
+        for pass_b in traj_b:
+            left_pass = next(
+                (p for p in traj_a if p["iteration"] == pass_b["iteration"]),
+                None,
+            )
+            left_tools = set(left_pass["tools"]) if left_pass else set()
+            new_tools = [t for t in pass_b["tools"] if t not in left_tools]
+            if new_tools:
+                added.append({
+                    "iteration": pass_b["iteration"],
+                    "new_tools": new_tools,
+                })
+        if added:
+            traj_diff["new_tools_per_pass"] = added
+    if (a.replan_reason or "") != (b.replan_reason or ""):
+        traj_diff["replan_reason"] = {
+            "left": a.replan_reason,
+            "right": b.replan_reason,
+        }
+    if traj_diff:
+        out["trajectory"] = traj_diff
 
     return out
 

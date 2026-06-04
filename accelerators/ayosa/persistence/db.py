@@ -51,7 +51,9 @@ _SCHEMA: tuple[str, ...] = (
         answer TEXT NOT NULL DEFAULT '',
         snapshot_json TEXT,
         evidence_summary_json TEXT,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        iterations INTEGER NOT NULL DEFAULT 1,
+        replan_reason TEXT
     )
     """,
     """
@@ -63,6 +65,7 @@ _SCHEMA: tuple[str, ...] = (
         label TEXT,
         status TEXT,
         error TEXT,
+        iteration INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY(run_id) REFERENCES ayosa_runs(run_id) ON DELETE CASCADE
     )
     """,
@@ -83,6 +86,13 @@ _SCHEMA: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS ix_runs_created   ON ayosa_runs(created_at DESC)",
     "CREATE INDEX IF NOT EXISTS ix_msgs_session   ON ayosa_messages(session_id)",
     "CREATE INDEX IF NOT EXISTS ix_tool_steps_run ON ayosa_tool_steps(run_id)",
+)
+
+# Step 16: idempotent column additions for pre-Step-16 databases.
+_MIGRATIONS: tuple[str, ...] = (
+    "ALTER TABLE ayosa_runs ADD COLUMN iterations INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE ayosa_runs ADD COLUMN replan_reason TEXT",
+    "ALTER TABLE ayosa_tool_steps ADD COLUMN iteration INTEGER NOT NULL DEFAULT 0",
 )
 
 
@@ -123,6 +133,15 @@ class Database:
         with self._lock, self.connect() as conn:
             for stmt in _SCHEMA:
                 conn.execute(stmt)
+            # Step 16: backward-compat migrations for trajectory persistence.
+            # SQLite ALTER TABLE ADD COLUMN is idempotent only when guarded —
+            # we ignore "duplicate column" errors so existing DBs upgrade in place.
+            for stmt in _MIGRATIONS:
+                try:
+                    conn.execute(stmt)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" not in str(exc).lower():
+                        raise
 
 
 def init_db(path: str | Path | None = None) -> Database:

@@ -460,7 +460,7 @@ async def _stream_llm(
             ev = {"type": "llm_chunk", "text": str(ev)}
 
         yield ev
-        if ev["type"] == "llm_done":
+        if ev.get("type") == "llm_done":
             break
 
 

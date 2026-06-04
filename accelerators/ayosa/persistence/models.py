@@ -23,6 +23,7 @@ class RunSummary(BaseModel):
     tools_used: list[str] = Field(default_factory=list)
     confidence: float = 0.0
     created_at: str = ""
+    iterations: int = 1
 
 
 class PersistedRun(BaseModel):
@@ -41,6 +42,8 @@ class PersistedRun(BaseModel):
     evidence_summary: Optional[dict[str, Any]] = None
     tool_steps: list[dict[str, Any]] = Field(default_factory=list)
     created_at: str = ""
+    iterations: int = 1
+    replan_reason: Optional[str] = None
 
 
 class RunComparison(BaseModel):
