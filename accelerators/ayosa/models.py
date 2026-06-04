@@ -61,6 +61,11 @@ class AyosaChatRequest(BaseModel):
     agent_mode: bool = False
     session_id: Optional[str] = None
     reset_session: bool = False
+    # Step 18: per-request override for the agent loop iteration cap.
+    # Unset → backend resolves a sensible default (1 without LLM, 4 with
+    # LLM enabled). Resolved value is clamped to [1, 8] and surfaced back
+    # to clients on the chat response as ``max_iterations``.
+    max_iterations: Optional[int] = None
 
 
 class EvidenceItem(BaseModel):
@@ -121,3 +126,6 @@ class AyosaChatResponse(BaseModel):
     intent_meta: Optional[dict[str, Any]] = None
     iterations: int = 1
     replan_reason: Optional[str] = None
+    # Step 18: resolved iteration cap (after request override / LLM default).
+    # The UI uses this for "Pass N of up to M" badges.
+    max_iterations: int = 1

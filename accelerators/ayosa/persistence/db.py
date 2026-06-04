@@ -53,7 +53,8 @@ _SCHEMA: tuple[str, ...] = (
         evidence_summary_json TEXT,
         created_at TEXT NOT NULL,
         iterations INTEGER NOT NULL DEFAULT 1,
-        replan_reason TEXT
+        replan_reason TEXT,
+        loop_summary_json TEXT
     )
     """,
     """
@@ -89,10 +90,12 @@ _SCHEMA: tuple[str, ...] = (
 )
 
 # Step 16: idempotent column additions for pre-Step-16 databases.
+# Step 21: ``loop_summary_json`` added on top of Step 16 columns.
 _MIGRATIONS: tuple[str, ...] = (
     "ALTER TABLE ayosa_runs ADD COLUMN iterations INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE ayosa_runs ADD COLUMN replan_reason TEXT",
     "ALTER TABLE ayosa_tool_steps ADD COLUMN iteration INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE ayosa_runs ADD COLUMN loop_summary_json TEXT",
 )
 
 

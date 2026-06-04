@@ -296,9 +296,12 @@ function RunComparisonPanel({ comparing, error, comparison, currentRunId, otherR
       )}
       {comparison && (() => {
         const diffs = comparison.differences || {};
-        const keys = Object.keys(diffs).filter((k) => k !== "snapshot");
+        const trajDiff = diffs.trajectory || null;
         const snapDiff = diffs.snapshot || null;
-        if (keys.length === 0 && !snapDiff) {
+        const keys = Object.keys(diffs).filter(
+          (k) => k !== "snapshot" && k !== "trajectory"
+        );
+        if (keys.length === 0 && !snapDiff && !trajDiff) {
           return (
             <div className="ayosa-compare-empty">
               No differences across compared fields.
@@ -306,33 +309,158 @@ function RunComparisonPanel({ comparing, error, comparison, currentRunId, otherR
           );
         }
         return (
-          <table className="ayosa-compare-table">
-            <thead>
-              <tr>
-                <th>Field</th>
-                <th>Current</th>
-                <th>Prior</th>
-              </tr>
-            </thead>
-            <tbody>
-              {keys.map((k) => (
-                <tr key={k}>
-                  <td className="ayosa-compare-field">{k}</td>
-                  <td>{formatCompareValue(diffs[k]?.left)}</td>
-                  <td>{formatCompareValue(diffs[k]?.right)}</td>
-                </tr>
-              ))}
-              {snapDiff && Object.keys(snapDiff).map((sk) => (
-                <tr key={`snap.${sk}`}>
-                  <td className="ayosa-compare-field">snapshot.{sk}</td>
-                  <td>{formatCompareValue(snapDiff[sk]?.left)}</td>
-                  <td>{formatCompareValue(snapDiff[sk]?.right)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <>
+            {(keys.length > 0 || snapDiff) && (
+              <table className="ayosa-compare-table">
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Current</th>
+                    <th>Prior</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {keys.map((k) => (
+                    <tr key={k}>
+                      <td className="ayosa-compare-field">{k}</td>
+                      <td>{formatCompareValue(diffs[k]?.left)}</td>
+                      <td>{formatCompareValue(diffs[k]?.right)}</td>
+                    </tr>
+                  ))}
+                  {snapDiff && Object.keys(snapDiff).map((sk) => (
+                    <tr key={`snap.${sk}`}>
+                      <td className="ayosa-compare-field">snapshot.{sk}</td>
+                      <td>{formatCompareValue(snapDiff[sk]?.left)}</td>
+                      <td>{formatCompareValue(snapDiff[sk]?.right)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {trajDiff && <TrajectoryDiff diff={trajDiff} />}
+          </>
         );
       })()}
+    </div>
+  );
+}
+
+// Step 17: render the per-iteration trajectory diff returned by the
+// backend's `compare_runs` endpoint. `diff` can carry:
+//   iterations          — {left, right}
+//   passes              — {left: [{iteration, tools, statuses}], right: [...]}
+//   new_tools_per_pass  — [{iteration, new_tools: [...]}]
+//   replan_reason       — {left, right}
+function TrajectoryDiff({ diff }) {
+  const passesLeft  = diff?.passes?.left  || [];
+  const passesRight = diff?.passes?.right || [];
+  const newPerPass  = diff?.new_tools_per_pass || [];
+
+  // Build a concise summary line: "Current: 1 pass · Prior: 2 passes — added alertmanager on pass 2"
+  const iterDiff = diff?.iterations;
+  const summaryBits = [];
+  if (iterDiff) {
+    const lp = iterDiff.left, rp = iterDiff.right;
+    summaryBits.push(
+      `Current: ${lp} pass${lp !== 1 ? "es" : ""} · Prior: ${rp} pass${rp !== 1 ? "es" : ""}`
+    );
+  }
+  const addedFragments = newPerPass
+    .filter((p) => (p.new_tools || []).length > 0)
+    .map(
+      (p) => `${p.new_tools.join(", ")} on pass ${p.iteration + 1}`
+    );
+  if (addedFragments.length > 0) {
+    summaryBits.push(`added ${addedFragments.join("; ")}`);
+  }
+
+  const renderPasses = (passes, sideLabel) => (
+    <div className="ayosa-compare-trajectory-side">
+      <div className="ayosa-compare-trajectory-side-label">{sideLabel}</div>
+      {passes.length === 0 ? (
+        <div className="ayosa-compare-trajectory-empty">—</div>
+      ) : (
+        <div className="ayosa-tool-steps-grouped">
+          {passes.map((p) => (
+            <div key={p.iteration} className="ayosa-tool-step-group">
+              <div className="ayosa-tool-step-group-header">
+                <span className="ayosa-tool-step-group-badge">
+                  {p.iteration === 0 ? "Pass 1 · Initial" : `Pass ${p.iteration + 1} · Re-plan`}
+                </span>
+                <span className="ayosa-tool-step-group-count">
+                  {(p.tools || []).length} tool{(p.tools || []).length !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <div className="ayosa-tool-steps">
+                {(p.tools || []).map((tool, i) => {
+                  const status = (p.statuses || [])[i] || "done";
+                  return (
+                    <div
+                      key={`${tool}-${i}`}
+                      className={`ayosa-tool-step ayosa-step-${status}${status === "skipped" ? " ayosa-step-skipped" : ""}`}
+                    >
+                      <span className="ayosa-step-icon">
+                        {status === "done"    ? "✓"
+                         : status === "error" ? "✗"
+                         : status === "skipped" ? "–"
+                         : "•"}
+                      </span>
+                      <span className="ayosa-step-label">
+                        {TOOL_ICONS[tool] || "🔧"} {tool}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="ayosa-compare-trajectory">
+      <div className="ayosa-compare-trajectory-title">
+        🔁 Investigation trajectory
+      </div>
+      {summaryBits.length > 0 && (
+        <div className="ayosa-compare-trajectory-summary">
+          {summaryBits.join(" — ")}
+        </div>
+      )}
+      {diff?.replan_reason && (
+        <div className="ayosa-compare-trajectory-reason">
+          <span className="ayosa-compare-trajectory-reason-label">Re-plan reason:</span>{" "}
+          current = <em>{diff.replan_reason.left || "—"}</em> · prior ={" "}
+          <em>{diff.replan_reason.right || "—"}</em>
+        </div>
+      )}
+      {/* Step 22: loop_summary delta — at-a-glance comparison of the two
+          investigations' iteration loops (passes used / cap / replan flag). */}
+      {diff?.loop_summary && (() => {
+        const fmt = (ls) => {
+          if (!ls) return "—";
+          const ran = ls.iterations_run ?? "?";
+          const cap = ls.max_iterations ?? "?";
+          const flag = ls.replanned ? "re-planned" : "single-pass";
+          return `${ran}/${cap} passes (${flag})`;
+        };
+        const left  = fmt(diff.loop_summary.left);
+        const right = fmt(diff.loop_summary.right);
+        return (
+          <div className="ayosa-compare-trajectory-loop">
+            <span className="ayosa-compare-trajectory-loop-label">Loop:</span>{" "}
+            current = <strong>{left}</strong> · prior = <strong>{right}</strong>
+          </div>
+        );
+      })()}
+      {(passesLeft.length > 0 || passesRight.length > 0) && (
+        <div className="ayosa-compare-trajectory-grid">
+          {renderPasses(passesLeft,  "Current")}
+          {renderPasses(passesRight, "Prior")}
+        </div>
+      )}
     </div>
   );
 }
@@ -347,7 +475,7 @@ function formatCompareValue(v) {
   return String(v);
 }
 
-function AssistantMessage({ msg, onGenerateRunbook }) {
+function AssistantMessage({ msg, onGenerateRunbook, showDebug = false }) {
   const {
     status,
     steps = [],
@@ -360,6 +488,8 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
     workspaceContext,   // captured live from stream `workspace_context` event
     priorRuns,          // captured live from stream `prior_runs` event
     liveToolSteps = [], // Step 15: per-tool start/result events grouped by iteration
+    maxIterationsLive,  // Step 19: cap captured from `session_start.max_iterations`
+    loopSummary,        // Step 21: canonical loop telemetry from `loop_summary` event
   } = msg;
 
   // ── Loading state ──
@@ -375,6 +505,16 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
     const livePassCount = useLiveTrajectory
       ? new Set(liveToolSteps.map((s) => s.iteration ?? 0)).size
       : 0;
+    // Step 19: render "Pass N of up to M" when we know the cap and have at
+    // least one pass under way; fall back to "🔄 N passes" for older streams
+    // that don't emit ``max_iterations`` on ``session_start``.
+    const knownCap = Number.isFinite(maxIterationsLive) && maxIterationsLive > 0
+      ? maxIterationsLive
+      : null;
+    const showPassBadge = knownCap ? livePassCount >= 1 : livePassCount > 1;
+    const passBadgeText = knownCap
+      ? `🔄 Pass ${Math.max(livePassCount, 1)} of up to ${knownCap}`
+      : `🔄 ${livePassCount} passes`;
 
     return (
       <div className="ayosa-message-assistant-wrap">
@@ -392,12 +532,12 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
                     : "📖 Keyword"}
                 </span>
               )}
-              {livePassCount > 1 && (
+              {showPassBadge && (
                 <span
                   className="ayosa-iter-badge"
                   title={replanReason || "Agent re-planned mid-investigation"}
                 >
-                  🔄 {livePassCount} passes
+                  {passBadgeText}
                 </span>
               )}
             </div>
@@ -481,6 +621,33 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
 
   return (
     <div className="ayosa-message-assistant-wrap">
+      {/* Step 21: agent-debug strip (opt-in via sidebar toggle).
+          Prefers the live ``loopSummary`` captured from the SSE event;
+          falls back to the same fields embedded in ``result`` so the
+          strip stays visible on re-rendered historical messages. */}
+      {showDebug && (() => {
+        const ls = loopSummary || result?.loop_summary;
+        if (!ls) return null;
+        const ran  = ls.iterations_run ?? result?.iterations ?? 1;
+        const cap  = ls.max_iterations ?? result?.max_iterations ?? ran;
+        const flag = ls.replanned ? "re-planned" : "single-pass";
+        const reason = ls.replan_reason;
+        return (
+          <div className="ayosa-debug-strip" title="Agent loop telemetry (loop_summary)">
+            <span className="ayosa-debug-strip-label">Loop:</span>
+            <span className="ayosa-debug-strip-stat">{ran}/{cap} passes</span>
+            <span className="ayosa-debug-strip-sep">·</span>
+            <span className="ayosa-debug-strip-stat">{flag}</span>
+            {reason && (
+              <>
+                <span className="ayosa-debug-strip-sep">·</span>
+                <span className="ayosa-debug-strip-reason">reason: {reason}</span>
+              </>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Collapsed step summary */}
       <details className="ayosa-steps-collapsed">
         <summary className="ayosa-steps-summary">
@@ -509,7 +676,10 @@ function AssistantMessage({ msg, onGenerateRunbook }) {
             )}
             {(result.iterations || 0) > 1 && (
               <span className="ayosa-iter-badge" title={result.replan_reason || "Agent re-planned mid-investigation"}>
-                🔄 {result.iterations} passes
+                🔄 {result.iterations}
+                {Number.isFinite(result.max_iterations) && result.max_iterations > 0
+                  ? ` of ${result.max_iterations} passes`
+                  : " passes"}
               </span>
             )}
             {!isSimple && (
@@ -854,6 +1024,30 @@ export default function AyosaChatShell({ tools, aiConfig }) {
     catch { /* ignore quota / privacy errors */ }
   }, [agentMode]);
 
+  // Step 19: per-request max_iterations override. Empty string → let the
+  // backend pick its LLM-conditional default (1 without LLM, 4 with LLM).
+  // Persisted so power users keep their preferred ceiling across reloads.
+  const [maxIterationsOverride, setMaxIterationsOverride] = useState(() => {
+    try { return localStorage.getItem("ayosa.maxIterations") || ""; }
+    catch { return ""; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("ayosa.maxIterations", maxIterationsOverride); }
+    catch { /* ignore quota / privacy errors */ }
+  }, [maxIterationsOverride]);
+
+  // Step 21: opt-in agent-debug strip toggle. When on, the assistant
+  // message renders a one-line summary of the canonical loop telemetry
+  // emitted by the backend's ``loop_summary`` SSE event.
+  const [showDebug, setShowDebug] = useState(() => {
+    try { return localStorage.getItem("ayosa.showDebug") === "1"; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("ayosa.showDebug", showDebug ? "1" : "0"); }
+    catch { /* ignore quota / privacy errors */ }
+  }, [showDebug]);
+
   const threadRef = useRef(null);
   const inputRef  = useRef(null);
 
@@ -983,6 +1177,19 @@ export default function AyosaChatShell({ tools, aiConfig }) {
       },
     };
 
+    // Step 19: forward the optional per-request iteration cap. Only attach
+    // when the user typed a positive integer; otherwise let the backend
+    // resolve its own LLM-conditional default.
+    {
+      const trimmed = (maxIterationsOverride || "").trim();
+      if (trimmed) {
+        const n = Number.parseInt(trimmed, 10);
+        if (Number.isFinite(n) && n > 0) {
+          payload.max_iterations = n;
+        }
+      }
+    }
+
     // Helper: update one field on the assistant message immutably
     const updateMsg = (fields) =>
       setMessages((prev) =>
@@ -991,7 +1198,14 @@ export default function AyosaChatShell({ tools, aiConfig }) {
 
     try {
       await streamAyosaInvestigation(payload, (event) => {
-        if (event.type === "plan") {
+        if (event.type === "session_start") {
+          // Step 19: backend resolves the per-request iteration cap (request
+          // override → LLM-conditional default) and echoes it on session_start
+          // so the live trajectory badge can render "Pass N of up to M".
+          if (Number.isFinite(event.max_iterations) && event.max_iterations > 0) {
+            updateMsg({ maxIterationsLive: event.max_iterations });
+          }
+        } else if (event.type === "plan") {
           // Store the plan on the pending message so we can show it in the UI
           updateMsg({ plan: event.data });
         } else if (event.type === "intent") {
@@ -1068,6 +1282,18 @@ export default function AyosaChatShell({ tools, aiConfig }) {
         } else if (event.type === "prior_runs") {
           // Step 6: surface related prior investigation runs persisted to SQLite.
           updateMsg({ priorRuns: event.data });
+        } else if (event.type === "loop_summary") {
+          // Step 21: canonical iteration-loop telemetry. We capture it from the
+          // dedicated SSE event so the debug strip can render immediately
+          // without waiting for ``final_snapshot`` to land.
+          updateMsg({
+            loopSummary: {
+              iterations_run: event.iterations_run,
+              max_iterations: event.max_iterations,
+              replanned:      event.replanned,
+              replan_reason:  event.replan_reason,
+            },
+          });
         } else if (event.type === "result" || event.type === "final_snapshot") {
           // `result` = legacy stream, `final_snapshot` = agent-mode stream.
           updateMsg({
@@ -1161,6 +1387,44 @@ export default function AyosaChatShell({ tools, aiConfig }) {
           </span>
         </label>
 
+        {/* Step 19: optional per-request iteration cap override.
+            Empty input → backend picks default (1 without LLM, 4 with LLM). */}
+        <label
+          className={`ayosa-max-iter-field${isRunning ? " disabled" : ""}`}
+          title="Override the agent loop iteration cap. Leave blank for the LLM-conditional default (1 without LLM, 4 with LLM)."
+        >
+          <span className="ayosa-max-iter-label">🔁 Max passes</span>
+          <input
+            type="number"
+            min={1}
+            max={8}
+            step={1}
+            inputMode="numeric"
+            placeholder="auto"
+            value={maxIterationsOverride}
+            disabled={isRunning}
+            onChange={(e) => setMaxIterationsOverride(e.target.value)}
+            className="ayosa-max-iter-input"
+          />
+        </label>
+
+        {/* Step 21: Show agent debug strip toggle. Reveals the canonical
+            loop_summary telemetry under each completed assistant message. */}
+        <label
+          className={`ayosa-debug-toggle${showDebug ? " on" : ""}`}
+          title="Show the agent's iteration loop telemetry (loop_summary) under each completed response."
+        >
+          <input
+            type="checkbox"
+            checked={showDebug}
+            onChange={(e) => setShowDebug(e.target.checked)}
+          />
+          <span className="ayosa-debug-toggle-label">
+            🐞 Show agent debug
+            {showDebug && <span className="ayosa-debug-toggle-on">ON</span>}
+          </span>
+        </label>
+
         {/* Recent sessions */}
         {sessions.length > 0 && (
           <>
@@ -1221,6 +1485,7 @@ export default function AyosaChatShell({ tools, aiConfig }) {
                 <div key={msg.id} className="ayosa-message">
                   <AssistantMessage
                     msg={msg}
+                    showDebug={showDebug}
                     onGenerateRunbook={() =>
                       handleGenerateRunbook(msg.id, msg.result)
                     }

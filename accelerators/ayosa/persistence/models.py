@@ -44,6 +44,9 @@ class PersistedRun(BaseModel):
     created_at: str = ""
     iterations: int = 1
     replan_reason: Optional[str] = None
+    # Step 21: canonical loop telemetry persisted from the SSE
+    # ``loop_summary`` event (also reconstructed in the non-streaming path).
+    loop_summary: Optional[dict[str, Any]] = None
 
 
 class RunComparison(BaseModel):

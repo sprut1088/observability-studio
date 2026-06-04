@@ -57,6 +57,38 @@ _INVESTIGATION_INTENTS: frozenset[str] = frozenset({
 })
 
 
+# Step 18: per-request override + LLM-conditional default for the agent
+# loop's iteration cap. Anything outside [1, 8] gets clamped; without an
+# explicit override we bump the default to 4 when the LLM is configured
+# (re-plan + iterative tool-call refinement need room to breathe) and
+# keep the deterministic single-pass default of 1 otherwise.
+_MAX_ITERATIONS_FLOOR = 1
+_MAX_ITERATIONS_CEILING = 8
+_DEFAULT_MAX_ITERATIONS_LLM = 4
+_DEFAULT_MAX_ITERATIONS_NO_LLM = 1
+
+
+def resolve_max_iterations(request: Any) -> int:
+    """Resolve the iteration cap for ``AyosaAgent.run`` for a given request.
+
+    Resolution order:
+      1. Explicit ``request.max_iterations`` (clamped to [1, 8]).
+      2. ``ai.enabled`` truthy → ``_DEFAULT_MAX_ITERATIONS_LLM`` (4).
+      3. Otherwise → ``_DEFAULT_MAX_ITERATIONS_NO_LLM`` (1).
+    """
+    override = getattr(request, "max_iterations", None)
+    if override is not None:
+        try:
+            value = int(override)
+        except (TypeError, ValueError):
+            value = _DEFAULT_MAX_ITERATIONS_NO_LLM
+        return max(_MAX_ITERATIONS_FLOOR, min(_MAX_ITERATIONS_CEILING, value))
+
+    ai = getattr(request, "ai", None)
+    llm_enabled = bool(getattr(ai, "enabled", False)) if ai is not None else False
+    return _DEFAULT_MAX_ITERATIONS_LLM if llm_enabled else _DEFAULT_MAX_ITERATIONS_NO_LLM
+
+
 def run_agent_chat(
     request: Any,
     *,
@@ -68,7 +100,7 @@ def run_agent_chat(
     `request` is an `AyosaChatRequest` (or duck-typed equivalent with the
     same attributes). `agent` and `store` are injectable for tests.
     """
-    agent = agent or AyosaAgent()
+    agent = agent or AyosaAgent(max_iterations=resolve_max_iterations(request))
     store = store or get_default_store()
 
     # ── Resolve session_id and honour reset_session ──
@@ -106,6 +138,7 @@ def run_agent_chat(
     except Exception as exc:  # noqa: BLE001 — never propagate; chat must respond
         logger.error("AyosaAgent run failed: %s", exc, exc_info=True)
         out = _error_response(request, str(exc))
+        out["max_iterations"] = agent.max_iterations
         out["session_id"] = session_id
         out["workspace_context"] = workspace_ctx
         out["prior_runs"] = prior_runs
@@ -117,6 +150,15 @@ def run_agent_chat(
     result.plan.prior_runs = prior_runs
 
     chat_response = _agent_result_to_chat_response(result, request)
+    chat_response["max_iterations"] = agent.max_iterations
+    # Step 21: synthesize the canonical loop_summary record so the non-streaming
+    # path persists the same telemetry as the streaming ``loop_summary`` event.
+    chat_response["loop_summary"] = {
+        "iterations_run": int(result.iterations or 1),
+        "max_iterations": int(agent.max_iterations),
+        "replanned": int(result.iterations or 1) > 1,
+        "replan_reason": result.replan_reason,
+    }
     chat_response["session_id"] = session_id
     chat_response["workspace_context"] = workspace_ctx
     chat_response["prior_runs"] = prior_runs

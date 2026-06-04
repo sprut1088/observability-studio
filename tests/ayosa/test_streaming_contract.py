@@ -440,3 +440,103 @@ class TestRouterCompatibility:
         asyncio.run(_drain())
         assert called["agent_stream"] is True
         assert called["legacy_stream"] is False
+
+
+# ──────────────────────────────────────────────────────────────────────── #
+# Step 23 — Iterative-loop wire contract
+#
+# Pins the SSE envelope that Steps 19/20/21/22 wired together so a future
+# refactor of agent_stream can't silently break the frontend's:
+#   * "Pass N of up to M" live badge   (session_start.max_iterations)
+#   * per-pass tool grouping           (tool_start/tool_result.iteration)
+#   * agent-debug strip                (final_snapshot.data.loop_summary
+#                                       + dedicated loop_summary event)
+#   * Compare panel loop diff          (loop_summary fields)
+# ──────────────────────────────────────────────────────────────────────── #
+class TestIterativeLoopContract:
+    """Lock the canonical SSE wire format around the agent's iteration loop."""
+
+    def _run(self, max_iterations: int = 4):
+        # Build the agent with the desired cap directly — the public stream
+        # entry point uses ``agent or AyosaAgent(...)`` so we have to bake
+        # the iteration ceiling into the pre-built agent rather than rely
+        # on ``resolve_max_iterations(request)`` being called.
+        req = _req("p99 latency?")
+        req.max_iterations = max_iterations
+        agent = AyosaAgent(
+            dispatcher=ToolDispatcher({"prometheus": _FakePromAdapter}),
+            max_iterations=max_iterations,
+        )
+
+        async def _go():
+            return await _collect(stream_agent_chat(req, agent=agent))
+
+        return asyncio.run(_go())
+
+    def test_session_start_carries_max_iterations(self):
+        events = self._run(max_iterations=3)
+        start = events[0]
+        assert start["type"] == "session_start"
+        assert start["max_iterations"] == 3
+
+    def test_tool_events_carry_iteration_index(self):
+        events = self._run()
+        tool_events = [e for e in events if e["type"] in ("tool_start", "tool_result")]
+        assert tool_events, "expected at least one tool_start/tool_result pair"
+        for ev in tool_events:
+            assert "iteration" in ev, f"{ev['type']} missing iteration index"
+            assert isinstance(ev["iteration"], int)
+            assert ev["iteration"] >= 0
+
+    def test_final_snapshot_embeds_loop_summary(self):
+        events = self._run(max_iterations=2)
+        snapshot = next(e for e in events if e["type"] == "final_snapshot")
+        data = snapshot["data"]
+        assert "loop_summary" in data, "final_snapshot.data must embed loop_summary"
+        ls = data["loop_summary"]
+        assert set(ls.keys()) == {
+            "iterations_run", "max_iterations", "replanned", "replan_reason",
+        }
+        assert ls["max_iterations"] == 2
+        assert isinstance(ls["iterations_run"], int)
+        assert ls["iterations_run"] >= 1
+        assert isinstance(ls["replanned"], bool)
+        # Single-pass run: not replanned, no reason
+        assert ls["replanned"] is False
+        assert ls["replan_reason"] is None
+
+    def test_dedicated_loop_summary_event_emitted(self):
+        events = self._run(max_iterations=4)
+        loop_evs = [e for e in events if e["type"] == "loop_summary"]
+        assert len(loop_evs) == 1, "exactly one loop_summary event must be emitted"
+        ev = loop_evs[0]
+        assert set(ev.keys()) == {
+            "type", "iterations_run", "max_iterations", "replanned", "replan_reason",
+        }
+        assert ev["max_iterations"] == 4
+        assert ev["replanned"] is False
+        assert ev["replan_reason"] is None
+
+    def test_canonical_terminal_envelope_order(self):
+        """final_snapshot → loop_summary → done, with nothing in between."""
+        events = self._run()
+        types = [e["type"] for e in events]
+        snap_idx = types.index("final_snapshot")
+        # No other final_snapshot
+        assert types.count("final_snapshot") == 1
+        # The next two events must be loop_summary then done
+        assert types[snap_idx + 1] == "loop_summary"
+        assert types[snap_idx + 2] == "done"
+        # done must be the very last event
+        assert types[-1] == "done"
+
+    def test_loop_summary_fields_agree_between_snapshot_and_event(self):
+        events = self._run(max_iterations=2)
+        snap_ls = next(e["data"]["loop_summary"]
+                       for e in events if e["type"] == "final_snapshot")
+        evt_ls = next(e for e in events if e["type"] == "loop_summary")
+        for key in ("iterations_run", "max_iterations", "replanned", "replan_reason"):
+            assert snap_ls[key] == evt_ls[key], (
+                f"loop_summary mismatch on {key}: "
+                f"final_snapshot={snap_ls[key]!r} vs event={evt_ls[key]!r}"
+            )

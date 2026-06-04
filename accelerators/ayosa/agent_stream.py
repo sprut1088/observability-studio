@@ -51,6 +51,7 @@ from accelerators.ayosa.agent_bridge import (
     _agent_result_to_chat_response,
     _retrieve_workspace_context,
     _to_agent_input,
+    resolve_max_iterations,
 )
 from accelerators.ayosa.agent.history_retriever import retrieve_prior_runs
 
@@ -116,12 +117,12 @@ async def stream_agent_chat(
     Each yielded value is a dict shaped `{type: str, ...}`. Callers
     wrap with `serialize_sse_event(ev.pop("type"), ev)` for SSE.
     """
-    agent = agent or AyosaAgent()
+    agent = agent or AyosaAgent(max_iterations=resolve_max_iterations(request))
     agent_input = _to_agent_input(request)
     session_id = getattr(request, "session_id", None) or agent_input.session_id
 
     try:
-        # ── session_start ─────────────────────────────────────────── #
+        # ── session_start ─────────────────────────────────── #
         yield {
             "type": "session_start",
             "session_id": session_id,
@@ -129,6 +130,7 @@ async def stream_agent_chat(
             "message": agent_input.message,
             "service": agent_input.service,
             "time_range": agent_input.time_range,
+            "max_iterations": agent.max_iterations,
         }
 
         # ── intent ────────────────────────────────────────────────── #
@@ -356,7 +358,28 @@ async def stream_agent_chat(
 
         # ── final_snapshot — full chat-response dict ──────────────── #
         chat_response = _agent_result_to_chat_response(result, request)
+        chat_response["max_iterations"] = agent.max_iterations
+        # Step 21: attach the same loop telemetry the dedicated SSE event
+        # below carries so any consumer that only reads ``final_snapshot``
+        # (e.g. the legacy /chat-style record) still sees it.
+        chat_response["loop_summary"] = {
+            "iterations_run": iterations_run,
+            "max_iterations": agent.max_iterations,
+            "replanned": iterations_run > 1,
+            "replan_reason": replan_explanation,
+        }
         yield {"type": "final_snapshot", "data": chat_response}
+
+        # ── loop_summary — Step 20: single canonical record of the agent's
+        # iteration loop so the UI/debug panel and persistence don't have to
+        # infer it from the much larger ``final_snapshot`` blob.
+        yield {
+            "type": "loop_summary",
+            "iterations_run": iterations_run,
+            "max_iterations": agent.max_iterations,
+            "replanned": iterations_run > 1,
+            "replan_reason": replan_explanation,
+        }
 
         # ── done ──────────────────────────────────────────────────── #
         yield {

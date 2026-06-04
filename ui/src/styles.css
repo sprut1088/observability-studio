@@ -3474,6 +3474,150 @@ html[data-theme="dark"] .ayosa-agent-toggle.on {
   background: rgba(124, 58, 237, 0.16);
 }
 
+/* ── Step 19: Max-passes override field (next to Agent Mode toggle) ── */
+.ayosa-max-iter-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid rgba(124, 58, 237, 0.15);
+  border-radius: var(--radius-sm);
+  background: rgba(124, 58, 237, 0.04);
+  cursor: text;
+  user-select: none;
+}
+.ayosa-max-iter-field.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ayosa-max-iter-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.ayosa-max-iter-input {
+  width: 64px;
+  padding: 3px 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  border: 1px solid var(--border-default, rgba(0, 0, 0, 0.12));
+  border-radius: 4px;
+  background: var(--bg-card, #fff);
+  color: var(--text-primary);
+}
+.ayosa-max-iter-input:focus {
+  outline: none;
+  border-color: var(--violet, #7c3aed);
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.18);
+}
+html[data-theme="dark"] .ayosa-max-iter-field {
+  background: rgba(124, 58, 237, 0.10);
+  border-color: rgba(124, 58, 237, 0.30);
+}
+html[data-theme="dark"] .ayosa-max-iter-input {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #e5e7eb;
+}
+
+/* ── Step 21: Agent-debug toggle (sidebar) + loop_summary debug strip ── */
+.ayosa-debug-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid rgba(124, 58, 237, 0.15);
+  border-radius: var(--radius-sm);
+  background: rgba(124, 58, 237, 0.04);
+  cursor: pointer;
+  user-select: none;
+}
+.ayosa-debug-toggle.on {
+  border-color: rgba(124, 58, 237, 0.45);
+  background: rgba(124, 58, 237, 0.10);
+}
+.ayosa-debug-toggle input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+.ayosa-debug-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.ayosa-debug-toggle-on {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(124, 58, 237, 0.18);
+  color: var(--violet, #7c3aed);
+  letter-spacing: 0.04em;
+}
+html[data-theme="dark"] .ayosa-debug-toggle {
+  background: rgba(124, 58, 237, 0.10);
+  border-color: rgba(124, 58, 237, 0.30);
+}
+html[data-theme="dark"] .ayosa-debug-toggle.on {
+  background: rgba(124, 58, 237, 0.20);
+  border-color: rgba(124, 58, 237, 0.55);
+}
+html[data-theme="dark"] .ayosa-debug-toggle-on {
+  background: rgba(124, 58, 237, 0.30);
+  color: #c4b5fd;
+}
+
+.ayosa-debug-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px 0;
+  padding: 6px 10px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  background: rgba(124, 58, 237, 0.05);
+  border: 1px dashed rgba(124, 58, 237, 0.30);
+  border-radius: var(--radius-sm);
+}
+.ayosa-debug-strip-label {
+  font-weight: 700;
+  color: var(--violet, #7c3aed);
+  letter-spacing: 0.02em;
+}
+.ayosa-debug-strip-stat {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.ayosa-debug-strip-sep {
+  opacity: 0.5;
+}
+.ayosa-debug-strip-reason {
+  color: var(--text-primary);
+  opacity: 0.85;
+}
+html[data-theme="dark"] .ayosa-debug-strip {
+  background: rgba(124, 58, 237, 0.12);
+  border-color: rgba(124, 58, 237, 0.40);
+  color: #cbd5e1;
+}
+html[data-theme="dark"] .ayosa-debug-strip-label {
+  color: #c4b5fd;
+}
+html[data-theme="dark"] .ayosa-debug-strip-stat,
+html[data-theme="dark"] .ayosa-debug-strip-reason {
+  color: #e5e7eb;
+}
+
 /* ── Step 4: Workspace knowledge card ──────────────────────────── */
 .ayosa-workspace-card {
   margin: 10px 0;
@@ -3926,6 +4070,78 @@ html[data-theme="dark"] .ayosa-compare-field { color: #c4b5fd; }
 html[data-theme="dark"] .ayosa-compare-table th,
 html[data-theme="dark"] .ayosa-compare-table td {
   border-bottom-color: rgba(139, 92, 246, 0.20);
+}
+
+/* ── Step 17: Trajectory diff inside the Compare panel ────────── */
+.ayosa-compare-trajectory {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.30);
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.06);
+}
+.ayosa-compare-trajectory-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #b45309;
+  margin-bottom: 6px;
+}
+.ayosa-compare-trajectory-summary {
+  font-size: 12.5px;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.ayosa-compare-trajectory-reason {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.ayosa-compare-trajectory-reason-label {
+  font-weight: 600;
+  color: #b45309;
+}
+/* Step 22: loop_summary delta row inside the trajectory diff. */
+.ayosa-compare-trajectory-loop {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.ayosa-compare-trajectory-loop-label {
+  font-weight: 700;
+  color: var(--violet, #7c3aed);
+  letter-spacing: 0.02em;
+}
+.ayosa-compare-trajectory-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.ayosa-compare-trajectory-side-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.ayosa-compare-trajectory-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+html[data-theme="dark"] .ayosa-compare-trajectory {
+  background: rgba(245, 158, 11, 0.10);
+  border-color: rgba(245, 158, 11, 0.40);
+}
+html[data-theme="dark"] .ayosa-compare-trajectory-title,
+html[data-theme="dark"] .ayosa-compare-trajectory-reason-label {
+  color: #fbbf24;
+}
+html[data-theme="dark"] .ayosa-compare-trajectory-loop-label {
+  color: #c4b5fd;
 }
 
 /* ── Skipped step style ─────────────────────────────────────────── */

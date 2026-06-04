@@ -95,6 +95,7 @@ class Repository:
         created_at: str | None = None,
         iterations: int = 1,
         replan_reason: str | None = None,
+        loop_summary: dict[str, Any] | None = None,
     ) -> str | None:
         """Persist a single run; returns its `run_id`, or None on failure."""
         rid = (run_id or f"run-{uuid.uuid4().hex[:12]}").strip()
@@ -113,8 +114,8 @@ class Repository:
                         run_id, session_id, message, intent, service,
                         time_range, tools_used_json, confidence, answer,
                         snapshot_json, evidence_summary_json, created_at,
-                        iterations, replan_reason
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        iterations, replan_reason, loop_summary_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         rid, session_id, message, intent, service,
@@ -126,6 +127,7 @@ class Repository:
                         ts,
                         max(1, int(iterations or 1)),
                         replan_reason,
+                        json.dumps(loop_summary) if loop_summary is not None else None,
                     ),
                 )
 
@@ -249,6 +251,9 @@ class Repository:
                     created_at=row["created_at"] or "",
                     iterations=int(_row_get(row, "iterations", 1) or 1),
                     replan_reason=_row_get(row, "replan_reason", None),
+                    loop_summary=_loads_dict_or_none(
+                        _row_get(row, "loop_summary_json", None)
+                    ),
                 )
         except sqlite3.Error as exc:
             logger.warning("get_run(%s) failed: %s", run_id, exc)
@@ -340,6 +345,31 @@ class Repository:
             (session_id, ts, ts),
         )
 
+    # Step 21: targeted update so the SSE ``loop_summary`` event can be
+    # recorded after the row has already been created (or independently of
+    # the chat-response persist path). Idempotent and best-effort.
+    def record_loop_summary(
+        self, run_id: str, summary: dict[str, Any] | None
+    ) -> bool:
+        if not run_id:
+            return False
+        payload = json.dumps(summary) if summary is not None else None
+        try:
+            with self.db.connect() as conn:
+                cur = conn.execute(
+                    "UPDATE ayosa_runs SET loop_summary_json = ? WHERE run_id = ?",
+                    (payload, run_id),
+                )
+                return cur.rowcount > 0
+        except sqlite3.Error as exc:
+            logger.warning("record_loop_summary(%s) failed: %s", run_id, exc)
+            return False
+        except Exception as exc:  # noqa: BLE001 — never break chat
+            logger.warning(
+                "record_loop_summary(%s) unexpected failure: %s", run_id, exc
+            )
+            return False
+
 
 # ──────────────────────────────────────────────────────────────────────── #
 # Convenience: persist an AgentResult-shaped chat response
@@ -382,6 +412,11 @@ def persist_agent_result(
             tool_steps=chat_response.get("tool_steps") or [],
             iterations=int(chat_response.get("iterations") or 1),
             replan_reason=chat_response.get("replan_reason"),
+            loop_summary=(
+                chat_response.get("loop_summary")
+                if isinstance(chat_response.get("loop_summary"), dict)
+                else None
+            ),
         )
     except Exception as exc:  # noqa: BLE001 — never break chat
         logger.warning("persist_agent_result failed: %s", exc)
@@ -489,6 +524,13 @@ def _diff_runs(a: PersistedRun, b: PersistedRun) -> dict[str, Any]:
         traj_diff["replan_reason"] = {
             "left": a.replan_reason,
             "right": b.replan_reason,
+        }
+    # Step 21: loop_summary diff lives inside trajectory so consumers only
+    # need to look at one bucket for re-plan-related deltas.
+    if (a.loop_summary or None) != (b.loop_summary or None):
+        traj_diff["loop_summary"] = {
+            "left": a.loop_summary,
+            "right": b.loop_summary,
         }
     if traj_diff:
         out["trajectory"] = traj_diff

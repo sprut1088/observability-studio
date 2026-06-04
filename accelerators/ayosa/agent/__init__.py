@@ -108,12 +108,18 @@ class AyosaAgent:
             all_steps.extend(steps)
             all_observations.extend(observations)
 
+            # Step 20: short-circuit. When this is the last permitted pass
+            # (including the single-pass case where ``max_iterations == 1``)
+            # the in-loop reflection is dead work — its only consumer is the
+            # re-plan branch that we're about to skip. The post-loop
+            # ``final_reflections`` call below still runs, so the synthesizer
+            # still sees a canonical reflection set.
+            if iteration + 1 >= self.max_iterations:
+                break
+
             # Reflect against the ORIGINAL plan so required_signals
             # accounting stays canonical across iterations.
             reflections = self._reflect(plan, all_observations)
-
-            if iteration + 1 >= self.max_iterations:
-                break
 
             # Step 13: try the LLM-driven iterative re-plan first. It can
             # both pick previously-unused tools AND re-call an already
