@@ -17,6 +17,9 @@ Event types (in nominal emission order):
                        collection step yields any
     timeline_event  — one per observation that carries a timestamp
     llm_chunk       — streamed LLM tokens (only when AI is enabled)
+    llm_call_start  — (tool-use branch) before each Claude turn
+    llm_call_end    — (tool-use branch) after each Claude turn, carries text
+    loop_error      — (tool-use branch) non-fatal Anthropic SDK failure
     final_snapshot  — answer + snapshot + suggested actions
     done            — terminator; carries confidence + mode
     error           — fatal; ends the stream
@@ -179,13 +182,14 @@ async def stream_agent_chat(
         yield {"type": "workspace_context", "data": workspace_ctx}
         yield {"type": "prior_runs", "data": prior_runs}
 
-        # ── Step 25: Anthropic tool-use loop branch ─────────────── #
-        # When the request opts in AND a real client can be built, run
-        # the Anthropic tool-use conversation in a worker thread, then
-        # replay its history as the existing SSE event vocabulary so
-        # the frontend (live tool grouping, loop_summary, debug strip)
-        # keeps working unchanged. The deterministic dispatch loop
-        # below is skipped entirely in this branch.
+        # ── Step 25/26: Anthropic tool-use loop branch ──────────── #
+        # When the request opts in AND a real client can be built, drive
+        # the tool-use loop in a worker thread and bridge its progress
+        # callback into this async stream via an asyncio.Queue. Events
+        # (llm_call_*, tool_start, tool_result, observation) are
+        # forwarded to the SSE consumer **as Claude emits them** — not
+        # batched after the loop finishes. The deterministic dispatch
+        # loop below is skipped entirely in this branch.
         if should_use_tool_use_loop(agent_input):
             client = build_anthropic_client(agent_input)
             if client is not None:
@@ -199,61 +203,82 @@ async def stream_agent_chat(
                     model=loop_model,
                     max_iterations=agent.max_iterations,
                 )
-                loop_result = await asyncio.to_thread(loop.run, agent_input)
 
-                # Replay tool calls as the existing tool_start/tool_result
-                # event pair so live UI grouping by ``iteration`` still
-                # works. We pair each step with its observations by
-                # walking both lists in lockstep: the dispatcher emits
-                # observations in the same order as the steps that
-                # produced them.
-                obs_cursor = 0
-                for step in loop_result.tool_steps:
-                    yield {
-                        "type": "tool_start",
-                        "index": step.index,
-                        "tool": step.tool,
-                        "label": step.label or f"Querying {step.tool}",
-                        "iteration": step.iteration,
-                    }
-                    # All observations belonging to this step share the
-                    # same source as the tool. Consume up to the next
-                    # step's source-boundary.
-                    step_obs: list[Any] = []
-                    while obs_cursor < len(loop_result.observations):
-                        cand = loop_result.observations[obs_cursor]
-                        if (cand.source or "").lower() == step.tool.lower():
-                            step_obs.append(cand)
-                            obs_cursor += 1
-                        else:
-                            break
-                    yield {
-                        "type": "tool_result",
-                        "index": step.index,
-                        "tool": step.tool,
-                        "status": step.status,
-                        "findings_count": len(step_obs),
-                        "iteration": step.iteration,
-                        **({"error": step.error} if step.error else {}),
-                    }
-                    for obs in step_obs:
-                        yield {
-                            "type": "observation",
-                            "source": obs.source,
-                            "signal": obs.signal,
-                            "finding": obs.finding,
-                            "query": obs.query,
-                            "status": obs.status,
-                        }
-                        ts = _extract_timestamp(obs)
-                        if ts:
-                            yield {
-                                "type": "timeline_event",
-                                "timestamp": ts,
-                                "source": obs.source,
-                                "event": (obs.finding or "")[:200],
-                                "severity": _extract_severity(obs),
-                            }
+                running_loop = asyncio.get_event_loop()
+                event_queue: asyncio.Queue[dict[str, Any] | None] = (
+                    asyncio.Queue()
+                )
+
+                def _on_loop_event(ev: dict[str, Any]) -> None:
+                    # Called from the worker thread inside ToolUseLoop.run.
+                    # Hop back onto the running loop's thread before
+                    # touching the asyncio.Queue.
+                    running_loop.call_soon_threadsafe(
+                        event_queue.put_nowait, ev
+                    )
+
+                async def _run_loop_in_thread():
+                    try:
+                        return await asyncio.to_thread(
+                            loop.run, agent_input, on_event=_on_loop_event
+                        )
+                    finally:
+                        # Sentinel so the consumer below knows to stop
+                        # draining the queue.
+                        event_queue.put_nowait(None)
+
+                loop_task = asyncio.create_task(_run_loop_in_thread())
+
+                # ── Progressive event drain ───────────────────────── #
+                while True:
+                    ev = await event_queue.get()
+                    if ev is None:
+                        break
+
+                    ev_type = ev.get("type")
+
+                    # Pass tool/observation events through untouched so
+                    # existing UI consumers (which already key off
+                    # `tool_start` / `tool_result` / `observation`) work
+                    # without any branch.
+                    if ev_type in (
+                        "tool_start",
+                        "tool_result",
+                        "observation",
+                    ):
+                        yield ev
+                        # observation events with a timestamp also fan
+                        # out into a timeline_event, matching the
+                        # deterministic path's behaviour.
+                        if ev_type == "observation":
+                            ts = ev.get("raw", {}).get("timestamp") or \
+                                 ev.get("raw", {}).get("time") or \
+                                 ev.get("raw", {}).get("@timestamp")
+                            if ts:
+                                raw = ev.get("raw") or {}
+                                sev = raw.get("severity") or raw.get("level")
+                                yield {
+                                    "type": "timeline_event",
+                                    "timestamp": str(ts),
+                                    "source": ev.get("source"),
+                                    "event": (ev.get("finding") or "")[:200],
+                                    "severity": str(sev) if sev else None,
+                                }
+                        continue
+
+                    # llm_call_start / llm_call_end / loop_error are
+                    # additive events new in Step 26. Forward them so
+                    # debug consumers (and future "thinking" UI) can
+                    # render Claude's per-iteration reasoning.
+                    if ev_type in ("llm_call_start", "llm_call_end", "loop_error"):
+                        yield ev
+                        continue
+
+                    # Anything else we forward verbatim — keeps the
+                    # vocabulary extensible without changing this branch.
+                    yield ev
+
+                loop_result = await loop_task
 
                 # Synthesise the final AgentResult, attach context, and
                 # emit the same terminal envelope (final_snapshot →

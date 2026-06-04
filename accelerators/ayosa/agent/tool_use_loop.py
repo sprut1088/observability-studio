@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from accelerators.ayosa.agent.schemas import (
     AgentInput,
@@ -406,8 +406,54 @@ class ToolUseLoop:
         self.system_prompt = system_prompt
 
     # ------------------------------------------------------------------ #
-    def run(self, agent_input: AgentInput) -> ToolUseLoopResult:
-        """Execute the tool-use loop until ``end_turn`` or the cap is hit."""
+    def run(
+        self,
+        agent_input: AgentInput,
+        *,
+        on_event: Optional[Callable[[dict[str, Any]], None]] = None,
+    ) -> ToolUseLoopResult:
+        """Execute the tool-use loop until ``end_turn`` or the cap is hit.
+
+        Parameters
+        ----------
+        agent_input:
+            The shared :class:`AgentInput` carrying message, tools, and
+            llm config.
+        on_event:
+            Optional callback invoked **synchronously** as the loop
+            progresses. Event payloads are plain JSON-serialisable
+            dicts with a ``type`` key. Step 26 wires this into
+            :func:`agent_stream.stream_agent_chat` to deliver
+            progressive SSE events while Claude is still reasoning.
+
+            Emitted event types (in order):
+              * ``llm_call_start`` ``{iteration}``
+              * ``llm_call_end``   ``{iteration, stop_reason, text}``
+              * ``tool_start``     ``{index, tool, label, iteration,
+                                      query_focus, reason, service,
+                                      time_range, tool_use_id}``
+              * ``tool_result``    ``{index, tool, status,
+                                      findings_count, iteration,
+                                      tool_use_id, [error]}``
+              * ``observation``    ``{source, signal, finding, query,
+                                      status, raw}``  — one per finding
+              * ``loop_error``     ``{iteration, error}`` — non-fatal,
+                                    emitted once per Anthropic SDK error
+                                    before the loop bails out.
+
+            Callbacks **must not raise**; any exception is logged and
+            swallowed so a faulty consumer cannot kill the loop.
+        """
+        def emit(event_type: str, **payload: Any) -> None:
+            if on_event is None:
+                return
+            try:
+                on_event({"type": event_type, **payload})
+            except Exception:  # noqa: BLE001 — never let consumer crash the loop
+                logger.exception(
+                    "ToolUseLoop.on_event callback raised for %s", event_type
+                )
+
         schemas = build_anthropic_tool_schemas(agent_input.tools)
         tools_by_key: dict[str, AgentToolConfig] = {
             (t.tool or "").lower().strip(): t for t in agent_input.tools
@@ -425,6 +471,7 @@ class ToolUseLoop:
 
         for iteration in range(self.max_iterations):
             iterations_run += 1
+            emit("llm_call_start", iteration=iteration)
             try:
                 response = self.client.messages.create(
                     model=self.model,
@@ -437,6 +484,7 @@ class ToolUseLoop:
                 logger.error("Anthropic tool-use call failed: %s", exc, exc_info=True)
                 stop_reason = "error"
                 final_text = f"LLM call failed: {exc}"
+                emit("loop_error", iteration=iteration, error=str(exc))
                 break
 
             content = getattr(response, "content", None)
@@ -451,9 +499,20 @@ class ToolUseLoop:
                 }
             )
 
+            # Surface assistant text BEFORE dispatch (progressive UX):
+            # the UI can render Claude's reasoning chunk-by-chunk turn,
+            # then watch the tool calls land.
+            assistant_text = _extract_text_blocks(content)
+            emit(
+                "llm_call_end",
+                iteration=iteration,
+                stop_reason=resp_stop,
+                text=assistant_text,
+            )
+
             if resp_stop != "tool_use":
                 # Final assistant message — collect text and stop.
-                final_text = _extract_text_blocks(content)
+                final_text = assistant_text
                 stop_reason = resp_stop
                 break
 
@@ -462,7 +521,7 @@ class ToolUseLoop:
             if not tool_calls:
                 # stop_reason said tool_use but no blocks present —
                 # treat as terminal to avoid an infinite loop.
-                final_text = _extract_text_blocks(content)
+                final_text = assistant_text
                 stop_reason = "end_turn"
                 break
 
@@ -471,25 +530,51 @@ class ToolUseLoop:
                 api_name = call.get("name") or ""
                 tool_key = _anthropic_to_tool_name(api_name)
                 tool_input = call.get("input") or {}
+                tool_use_id = call.get("id") or ""
                 cfg = tools_by_key.get(tool_key)
+
+                # Emit tool_start eagerly so the UI sees the decision
+                # *before* the adapter HTTP call lands. Adapter latency
+                # (often 1-5s for Splunk/Elastic) becomes visible.
+                emit(
+                    "tool_start",
+                    index=step_index,
+                    tool=tool_key,
+                    label=f"Querying {tool_key}",
+                    iteration=iteration,
+                    query_focus=tool_input.get("query_focus") or "",
+                    reason=tool_input.get("reason") or "",
+                    service=tool_input.get("service") or agent_input.service,
+                    time_range=tool_input.get("time_range") or agent_input.time_range,
+                    tool_use_id=tool_use_id,
+                )
 
                 if cfg is None:
                     err = f"Tool '{tool_key}' is not configured for this run."
-                    all_steps.append(
-                        ToolStep(
-                            index=step_index,
-                            tool=tool_key,
-                            label=f"Querying {tool_key}",
-                            status="error",
-                            error=err,
-                            iteration=iteration,
-                        )
+                    error_step = ToolStep(
+                        index=step_index,
+                        tool=tool_key,
+                        label=f"Querying {tool_key}",
+                        status="error",
+                        error=err,
+                        iteration=iteration,
+                    )
+                    all_steps.append(error_step)
+                    emit(
+                        "tool_result",
+                        index=step_index,
+                        tool=tool_key,
+                        status="error",
+                        findings_count=0,
+                        iteration=iteration,
+                        tool_use_id=tool_use_id,
+                        error=err,
                     )
                     step_index += 1
                     tool_results.append(
                         {
                             "type": "tool_result",
-                            "tool_use_id": call.get("id") or "",
+                            "tool_use_id": tool_use_id,
                             "is_error": True,
                             "content": _observations_to_tool_result([], err),
                         }
@@ -513,10 +598,40 @@ class ToolUseLoop:
                 all_observations.extend(observations)
 
                 err_step = next((s for s in steps if s.status == "error"), None)
+                # tool_result mirrors the actual dispatch outcome. Index
+                # is the LAST step's index for this tool call (most
+                # adapters return exactly one step per call).
+                result_idx = (
+                    steps[-1].index if steps else step_index - 1
+                )
+                result_event: dict[str, Any] = {
+                    "index": result_idx,
+                    "tool": tool_key,
+                    "status": err_step.status if err_step else "done",
+                    "findings_count": len(observations),
+                    "iteration": iteration,
+                    "tool_use_id": tool_use_id,
+                }
+                if err_step and err_step.error:
+                    result_event["error"] = err_step.error
+                emit("tool_result", **result_event)
+
+                # One observation event per finding, in dispatch order.
+                for obs in observations:
+                    emit(
+                        "observation",
+                        source=obs.source,
+                        signal=obs.signal,
+                        finding=obs.finding,
+                        query=obs.query,
+                        status=obs.status,
+                        raw=obs.raw if isinstance(obs.raw, dict) else {},
+                    )
+
                 tool_results.append(
                     {
                         "type": "tool_result",
-                        "tool_use_id": call.get("id") or "",
+                        "tool_use_id": tool_use_id,
                         "is_error": err_step is not None,
                         "content": _observations_to_tool_result(
                             observations,

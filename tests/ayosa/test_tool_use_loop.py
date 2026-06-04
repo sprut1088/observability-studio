@@ -541,3 +541,323 @@ class TestLoopBehaviour:
         # The LLM's per-call override must win over the AgentInput default.
         assert prom.last_kwargs["service"] == "checkout"
         assert prom.last_kwargs["time_range"] == "1h"
+
+
+# ──────────────────────────────────────────────────────────────────────── #
+# Step 26 — progressive callback hooks
+# ──────────────────────────────────────────────────────────────────────── #
+class TestProgressiveCallbacks:
+    """Pin the on_event callback contract added in Step 26."""
+
+    def _capture_run(self, scripted, adapters, *, max_iterations=4):
+        client = _FakeAnthropicClient(scripted)
+        loop = ToolUseLoop(
+            client=client,
+            dispatcher=ToolDispatcher(adapters),
+            max_iterations=max_iterations,
+        )
+        events: list[dict[str, Any]] = []
+        result = loop.run(
+            _agent_input(*adapters.keys()),
+            on_event=lambda ev: events.append(ev),
+        )
+        return events, result
+
+    def test_no_callback_means_no_emission_and_no_crash(self):
+        # Default behaviour: on_event=None must not raise and must not
+        # change the final result. Use the canonical happy-path script.
+        client = _FakeAnthropicClient([
+            _FakeMessage(
+                content=[_FakeBlock(
+                    type="tool_use", id="t1",
+                    name="prometheus_investigate",
+                    input={"service": "payments"},
+                )],
+                stop_reason="tool_use",
+            ),
+            _FakeMessage(
+                content=[_FakeBlock(type="text", text="done")],
+                stop_reason="end_turn",
+            ),
+        ])
+        loop = ToolUseLoop(
+            client=client,
+            dispatcher=ToolDispatcher({"prometheus": _FakePromAdapter}),
+        )
+        result = loop.run(_agent_input("prometheus"))  # no on_event
+
+        assert result.final_response == "done"
+        assert result.iterations_run == 2
+
+    def test_event_order_for_single_tool_call(self):
+        events, result = self._capture_run(
+            scripted=[
+                _FakeMessage(
+                    content=[
+                        _FakeBlock(type="text", text="Checking metrics."),
+                        _FakeBlock(
+                            type="tool_use", id="t1",
+                            name="prometheus_investigate",
+                            input={"service": "payments",
+                                   "query_focus": "5xx",
+                                   "reason": "user asked"},
+                        ),
+                    ],
+                    stop_reason="tool_use",
+                ),
+                _FakeMessage(
+                    content=[_FakeBlock(type="text", text="All good.")],
+                    stop_reason="end_turn",
+                ),
+            ],
+            adapters={"prometheus": _FakePromAdapter},
+        )
+
+        types = [e["type"] for e in events]
+        # Expected sequence:
+        #   llm_call_start (it=0)
+        #   llm_call_end   (it=0, stop_reason=tool_use)
+        #   tool_start
+        #   tool_result
+        #   observation
+        #   llm_call_start (it=1)
+        #   llm_call_end   (it=1, stop_reason=end_turn)
+        assert types == [
+            "llm_call_start",
+            "llm_call_end",
+            "tool_start",
+            "tool_result",
+            "observation",
+            "llm_call_start",
+            "llm_call_end",
+        ]
+        assert result.iterations_run == 2
+
+    def test_tool_start_carries_llm_input_metadata(self):
+        events, _ = self._capture_run(
+            scripted=[
+                _FakeMessage(
+                    content=[_FakeBlock(
+                        type="tool_use", id="abc",
+                        name="prometheus_investigate",
+                        input={"service": "checkout",
+                               "time_range": "1h",
+                               "query_focus": "p99 latency",
+                               "reason": "user asked"},
+                    )],
+                    stop_reason="tool_use",
+                ),
+                _FakeMessage(
+                    content=[_FakeBlock(type="text", text="done")],
+                    stop_reason="end_turn",
+                ),
+            ],
+            adapters={"prometheus": _FakePromAdapter},
+        )
+        ts = next(e for e in events if e["type"] == "tool_start")
+        assert ts["tool"] == "prometheus"
+        assert ts["iteration"] == 0
+        assert ts["index"] == 0
+        assert ts["query_focus"] == "p99 latency"
+        assert ts["reason"] == "user asked"
+        assert ts["service"] == "checkout"
+        assert ts["time_range"] == "1h"
+        assert ts["tool_use_id"] == "abc"
+        assert ts["label"].lower().startswith("querying")
+
+    def test_tool_start_emitted_before_dispatch(self):
+        # Wire an adapter that records the relative order of its
+        # invocation vs the tool_start callback. The callback must fire
+        # FIRST (otherwise progressive UI would appear delayed).
+        seen: list[str] = []
+
+        class _OrderingAdapter:
+            def __init__(self, base_url, auth_token=None):
+                self.base_url = base_url
+
+            def investigate(self, service, time_range, message, plan=None):
+                seen.append("dispatch")
+                return [{"source": "prometheus", "signal": "metrics",
+                         "finding": "ok", "status": "ok", "raw": {}}]
+
+        client = _FakeAnthropicClient([
+            _FakeMessage(
+                content=[_FakeBlock(
+                    type="tool_use", id="t1",
+                    name="prometheus_investigate",
+                    input={"service": "payments"},
+                )],
+                stop_reason="tool_use",
+            ),
+            _FakeMessage(
+                content=[_FakeBlock(type="text", text="done")],
+                stop_reason="end_turn",
+            ),
+        ])
+        loop = ToolUseLoop(
+            client=client,
+            dispatcher=ToolDispatcher({"prometheus": _OrderingAdapter}),
+        )
+
+        def _cb(ev):
+            if ev["type"] == "tool_start":
+                seen.append("tool_start")
+            elif ev["type"] == "tool_result":
+                seen.append("tool_result")
+
+        loop.run(_agent_input("prometheus"), on_event=_cb)
+
+        # Required ordering: tool_start → dispatch → tool_result
+        assert seen == ["tool_start", "dispatch", "tool_result"]
+
+    def test_observation_event_emitted_per_finding(self):
+        class _MultiFindAdapter:
+            def __init__(self, base_url, auth_token=None):
+                self.base_url = base_url
+
+            def investigate(self, service, time_range, message, plan=None):
+                return [
+                    {"source": "prometheus", "signal": "metrics",
+                     "finding": f"finding-{i}", "status": "ok", "raw": {}}
+                    for i in range(3)
+                ]
+
+        events, _ = self._capture_run(
+            scripted=[
+                _FakeMessage(
+                    content=[_FakeBlock(
+                        type="tool_use", id="t1",
+                        name="prometheus_investigate",
+                        input={"service": "payments"},
+                    )],
+                    stop_reason="tool_use",
+                ),
+                _FakeMessage(
+                    content=[_FakeBlock(type="text", text="done")],
+                    stop_reason="end_turn",
+                ),
+            ],
+            adapters={"prometheus": _MultiFindAdapter},
+        )
+        obs_events = [e for e in events if e["type"] == "observation"]
+        assert len(obs_events) == 3
+        assert [e["finding"] for e in obs_events] == [
+            "finding-0", "finding-1", "finding-2",
+        ]
+        # The matching tool_result must report the correct count.
+        tr = next(e for e in events if e["type"] == "tool_result")
+        assert tr["findings_count"] == 3
+
+    def test_unknown_tool_emits_error_tool_result_without_dispatch(self):
+        events, _ = self._capture_run(
+            scripted=[
+                _FakeMessage(
+                    content=[_FakeBlock(
+                        type="tool_use", id="t1",
+                        name="datadog_investigate",  # not configured
+                        input={"service": "payments"},
+                    )],
+                    stop_reason="tool_use",
+                ),
+                _FakeMessage(
+                    content=[_FakeBlock(type="text", text="recovered")],
+                    stop_reason="end_turn",
+                ),
+            ],
+            adapters={"prometheus": _FakePromAdapter},
+        )
+        tr = next(e for e in events if e["type"] == "tool_result")
+        assert tr["status"] == "error"
+        assert tr["findings_count"] == 0
+        assert tr["tool"] == "datadog"
+        assert "not configured" in tr.get("error", "")
+        # No observation event should be emitted for the unknown tool.
+        assert not any(e["type"] == "observation" for e in events)
+
+    def test_loop_error_event_on_anthropic_failure(self):
+        class _BoomClient:
+            class messages:
+                @staticmethod
+                def create(**kwargs):
+                    raise RuntimeError("api down")
+
+        loop = ToolUseLoop(
+            client=_BoomClient(),
+            dispatcher=ToolDispatcher({"prometheus": _FakePromAdapter}),
+        )
+        events: list[dict[str, Any]] = []
+        result = loop.run(
+            _agent_input("prometheus"),
+            on_event=lambda ev: events.append(ev),
+        )
+
+        types = [e["type"] for e in events]
+        assert types == ["llm_call_start", "loop_error"]
+        err = events[-1]
+        assert err["iteration"] == 0
+        assert "api down" in err["error"]
+        assert result.stop_reason == "error"
+
+    def test_callback_exception_does_not_crash_loop(self, caplog):
+        # A noisy/buggy consumer must not be able to break the loop.
+        client = _FakeAnthropicClient([
+            _FakeMessage(
+                content=[_FakeBlock(
+                    type="tool_use", id="t1",
+                    name="prometheus_investigate",
+                    input={"service": "payments"},
+                )],
+                stop_reason="tool_use",
+            ),
+            _FakeMessage(
+                content=[_FakeBlock(type="text", text="done")],
+                stop_reason="end_turn",
+            ),
+        ])
+        loop = ToolUseLoop(
+            client=client,
+            dispatcher=ToolDispatcher({"prometheus": _FakePromAdapter}),
+        )
+
+        def _bad_cb(ev):
+            raise RuntimeError("consumer blew up")
+
+        result = loop.run(_agent_input("prometheus"), on_event=_bad_cb)
+        # Loop completed despite the broken consumer.
+        assert result.final_response == "done"
+        assert result.iterations_run == 2
+
+    def test_iteration_index_matches_run_count(self):
+        events, result = self._capture_run(
+            scripted=[
+                _FakeMessage(
+                    content=[_FakeBlock(
+                        type="tool_use", id="t1",
+                        name="prometheus_investigate",
+                        input={"service": "payments"},
+                    )],
+                    stop_reason="tool_use",
+                ),
+                _FakeMessage(
+                    content=[_FakeBlock(
+                        type="tool_use", id="t2",
+                        name="loki_investigate",
+                        input={"service": "payments"},
+                    )],
+                    stop_reason="tool_use",
+                ),
+                _FakeMessage(
+                    content=[_FakeBlock(type="text", text="done")],
+                    stop_reason="end_turn",
+                ),
+            ],
+            adapters={"prometheus": _FakePromAdapter, "loki": _FakeLokiAdapter},
+        )
+        starts = [e for e in events if e["type"] == "llm_call_start"]
+        ends = [e for e in events if e["type"] == "llm_call_end"]
+        assert [s["iteration"] for s in starts] == [0, 1, 2]
+        assert [e["iteration"] for e in ends] == [0, 1, 2]
+        # The last llm_call_end carries the terminal stop_reason.
+        assert ends[-1]["stop_reason"] == "end_turn"
+        assert result.iterations_run == 3
+

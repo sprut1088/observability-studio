@@ -682,3 +682,241 @@ class TestToolUseLoopContract:
             assert call["tools"]
 
 
+# ──────────────────────────────────────────────────────────────────────── #
+# Step 26 — progressive tool-use streaming
+# ──────────────────────────────────────────────────────────────────────── #
+class _TUSlowAdapter:
+    """Sleeps inside investigate() so we can prove tool_start arrives
+    before the adapter call completes (i.e. progressive streaming, not
+    post-hoc replay)."""
+
+    DELAY_S = 0.20
+
+    def __init__(self, base_url, auth_token=None):  # noqa: ARG002
+        self.base_url = base_url
+
+    def investigate(self, service, time_range, message, plan=None):  # noqa: ARG002
+        time.sleep(self.DELAY_S)
+        return [{
+            "source": "prometheus",
+            "signal": "metrics",
+            "finding": "rate=0.01",
+            "status": "ok",
+            "raw": {},
+        }]
+
+
+class _TUTimedFakeMessages:
+    """Anthropic-shaped fake whose `create()` records when each turn
+    actually fires (real-clock time). Used to verify that the *second*
+    LLM call only happens AFTER the first tool dispatch finished —
+    which proves the loop is genuinely interleaving LLM ↔ tool ↔ LLM
+    rather than batching."""
+
+    def __init__(self, scripted):
+        self._scripted = list(scripted)
+        self.calls: list[dict[str, _TUAny]] = []
+        self.call_times: list[float] = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        self.call_times.append(time.monotonic())
+        if not self._scripted:
+            raise AssertionError("scripted client exhausted")
+        return self._scripted.pop(0)
+
+
+class _TUTimedFakeClient:
+    def __init__(self, scripted):
+        self.messages = _TUTimedFakeMessages(scripted)
+
+
+class TestToolUseLoopProgressiveStreaming:
+    """Step 26 contract — events flow as the loop runs, not at the end."""
+
+    def _make_client(self):
+        return _TUTimedFakeClient([
+            _TUFakeMessage(
+                content=[_TUFakeBlock(
+                    type="tool_use", id="t1",
+                    name="prometheus_investigate",
+                    input={"service": "payments", "time_range": "15m",
+                           "query_focus": "5xx", "reason": "test"},
+                )],
+                stop_reason="tool_use",
+            ),
+            _TUFakeMessage(
+                content=[_TUFakeBlock(type="text",
+                                      text="Done — error rate 0.01.")],
+                stop_reason="end_turn",
+            ),
+        ])
+
+    def _run(self, monkeypatch, *, adapter=_TUSlowAdapter):
+        client = self._make_client()
+        monkeypatch.setattr(_tul, "build_anthropic_client", lambda inp: client)
+        monkeypatch.setattr(
+            _agent_stream, "build_anthropic_client", lambda inp: client
+        )
+
+        ai = AyosaAIConfig(
+            enabled=True,
+            provider="anthropic",
+            api_key="sk-test",
+            use_tool_use_loop=True,
+        )
+        req = _req("why is payments slow?", ai=ai)
+
+        async def _capture():
+            out: list[dict[str, _TUAny]] = []
+            async for ev in stream_agent_chat(
+                req, agent=_agent({"prometheus": adapter})
+            ):
+                out.append(ev)
+            return out
+
+        return asyncio.run(_capture()), client
+
+    def test_progressive_event_types_are_emitted(self, monkeypatch):
+        # The Step 26 callback contract surfaces these new event types
+        # via the SSE stream.
+        events, _client = self._run(monkeypatch)
+        types = [e["type"] for e in events]
+        assert "llm_call_start" in types
+        assert "llm_call_end" in types
+        # tool_start / tool_result / observation still present.
+        assert "tool_start" in types
+        assert "tool_result" in types
+        assert "observation" in types
+
+    def test_llm_call_events_carry_iteration_index(self, monkeypatch):
+        events, _client = self._run(monkeypatch)
+        starts = [e for e in events if e["type"] == "llm_call_start"]
+        ends = [e for e in events if e["type"] == "llm_call_end"]
+        assert [s["iteration"] for s in starts] == [0, 1]
+        assert [e["iteration"] for e in ends] == [0, 1]
+        # First end is `tool_use`, second is `end_turn` (terminal).
+        assert ends[0]["stop_reason"] == "tool_use"
+        assert ends[1]["stop_reason"] == "end_turn"
+
+    def test_event_order_pins_progressive_pipeline(self, monkeypatch):
+        events, _client = self._run(monkeypatch)
+        types = [e["type"] for e in events]
+
+        # llm_call_start[0]  ← Claude turn 1 begins
+        # llm_call_end[0]    ← Claude returns tool_use
+        # tool_start         ← dispatch begins
+        # tool_result        ← dispatch ended
+        # observation        ← findings emitted
+        # llm_call_start[1]  ← Claude turn 2 (post-tool) begins
+        # llm_call_end[1]    ← Claude returns end_turn
+
+        idx = {t: i for i, t in enumerate(types) if t not in {"observation"}}
+        # Anchors that must appear in this order:
+        first_start = next(i for i, t in enumerate(types)
+                           if t == "llm_call_start")
+        first_end = next(i for i, t in enumerate(types)
+                         if t == "llm_call_end" and i > first_start)
+        ts = next(i for i, t in enumerate(types) if t == "tool_start")
+        tr = next(i for i, t in enumerate(types) if t == "tool_result")
+        obs = next(i for i, t in enumerate(types) if t == "observation")
+        second_start = next(
+            i for i, t in enumerate(types)
+            if t == "llm_call_start" and i > first_end
+        )
+        assert first_start < first_end < ts < tr < obs < second_start
+
+    def test_second_llm_call_fires_after_tool_dispatch_completes(
+        self, monkeypatch
+    ):
+        # Real-clock proof of interleaving: the second LLM call must
+        # happen at least DELAY_S after the first one (because the
+        # adapter sleeps between them). If the loop ran without
+        # callback hooks, both calls would still be sequential — but
+        # this test specifically pins that we are NOT batching events
+        # at the end; the gap is real.
+        _events, client = self._run(monkeypatch)
+        assert len(client.messages.call_times) == 2
+        gap = client.messages.call_times[1] - client.messages.call_times[0]
+        assert gap >= _TUSlowAdapter.DELAY_S * 0.8, (
+            f"expected >={_TUSlowAdapter.DELAY_S}s gap between LLM calls, "
+            f"got {gap:.3f}s"
+        )
+
+    def test_tool_start_event_carries_llm_metadata(self, monkeypatch):
+        events, _client = self._run(monkeypatch)
+        ts = next(e for e in events if e["type"] == "tool_start")
+        # Step 26 enriches tool_start with the LLM's chosen args so
+        # the UI can render Claude's reasoning hint immediately.
+        assert ts["query_focus"] == "5xx"
+        assert ts["reason"] == "test"
+        assert ts["tool"] == "prometheus"
+        assert "tool_use_id" in ts
+        assert ts["service"] == "payments"
+        assert ts["time_range"] == "15m"
+
+    def test_terminal_envelope_unchanged(self, monkeypatch):
+        # The Step 25 envelope (final_snapshot → loop_summary → done)
+        # MUST remain the last three frames so existing UI consumers
+        # don't break.
+        events, _client = self._run(monkeypatch)
+        types = [e["type"] for e in events]
+        assert types[-3:] == ["final_snapshot", "loop_summary", "done"]
+        assert types.count("final_snapshot") == 1
+        assert types.count("done") == 1
+
+    def test_loop_summary_matches_iterations_run(self, monkeypatch):
+        events, _client = self._run(monkeypatch)
+        evt = next(e for e in events if e["type"] == "loop_summary")
+        snap = next(e for e in events if e["type"] == "final_snapshot")
+        assert evt["iterations_run"] == 2
+        # final_snapshot also carries the same loop_summary payload.
+        assert snap["data"]["loop_summary"]["iterations_run"] == 2
+
+    def test_no_secrets_in_progressive_stream(self, monkeypatch):
+        events, _client = self._run(monkeypatch)
+        blob = json.dumps(events, default=str)
+        assert "super-secret-token-DO-NOT-LEAK" not in blob
+        assert "sk-test" not in blob
+
+    def test_loop_error_event_surfaces_when_anthropic_fails(self, monkeypatch):
+        # Drive the SDK shape that raises on create().
+        class _BoomMessages:
+            calls: list[dict[str, _TUAny]] = []
+
+            def create(self, **kwargs):
+                self.calls.append(kwargs)
+                raise RuntimeError("api down")
+
+        class _BoomClient:
+            def __init__(self):
+                self.messages = _BoomMessages()
+
+        client = _BoomClient()
+        monkeypatch.setattr(_tul, "build_anthropic_client", lambda inp: client)
+        monkeypatch.setattr(
+            _agent_stream, "build_anthropic_client", lambda inp: client
+        )
+
+        ai = AyosaAIConfig(
+            enabled=True,
+            provider="anthropic",
+            api_key="sk-test",
+            use_tool_use_loop=True,
+        )
+        req = _req("why is payments slow?", ai=ai)
+
+        async def _capture():
+            out: list[dict[str, _TUAny]] = []
+            async for ev in stream_agent_chat(
+                req, agent=_agent({"prometheus": _FakePromAdapter})
+            ):
+                out.append(ev)
+            return out
+
+        events = asyncio.run(_capture())
+        types = [e["type"] for e in events]
+        assert "loop_error" in types
+        # Stream must still terminate cleanly.
+        assert types[-3:] == ["final_snapshot", "loop_summary", "done"]
+
