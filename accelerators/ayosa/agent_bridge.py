@@ -158,6 +158,10 @@ def run_agent_chat(
         "max_iterations": int(agent.max_iterations),
         "replanned": int(result.iterations or 1) > 1,
         "replan_reason": result.replan_reason,
+        # Feature 28: tag the execution path so analytics can compare
+        # deterministic vs tool-use-loop runs even when retrieved from
+        # the SQLite store after the fact.
+        "mode": "deterministic",
     }
     chat_response["session_id"] = session_id
     chat_response["workspace_context"] = workspace_ctx

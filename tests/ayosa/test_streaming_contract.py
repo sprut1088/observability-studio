@@ -494,13 +494,16 @@ class TestIterativeLoopContract:
         data = snapshot["data"]
         assert "loop_summary" in data, "final_snapshot.data must embed loop_summary"
         ls = data["loop_summary"]
+        # Feature 28 added the ``mode`` discriminator so downstream
+        # consumers can tell deterministic vs tool-use runs apart.
         assert set(ls.keys()) == {
-            "iterations_run", "max_iterations", "replanned", "replan_reason",
+            "iterations_run", "max_iterations", "replanned", "replan_reason", "mode",
         }
         assert ls["max_iterations"] == 2
         assert isinstance(ls["iterations_run"], int)
         assert ls["iterations_run"] >= 1
         assert isinstance(ls["replanned"], bool)
+        assert ls["mode"] in {"deterministic", "tool_use_loop"}
         # Single-pass run: not replanned, no reason
         assert ls["replanned"] is False
         assert ls["replan_reason"] is None
@@ -510,12 +513,14 @@ class TestIterativeLoopContract:
         loop_evs = [e for e in events if e["type"] == "loop_summary"]
         assert len(loop_evs) == 1, "exactly one loop_summary event must be emitted"
         ev = loop_evs[0]
+        # Feature 28 added the ``mode`` discriminator.
         assert set(ev.keys()) == {
-            "type", "iterations_run", "max_iterations", "replanned", "replan_reason",
+            "type", "iterations_run", "max_iterations", "replanned", "replan_reason", "mode",
         }
         assert ev["max_iterations"] == 4
         assert ev["replanned"] is False
         assert ev["replan_reason"] is None
+        assert ev["mode"] in {"deterministic", "tool_use_loop"}
 
     def test_canonical_terminal_envelope_order(self):
         """final_snapshot → loop_summary → done, with nothing in between."""

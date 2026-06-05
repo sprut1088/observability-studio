@@ -63,8 +63,34 @@ from accelerators.ayosa.agent_bridge import (
     resolve_max_iterations,
 )
 from accelerators.ayosa.agent.history_retriever import retrieve_prior_runs
+from accelerators.ayosa.persistence import persist_agent_result
 
 logger = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────────────────────────────── #
+# Persistence helper (Feature 28)
+# ──────────────────────────────────────────────────────────────────────── #
+def _persist_stream_run(
+    chat_response: dict[str, Any],
+    *,
+    request_message: str,
+) -> str | None:
+    """Best-effort persistence for a streaming run.
+
+    Returns the new ``run_id`` or ``None`` when persistence is disabled
+    or fails. NEVER raises — the stream must keep flowing even if SQLite
+    is unhappy. Mirrors the contract of ``agent_bridge.run_agent_chat``
+    so both the non-streaming and streaming paths produce the same
+    rows in ``ayosa_runs``.
+    """
+    try:
+        return persist_agent_result(
+            chat_response, request_message=request_message or "",
+        )
+    except Exception as exc:  # noqa: BLE001 — never raise into the stream
+        logger.warning("Streaming run persistence failed: %s", exc)
+        return None
 
 
 # ──────────────────────────────────────────────────────────────────────── #
@@ -301,7 +327,15 @@ async def stream_agent_chat(
                     "max_iterations": agent.max_iterations,
                     "replanned": iterations_run > 1,
                     "replan_reason": replan_explanation,
+                    "mode": "tool_use_loop",
                 }
+                # Feature 28: persist BEFORE emitting final_snapshot so
+                # the run_id flows through to every downstream event.
+                run_id = _persist_stream_run(
+                    chat_response, request_message=agent_input.message,
+                )
+                if run_id:
+                    chat_response["run_id"] = run_id
                 yield {"type": "final_snapshot", "data": chat_response}
                 yield {
                     "type": "loop_summary",
@@ -309,12 +343,14 @@ async def stream_agent_chat(
                     "max_iterations": agent.max_iterations,
                     "replanned": iterations_run > 1,
                     "replan_reason": replan_explanation,
+                    "mode": "tool_use_loop",
                 }
                 yield {
                     "type": "done",
                     "mode": "agent",
                     "confidence": result.confidence,
                     "session_id": session_id,
+                    "run_id": run_id,
                 }
                 return
             # client is None → fall through to deterministic loop.
@@ -513,7 +549,15 @@ async def stream_agent_chat(
             "max_iterations": agent.max_iterations,
             "replanned": iterations_run > 1,
             "replan_reason": replan_explanation,
+            "mode": "deterministic",
         }
+        # Feature 28: persist BEFORE emitting final_snapshot so the
+        # run_id propagates into every downstream event.
+        run_id = _persist_stream_run(
+            chat_response, request_message=agent_input.message,
+        )
+        if run_id:
+            chat_response["run_id"] = run_id
         yield {"type": "final_snapshot", "data": chat_response}
 
         # ── loop_summary — Step 20: single canonical record of the agent's
@@ -525,6 +569,7 @@ async def stream_agent_chat(
             "max_iterations": agent.max_iterations,
             "replanned": iterations_run > 1,
             "replan_reason": replan_explanation,
+            "mode": "deterministic",
         }
 
         # ── done ──────────────────────────────────────────────────── #
@@ -533,6 +578,7 @@ async def stream_agent_chat(
             "mode": "agent",
             "confidence": result.confidence,
             "session_id": session_id,
+            "run_id": run_id,
         }
     except Exception as exc:  # noqa: BLE001 — never let the stream raise
         logger.error("Agent stream failed: %s", exc, exc_info=True)
