@@ -1,0 +1,36 @@
+{
+  "name": "trace_lookup",
+  "description": "User explicitly asks for distributed traces. Jaeger is the only configured trace source; the agent should pick it and surface the slowest trace id.",
+  "mode": "deterministic",
+  "input": {
+    "message": "show me the distributed trace for the slowest checkout request",
+    "service": "checkout",
+    "time_range": "15m",
+    "tools": [
+      { "tool": "jaeger", "base_url": "http://jaeger.local" }
+    ]
+  },
+  "scripted_adapters": {
+    "jaeger": [
+      {
+        "source": "jaeger",
+        "signal": "traces",
+        "finding": "Slowest trace abc123 duration=4.8s spans=42 root=checkout->payments->ledger",
+        "status": "ok",
+        "raw": {
+          "trace_id": "abc123",
+          "duration_ms": 4800,
+          "span_count": 42
+        }
+      }
+    ]
+  },
+  "golden": {
+    "expected_tools": ["jaeger"],
+    "forbidden_tools": ["prometheus", "loki", "alertmanager"],
+    "expected_keywords": ["abc123", "checkout"],
+    "max_iterations": 2,
+    "min_observations": 1,
+    "min_keyword_coverage": 0.5
+  }
+}

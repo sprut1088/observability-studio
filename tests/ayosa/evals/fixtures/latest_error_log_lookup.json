@@ -1,0 +1,35 @@
+{
+  "name": "latest_error_log_lookup",
+  "description": "User asks for the most recent error log. A logs-capable tool (loki) should be picked and the canned error message should appear in the answer.",
+  "mode": "deterministic",
+  "input": {
+    "message": "show me the latest error in the orders service",
+    "service": "orders",
+    "time_range": "1h",
+    "tools": [
+      { "tool": "loki", "base_url": "http://loki.local" }
+    ]
+  },
+  "scripted_adapters": {
+    "loki": [
+      {
+        "source": "loki",
+        "signal": "logs",
+        "finding": "ERROR 2025-11-12T10:14:02Z orders: connection refused to inventory-service:8080",
+        "status": "ok",
+        "raw": {
+          "stream": { "service": "orders", "level": "error" },
+          "line": "connection refused to inventory-service:8080"
+        }
+      }
+    ]
+  },
+  "golden": {
+    "expected_tools": ["loki"],
+    "forbidden_tools": ["prometheus", "alertmanager"],
+    "expected_keywords": ["connection refused", "orders"],
+    "max_iterations": 2,
+    "min_observations": 1,
+    "min_keyword_coverage": 0.5
+  }
+}

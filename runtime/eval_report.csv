@@ -1,0 +1,6 @@
+fixture,mode,passed,tool_precision,tool_recall,tool_f1,forbidden_tools_called,keyword_coverage,iterations,iterations_within_budget,observation_count,meets_min_observations,failure_reasons
+active_alerts_lookup,deterministic,True,1.0,1.0,1.0,False,1.0,1,True,1,True,
+latency_metrics_lookup,deterministic,True,1.0,1.0,1.0,False,1.0,1,True,1,True,
+latest_error_log_lookup,deterministic,True,1.0,1.0,1.0,False,1.0,1,True,1,True,
+service_health_multi_tool,deterministic,True,1.0,1.0,1.0,False,1.0,1,True,4,True,
+trace_lookup,deterministic,True,1.0,1.0,1.0,False,1.0,1,True,1,True,

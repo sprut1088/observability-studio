@@ -1,0 +1,36 @@
+{
+  "name": "active_alerts_lookup",
+  "description": "User asks whether any alerts are firing. Alertmanager is the only configured tool and returns one critical alert that should be named in the final answer.",
+  "mode": "deterministic",
+  "input": {
+    "message": "are any alerts firing on the checkout service right now?",
+    "service": "checkout",
+    "time_range": "30m",
+    "tools": [
+      { "tool": "alertmanager", "base_url": "http://am.local" }
+    ]
+  },
+  "scripted_adapters": {
+    "alertmanager": [
+      {
+        "source": "alertmanager",
+        "signal": "alerts",
+        "finding": "1 alert firing: CheckoutHighErrorRate (severity=critical, since 12 minutes ago)",
+        "status": "ok",
+        "raw": {
+          "alerts": [
+            { "labels": { "alertname": "CheckoutHighErrorRate", "severity": "critical" } }
+          ]
+        }
+      }
+    ]
+  },
+  "golden": {
+    "expected_tools": ["alertmanager"],
+    "forbidden_tools": ["prometheus", "jaeger", "loki"],
+    "expected_keywords": ["checkouthigherrorrate", "critical"],
+    "max_iterations": 2,
+    "min_observations": 1,
+    "min_keyword_coverage": 0.5
+  }
+}

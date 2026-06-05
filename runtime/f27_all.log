@@ -1,0 +1,39 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0 -- C:\git_repos\observability-studio\observability-studio\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\git_repos\observability-studio\observability-studio
+configfile: pyproject.toml
+plugins: anyio-4.13.0, cov-7.1.0
+collecting ... collected 29 items
+
+tests/ayosa/evals/test_evals.py::test_eval_fixture[active_alerts_lookup] PASSED [  3%]
+tests/ayosa/evals/test_evals.py::test_eval_fixture[latency_metrics_lookup] PASSED [  6%]
+tests/ayosa/evals/test_evals.py::test_eval_fixture[latest_error_log_lookup] PASSED [ 10%]
+tests/ayosa/evals/test_evals.py::test_eval_fixture[service_health_multi_tool] PASSED [ 13%]
+tests/ayosa/evals/test_evals.py::test_eval_fixture[trace_lookup] PASSED  [ 17%]
+tests/ayosa/evals/test_harness.py::TestKeywordCoverage::test_all_keywords_present_returns_one PASSED [ 20%]
+tests/ayosa/evals/test_harness.py::TestKeywordCoverage::test_case_insensitive_match PASSED [ 24%]
+tests/ayosa/evals/test_harness.py::TestKeywordCoverage::test_partial_match_fraction PASSED [ 27%]
+tests/ayosa/evals/test_harness.py::TestKeywordCoverage::test_empty_keywords_returns_one PASSED [ 31%]
+tests/ayosa/evals/test_harness.py::TestKeywordCoverage::test_blank_text_with_keywords_returns_zero PASSED [ 34%]
+tests/ayosa/evals/test_harness.py::TestF1::test_perfect PASSED           [ 37%]
+tests/ayosa/evals/test_harness.py::TestF1::test_zero_both PASSED         [ 41%]
+tests/ayosa/evals/test_harness.py::TestF1::test_harmonic_mean PASSED     [ 44%]
+tests/ayosa/evals/test_harness.py::TestToolCallsFromResult::test_excludes_skipped_and_pending PASSED [ 48%]
+tests/ayosa/evals/test_harness.py::TestToolCallsFromResult::test_lowercases_tool_names PASSED [ 51%]
+tests/ayosa/evals/test_harness.py::TestScoreRun::test_perfect_run_passes PASSED [ 55%]
+tests/ayosa/evals/test_harness.py::TestScoreRun::test_missing_expected_tool_fails PASSED [ 58%]
+tests/ayosa/evals/test_harness.py::TestScoreRun::test_forbidden_tool_called_fails PASSED [ 62%]
+tests/ayosa/evals/test_harness.py::TestScoreRun::test_iteration_budget_breach_fails PASSED [ 65%]
+tests/ayosa/evals/test_harness.py::TestScoreRun::test_missing_keywords_fail_only_when_below_threshold PASSED [ 68%]
+tests/ayosa/evals/test_harness.py::TestScoreRun::test_no_expected_tools_means_precision_and_recall_one PASSED [ 72%]
+tests/ayosa/evals/test_harness.py::TestScriptedDispatcher::test_returns_canned_observations PASSED [ 75%]
+tests/ayosa/evals/test_harness.py::TestScriptedDispatcher::test_unknown_tool_returns_error_observation PASSED [ 79%]
+tests/ayosa/evals/test_harness.py::TestFixtureLoader::test_round_trip_minimal_fixture PASSED [ 82%]
+tests/ayosa/evals/test_harness.py::TestFixtureLoader::test_missing_name_raises PASSED [ 86%]
+tests/ayosa/evals/test_harness.py::TestFixtureLoader::test_invalid_mode_raises PASSED [ 89%]
+tests/ayosa/evals/test_harness.py::TestFixtureLoader::test_tool_use_mode_requires_scripted_llm PASSED [ 93%]
+tests/ayosa/evals/test_harness.py::TestFixtureLoader::test_discover_fixtures_finds_seed_set PASSED [ 96%]
+tests/ayosa/evals/test_harness.py::TestRunFixtureSmoke::test_deterministic_run_passes PASSED [100%]
+
+============================= 29 passed in 0.49s ==============================

@@ -1,0 +1,35 @@
+﻿[PASS] active_alerts_lookup                mode=deterministic f1=1.00 kw=1.00 iter=1/within obs=1
+[PASS] latency_metrics_lookup              mode=deterministic f1=1.00 kw=1.00 iter=1/within obs=1
+[PASS] latest_error_log_lookup             mode=deterministic f1=1.00 kw=1.00 iter=1/within obs=1
+[PASS] service_health_multi_tool           mode=deterministic f1=1.00 kw=1.00 iter=1/within obs=4
+[PASS] trace_lookup                        mode=deterministic f1=1.00 kw=1.00 iter=1/within obs=1
+python.exe : Traceback (most recent call last):
+At line:1 char:1
++ & .\.venv\Scripts\python.exe scripts\run_evals.py 2>&1 | Out-File -Fi ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last) 
+   ::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File 
+"C:\git_repos\observability-studio\observability-studio\scripts\run_evals.py", 
+line 144, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File 
+"C:\git_repos\observability-studio\observability-studio\scripts\run_evals.py", 
+line 135, in main
+    print(
+    ~~~~~^
+        f"\nSummary: {passed}/{len(results)} passed "
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        f"({failed} failed). Report \u2192 {args.output}"
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\311666\AppData\Local\Programs\Python\Python314\Lib\encodings\c
+p1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in 
+position 41: character maps to <undefined>

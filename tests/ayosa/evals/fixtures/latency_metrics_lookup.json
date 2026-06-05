@@ -1,0 +1,33 @@
+{
+  "name": "latency_metrics_lookup",
+  "description": "User asks for p99 latency on the payments service. Prometheus is the only configured tool and the canned response contains the latency number we expect to surface in the answer.",
+  "mode": "deterministic",
+  "input": {
+    "message": "what is p99 latency on payments service over the last 15 minutes?",
+    "service": "payments",
+    "time_range": "15m",
+    "tools": [
+      { "tool": "prometheus", "base_url": "http://prom.local" }
+    ]
+  },
+  "scripted_adapters": {
+    "prometheus": [
+      {
+        "source": "prometheus",
+        "signal": "metrics",
+        "finding": "histogram_quantile(0.99, http_request_duration_seconds{service=\"payments\"}) = 2.3s (above 1s SLO)",
+        "query": "histogram_quantile(0.99, http_request_duration_seconds{service=\"payments\"})",
+        "status": "ok",
+        "raw": { "value": 2.3 }
+      }
+    ]
+  },
+  "golden": {
+    "expected_tools": ["prometheus"],
+    "forbidden_tools": ["loki", "elasticsearch", "splunk"],
+    "expected_keywords": ["payments", "2.3"],
+    "max_iterations": 2,
+    "min_observations": 1,
+    "min_keyword_coverage": 0.5
+  }
+}

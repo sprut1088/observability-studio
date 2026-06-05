@@ -1,0 +1,105 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0 -- C:\git_repos\observability-studio\observability-studio\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\git_repos\observability-studio\observability-studio
+configfile: pyproject.toml
+plugins: anyio-4.13.0, cov-7.1.0
+collecting ... collected 24 items
+
+tests/ayosa/evals/test_harness.py::TestKeywordCoverage::test_all_keywords_present_returns_one PASSED [  4%]
+tests/ayosa/evals/test_harness.py::TestKeywordCoverage::test_case_insensitive_match PASSED [  8%]
+tests/ayosa/evals/test_harness.py::TestKeywordCoverage::test_partial_match_fraction PASSED [ 12%]
+tests/ayosa/evals/test_harness.py::TestKeywordCoverage::test_empty_keywords_returns_one PASSED [ 16%]
+tests/ayosa/evals/test_harness.py::TestKeywordCoverage::test_blank_text_with_keywords_returns_zero PASSED [ 20%]
+tests/ayosa/evals/test_harness.py::TestF1::test_perfect PASSED           [ 25%]
+tests/ayosa/evals/test_harness.py::TestF1::test_zero_both PASSED         [ 29%]
+tests/ayosa/evals/test_harness.py::TestF1::test_harmonic_mean PASSED     [ 33%]
+tests/ayosa/evals/test_harness.py::TestToolCallsFromResult::test_excludes_skipped_and_pending FAILED [ 37%]
+tests/ayosa/evals/test_harness.py::TestToolCallsFromResult::test_lowercases_tool_names FAILED [ 41%]
+tests/ayosa/evals/test_harness.py::TestScoreRun::test_perfect_run_passes FAILED [ 45%]
+tests/ayosa/evals/test_harness.py::TestScoreRun::test_missing_expected_tool_fails FAILED [ 50%]
+tests/ayosa/evals/test_harness.py::TestScoreRun::test_forbidden_tool_called_fails FAILED [ 54%]
+tests/ayosa/evals/test_harness.py::TestScoreRun::test_iteration_budget_breach_fails FAILED [ 58%]
+tests/ayosa/evals/test_harness.py::TestScoreRun::test_missing_keywords_fail_only_when_below_threshold FAILED [ 62%]
+tests/ayosa/evals/test_harness.py::TestScoreRun::test_no_expected_tools_means_precision_and_recall_one PASSED [ 66%]
+tests/ayosa/evals/test_harness.py::TestScriptedDispatcher::test_returns_canned_observations FAILED [ 70%]
+tests/ayosa/evals/test_harness.py::TestScriptedDispatcher::test_unknown_tool_returns_error_observation PASSED [ 75%]
+tests/ayosa/evals/test_harness.py::TestFixtureLoader::test_round_trip_minimal_fixture PASSED [ 79%]
+tests/ayosa/evals/test_harness.py::TestFixtureLoader::test_missing_name_raises PASSED [ 83%]
+tests/ayosa/evals/test_harness.py::TestFixtureLoader::test_invalid_mode_raises PASSED [ 87%]
+tests/ayosa/evals/test_harness.py::TestFixtureLoader::test_tool_use_mode_requires_scripted_llm PASSED [ 91%]
+tests/ayosa/evals/test_harness.py::TestFixtureLoader::test_discover_fixtures_finds_seed_set PASSED [ 95%]
+tests/ayosa/evals/test_harness.py::TestRunFixtureSmoke::test_deterministic_run_passes PASSED [100%]
+
+================================== FAILURES ===================================
+__________ TestToolCallsFromResult.test_excludes_skipped_and_pending __________
+tests\ayosa\evals\test_harness.py:83: in test_excludes_skipped_and_pending
+    ToolStep(index=0, tool="prometheus", label="prom", status="ok"),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for ToolStep
+E   status
+E     Input should be 'pending', 'running', 'done', 'skipped' or 'error' [type=literal_error, input_value='ok', input_type=str]
+E       For further information visit https://errors.pydantic.dev/2.13/v/literal_error
+_____________ TestToolCallsFromResult.test_lowercases_tool_names ______________
+tests\ayosa\evals\test_harness.py:94: in test_lowercases_tool_names
+    steps = [ToolStep(index=0, tool="Prometheus", label="x", status="ok")]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for ToolStep
+E   status
+E     Input should be 'pending', 'running', 'done', 'skipped' or 'error' [type=literal_error, input_value='ok', input_type=str]
+E       For further information visit https://errors.pydantic.dev/2.13/v/literal_error
+____________________ TestScoreRun.test_perfect_run_passes _____________________
+tests\ayosa\evals\test_harness.py:124: in test_perfect_run_passes
+    tool_steps=[ToolStep(index=0, tool="prometheus", label="x", status="ok")],
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for ToolStep
+E   status
+E     Input should be 'pending', 'running', 'done', 'skipped' or 'error' [type=literal_error, input_value='ok', input_type=str]
+E       For further information visit https://errors.pydantic.dev/2.13/v/literal_error
+________________ TestScoreRun.test_missing_expected_tool_fails ________________
+tests\ayosa\evals\test_harness.py:145: in test_missing_expected_tool_fails
+    tool_steps=[ToolStep(index=0, tool="loki", label="x", status="ok")],
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for ToolStep
+E   status
+E     Input should be 'pending', 'running', 'done', 'skipped' or 'error' [type=literal_error, input_value='ok', input_type=str]
+E       For further information visit https://errors.pydantic.dev/2.13/v/literal_error
+________________ TestScoreRun.test_forbidden_tool_called_fails ________________
+tests\ayosa\evals\test_harness.py:163: in test_forbidden_tool_called_fails
+    ToolStep(index=0, tool="prometheus", label="x", status="ok"),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for ToolStep
+E   status
+E     Input should be 'pending', 'running', 'done', 'skipped' or 'error' [type=literal_error, input_value='ok', input_type=str]
+E       For further information visit https://errors.pydantic.dev/2.13/v/literal_error
+_______________ TestScoreRun.test_iteration_budget_breach_fails _______________
+tests\ayosa\evals\test_harness.py:186: in test_iteration_budget_breach_fails
+    tool_steps=[ToolStep(index=0, tool="prometheus", label="x", status="ok")],
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for ToolStep
+E   status
+E     Input should be 'pending', 'running', 'done', 'skipped' or 'error' [type=literal_error, input_value='ok', input_type=str]
+E       For further information visit https://errors.pydantic.dev/2.13/v/literal_error
+______ TestScoreRun.test_missing_keywords_fail_only_when_below_threshold ______
+tests\ayosa\evals\test_harness.py:204: in test_missing_keywords_fail_only_when_below_threshold
+    tool_steps=[ToolStep(index=0, tool="prometheus", label="x", status="ok")],
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for ToolStep
+E   status
+E     Input should be 'pending', 'running', 'done', 'skipped' or 'error' [type=literal_error, input_value='ok', input_type=str]
+E       For further information visit https://errors.pydantic.dev/2.13/v/literal_error
+___________ TestScriptedDispatcher.test_returns_canned_observations ___________
+tests\ayosa\evals\test_harness.py:278: in test_returns_canned_observations
+    assert any(s.tool == "prometheus" and s.status == "ok" for s in steps)
+E   assert False
+E    +  where False = any(<generator object TestScriptedDispatcher.test_returns_canned_observations.<locals>.<genexpr> at 0x0000024AAFDA5FF0>)
+=========================== short test summary info ===========================
+FAILED tests/ayosa/evals/test_harness.py::TestToolCallsFromResult::test_excludes_skipped_and_pending
+FAILED tests/ayosa/evals/test_harness.py::TestToolCallsFromResult::test_lowercases_tool_names
+FAILED tests/ayosa/evals/test_harness.py::TestScoreRun::test_perfect_run_passes
+FAILED tests/ayosa/evals/test_harness.py::TestScoreRun::test_missing_expected_tool_fails
+FAILED tests/ayosa/evals/test_harness.py::TestScoreRun::test_forbidden_tool_called_fails
+FAILED tests/ayosa/evals/test_harness.py::TestScoreRun::test_iteration_budget_breach_fails
+FAILED tests/ayosa/evals/test_harness.py::TestScoreRun::test_missing_keywords_fail_only_when_below_threshold
+FAILED tests/ayosa/evals/test_harness.py::TestScriptedDispatcher::test_returns_canned_observations
+======================== 8 failed, 16 passed in 0.57s =========================

@@ -1,0 +1,62 @@
+{
+  "name": "service_health_multi_tool",
+  "description": "A broad 'is service X healthy' question. The planner needs metrics + alerts + logs + traces, so every configured tool should be dispatched and contribute at least one observation.",
+  "mode": "deterministic",
+  "input": {
+    "message": "is the payments service healthy right now?",
+    "service": "payments",
+    "time_range": "30m",
+    "tools": [
+      { "tool": "prometheus", "base_url": "http://prom.local" },
+      { "tool": "alertmanager", "base_url": "http://am.local" },
+      { "tool": "loki", "base_url": "http://loki.local" },
+      { "tool": "jaeger", "base_url": "http://jaeger.local" }
+    ]
+  },
+  "scripted_adapters": {
+    "prometheus": [
+      {
+        "source": "prometheus",
+        "signal": "metrics",
+        "finding": "error_rate{service=\"payments\"} = 0.4% (within SLO)",
+        "status": "ok",
+        "raw": { "value": 0.004 }
+      }
+    ],
+    "alertmanager": [
+      {
+        "source": "alertmanager",
+        "signal": "alerts",
+        "finding": "No firing alerts for payments in the last 30 minutes",
+        "status": "ok",
+        "raw": { "alerts": [] }
+      }
+    ],
+    "loki": [
+      {
+        "source": "loki",
+        "signal": "logs",
+        "finding": "12 error log entries in the last 30 minutes (baseline range)",
+        "status": "ok",
+        "raw": { "count": 12 }
+      }
+    ],
+    "jaeger": [
+      {
+        "source": "jaeger",
+        "signal": "traces",
+        "finding": "p95 trace duration 420ms, no traces above 2s",
+        "status": "ok",
+        "raw": { "p95_ms": 420 }
+      }
+    ]
+  },
+  "golden": {
+    "expected_tools": ["prometheus", "alertmanager", "loki", "jaeger"],
+    "forbidden_tools": [],
+    "expected_keywords": ["payments", "no firing alerts"],
+    "max_iterations": 2,
+    "min_observations": 4,
+    "min_keyword_coverage": 0.5
+  }
+}
