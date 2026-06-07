@@ -4003,14 +4003,13 @@ html[data-theme="dark"] .obsco-fact-chip {
   cursor: pointer;
 }
 .obsco-ai-toggle input { accent-color: var(--obsco-primary); }
-.obsco-ai-key {
+.obsco-ai-key-info {
   flex: 1;
-  padding: 6px 10px;
-  border: 1px solid var(--obsco-border);
-  border-radius: 6px;
   font-size: 11px;
-  background: var(--obsco-bg);
-  color: var(--obsco-text);
+  color: var(--obsco-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .obsco-input-row {

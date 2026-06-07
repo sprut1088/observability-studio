@@ -82,7 +82,6 @@ function normalizeValidatedTools(validatedTools = []) {
 export default function AssessModal({ onClose, validatedTools = [] }) {
   const [useAi, setUseAi] = useState(false);
   const [aiProvider, setAiProvider] = useState("anthropic");
-  const [aiApiKey, setAiApiKey] = useState("");
   const [azureEndpoint, setAzureEndpoint] = useState("");
   const [azureDeployment, setAzureDeployment] = useState("");
 
@@ -100,15 +99,6 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
 
   async function handleAssess() {
     if (tools.length === 0) return;
-
-    if (useAi && !aiApiKey.trim()) {
-      setStatus({
-        type: "error",
-        title: "Missing API key",
-        msg: "An AI API key is required when AI scoring is enabled.",
-      });
-      return;
-    }
 
     if (useAi && aiProvider === "azure" && !azureEndpoint.trim()) {
       setStatus({
@@ -151,7 +141,7 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
         ai: {
           enabled: useAi,
           provider: useAi ? aiProvider : null,
-          api_key: useAi ? aiApiKey : null,
+          api_key: null,
           azure_endpoint:
             useAi && aiProvider === "azure" ? azureEndpoint : null,
           azure_deployment:
@@ -322,21 +312,11 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">
-                    {aiProvider === "azure" ? "Azure API Key" : "API Key"}
-                  </label>
-                  <input
-                    className="form-input"
-                    type="password"
-                    value={aiApiKey}
-                    onChange={(e) => setAiApiKey(e.target.value)}
-                    placeholder={
-                      aiProvider === "azure"
-                        ? "Azure OpenAI key"
-                        : "sk-••••••••••••••••••"
-                    }
-                    disabled={busy}
-                  />
+                  <label className="form-label">API Key</label>
+                  <div className="form-input" style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)", fontSize: "0.85rem", cursor: "default" }}>
+                    <span>🔒</span>
+                    <span>Loaded from server configuration</span>
+                  </div>
                 </div>
               </div>
 

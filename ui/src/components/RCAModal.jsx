@@ -66,7 +66,6 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
 
   const [useAI, setUseAI] = useState(false);
   const [aiProvider, setAiProvider] = useState("anthropic");
-  const [apiKey, setApiKey] = useState("");
   const [azureEndpoint, setAzureEndpoint] = useState("");
   const [azureDeployment, setAzureDeployment] = useState("");
   const [azureApiVersion, setAzureApiVersion] = useState("");
@@ -82,17 +81,6 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
         type: "error",
         title: "Validation error",
         msg: "No RCA-compatible globally validated tools found. Validate Prometheus, Grafana, Jaeger, OpenSearch, Elasticsearch, Alertmanager, or Loki from Tool Connectivity.",
-        stats: [],
-        url: null,
-      });
-      return;
-    }
-
-    if (useAI && !apiKey.trim()) {
-      setStatus({
-        type: "error",
-        title: "Missing API key",
-        msg: "An API key is required when AI narrative is enabled.",
         stats: [],
         url: null,
       });
@@ -138,7 +126,7 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
           time_window_minutes: Number(timeWindow),
         },
         ai_provider: useAI ? aiProvider : "anthropic",
-        ai_api_key: useAI ? apiKey.trim() : null,
+        ai_api_key: null,
         ai_model: "claude-sonnet-4-6",
         azure_endpoint:
           useAI && aiProvider === "azure" ? azureEndpoint.trim() : null,
@@ -383,37 +371,32 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
               className="modal-ai-fields animate-in"
               style={{ marginTop: ".6rem" }}
             >
-              <div className="form-group">
-                <label className="form-label">AI Provider</label>
-                <select
-                  className="form-select"
-                  value={aiProvider}
-                  onChange={(e) => setAiProvider(e.target.value)}
-                  disabled={busy}
-                >
-                  <option value="anthropic">Anthropic (Claude)</option>
-                  <option value="azure">Azure OpenAI</option>
-                </select>
-              </div>
+              <div className="form-grid form-grid-2">
+                <div className="form-group">
+                  <label className="form-label">AI Provider</label>
+                  <select
+                    className="form-select"
+                    value={aiProvider}
+                    onChange={(e) => setAiProvider(e.target.value)}
+                    disabled={busy}
+                  >
+                    <option value="anthropic">Anthropic (Claude)</option>
+                    <option value="azure">Azure OpenAI</option>
+                  </select>
+                </div>
 
-              <div className="form-group">
-                <label className="form-label">
-                  {aiProvider === "azure" ? "Azure API Key" : "Anthropic API Key"}
-                </label>
-                <input
-                  className="form-input"
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={aiProvider === "azure" ? "Azure API key" : "sk-ant-…"}
-                  disabled={busy}
-                  autoComplete="off"
-                />
+                <div className="form-group">
+                  <label className="form-label">API Key</label>
+                  <div className="form-input" style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)", fontSize: "0.85rem", cursor: "default" }}>
+                    <span>🔒</span>
+                    <span>Loaded from server configuration</span>
+                  </div>
+                </div>
               </div>
 
               {aiProvider === "azure" && (
                 <>
-                  <div className="form-group">
+                  <div className="form-group" style={{ marginTop: 12 }}>
                     <label className="form-label">Azure Endpoint URL</label>
                     <input
                       className="form-input"

@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from accelerators.obsco.knowledge import TOOL_FACTS, detect_tools, get_facts
 
@@ -20,6 +23,18 @@ logger = logging.getLogger(__name__)
 
 # Default Claude model — kept consistent with the rest of the platform.
 _DEFAULT_MODEL = "claude-sonnet-4-5"
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_server_ai_config() -> dict:
+    """Load AI config from the server-side config/config.yaml (not checked in)."""
+    config_path = _REPO_ROOT / "config" / "config.yaml"
+    if config_path.exists():
+        with open(config_path, encoding="utf-8") as fh:
+            cfg = yaml.safe_load(fh) or {}
+        return cfg.get("ai", {})
+    return {}
 
 
 def _format_facts_section(tool: str, facts: dict) -> str:
@@ -145,7 +160,11 @@ async def answer_question(req: Any) -> dict:
     answer = local_answer
 
     ai = getattr(req, "ai", None)
-    if ai and getattr(ai, "enabled", False) and getattr(ai, "api_key", None) and tool_facts:
+    if ai and getattr(ai, "enabled", False) and tool_facts:
+        api_key = getattr(ai, "api_key", None)
+        if not api_key:
+            server_ai = _load_server_ai_config()
+            api_key = server_ai.get("api_key") or None
         grounding = "\n\n".join(
             _format_facts_section(t, f) for t, f in tool_facts.items()
         )
@@ -153,9 +172,9 @@ async def answer_question(req: Any) -> dict:
             _try_llm_enhance,
             message,
             grounding,
-            ai.api_key,
+            api_key or "",
             getattr(ai, "model", None),
-        )
+        ) if api_key else None
         if enhanced:
             answer = enhanced
             ai_used = True

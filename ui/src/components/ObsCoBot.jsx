@@ -17,7 +17,6 @@ export default function ObsCoBot({ validatedTools = [] }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState("");
-  const [aiKey, setAiKey] = useState("");
   const [aiEnabled, setAiEnabled] = useState(false);
   const [messages, setMessages] = useState([
     {
@@ -67,8 +66,8 @@ export default function ObsCoBot({ validatedTools = [] }) {
       const payload = {
         message: text,
         tools,
-        ai: aiEnabled && aiKey
-          ? { enabled: true, provider: "anthropic", api_key: aiKey }
+        ai: aiEnabled
+          ? { enabled: true, provider: "anthropic", api_key: null }
           : null,
       };
 
@@ -184,14 +183,7 @@ export default function ObsCoBot({ validatedTools = [] }) {
               <span>Enhance with Claude</span>
             </label>
             {aiEnabled && (
-              <input
-                type="password"
-                placeholder="Anthropic API key (sk-ant-...)"
-                value={aiKey}
-                onChange={(e) => setAiKey(e.target.value)}
-                disabled={busy}
-                className="obsco-ai-key"
-              />
+              <span className="obsco-ai-key-info">🔒 API key from server config</span>
             )}
           </div>
 

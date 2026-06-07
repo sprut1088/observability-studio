@@ -81,6 +81,14 @@ def build_runtime_config(payload: dict, workdir: Path) -> Path:
     ai_raw = payload.get("ai") or {"enabled": False}
     ai_cfg = {k: v for k, v in ai_raw.items() if v is not None}
 
+    # If AI is enabled but no api_key in the request, read from server config/config.yaml
+    if ai_cfg.get("enabled") and not ai_cfg.get("api_key"):
+        server_ai = local_config.get("ai", {})
+        if server_ai.get("api_key"):
+            ai_cfg["api_key"] = server_ai["api_key"]
+        if not ai_cfg.get("model") and server_ai.get("model"):
+            ai_cfg["model"] = server_ai["model"]
+
     cfg = {
         "client": payload.get("client", {}),
         "sources": sources,

@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 logger = logging.getLogger(__name__)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -27,6 +29,16 @@ BASE_URL     = "http://10.235.21.132:8001"
 # Ensure the RCA agent source is importable
 if str(_RCA_SRC) not in sys.path:
     sys.path.insert(0, str(_RCA_SRC))
+
+
+def _load_server_ai_config() -> dict:
+    """Load AI config from the server-side config/config.yaml (not checked in)."""
+    config_path = _REPO_ROOT / "config" / "config.yaml"
+    if config_path.exists():
+        with open(config_path, encoding="utf-8") as fh:
+            cfg = yaml.safe_load(fh) or {}
+        return cfg.get("ai", {})
+    return {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -57,6 +69,13 @@ async def run_rca(request_data: dict[str, Any]) -> dict[str, Any]:
     provider = (request_data.get("ai_provider") or "anthropic").lower()
     api_key  = request_data.get("ai_api_key") or None
     model    = request_data.get("ai_model") or "claude-sonnet-4-6"
+
+    # Fall back to server-side config/config.yaml when no key provided in the request
+    if not api_key:
+        server_ai = _load_server_ai_config()
+        api_key = server_ai.get("api_key") or None
+        if not model or model == "claude-sonnet-4-6":
+            model = server_ai.get("model") or model
 
     # Build the unified ai_config dict that LLMFormatter expects
     ai_config: dict[str, Any] = {"provider": provider, "api_key": api_key or ""}

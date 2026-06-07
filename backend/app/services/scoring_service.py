@@ -109,8 +109,16 @@ def _write_assess_config(req: AssessmentRequest, workdir: Path) -> Path:
     if req.use_ai:
         provider = (req.ai_provider or "anthropic").lower()
         ai_cfg["provider"] = provider
-        if req.ai_api_key:
-            ai_cfg["api_key"] = req.ai_api_key
+        api_key = req.ai_api_key
+        if not api_key:
+            # Fall back to server-side config/config.yaml
+            server_cfg_path = Path("config/config.yaml")
+            if server_cfg_path.exists():
+                with open(server_cfg_path, encoding="utf-8") as fh:
+                    server_cfg = yaml.safe_load(fh) or {}
+                api_key = server_cfg.get("ai", {}).get("api_key") or None
+        if api_key:
+            ai_cfg["api_key"] = api_key
         if provider in ("azure", "azure_openai", "openai_azure"):
             if req.azure_endpoint:
                 ai_cfg["azure_endpoint"] = req.azure_endpoint
