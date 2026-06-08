@@ -525,17 +525,38 @@ Respond ONLY with a JSON object matching this exact schema (no markdown fences, 
 
 BE SPECIFIC. Do not give generic advice. Reference actual data from the estate (metric names, alert names, service names, tool configurations) wherever possible."""
 
+    #def _parse_response(self, raw: str) -> dict[str, Any]:
+    #    """Extract JSON from the LLM response."""
+    #    # Strip markdown fences if present
+    #    text = raw.strip()
+    #    if text.startswith("```"):
+    #        lines = text.split("\n")
+    #        # Remove first and last fence lines
+    #        text = "\n".join(lines[1:] if lines[0].startswith("```") else lines)
+    #        if text.endswith("```"):
+    #            text = text[: text.rfind("```")]
+    #    text = text.strip()
+    #    return json.loads(text)
+
     def _parse_response(self, raw: str) -> dict[str, Any]:
         """Extract JSON from the LLM response."""
-        # Strip markdown fences if present
         text = raw.strip()
+
         if text.startswith("```"):
-            lines = text.split("\n")
-            # Remove first and last fence lines
-            text = "\n".join(lines[1:] if lines[0].startswith("```") else lines)
-            if text.endswith("```"):
-                text = text[: text.rfind("```")]
-        text = text.strip()
+            lines = text.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+
+        start = text.find("{")
+        end = text.rfind("}")
+
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("No valid JSON object found in AI response")
+
+        text = text[start:end + 1]
         return json.loads(text)
 
     def _build_analysis(self, data: dict[str, Any]) -> AIAnalysis:
