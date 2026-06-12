@@ -333,7 +333,8 @@ class ObservabilityAIAnalyst:
         """
         self.provider = (config.get("provider") or "anthropic").strip().lower()
         self.max_tokens = config.get("max_tokens", 4096)
-        self.temperature = config.get("temperature", 1.0)
+        #self.temperature = config.get("temperature", 1.0)
+        self.temperature = config.get("temperature", 0.2)
         # Bug fix: use `or` so that an explicit null/None value falls back to
         # the default rather than being passed as-is to the SDK.
         self.model = config.get("model") or "claude-sonnet-4-6"

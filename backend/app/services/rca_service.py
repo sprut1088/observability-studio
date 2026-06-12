@@ -46,6 +46,9 @@ def _load_server_ai_config() -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def run_rca(request_data: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(request_data, dict):
+        request_data = request_data.model_dump() if hasattr(request_data, "model_dump") else request_data.dict()
+ 
     """
     Execute a full RCA analysis and return a structured response dict.
 

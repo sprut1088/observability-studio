@@ -19,7 +19,9 @@ async def run_rca_analysis(req: RCARequest) -> RCAResponse:
     if not req.tools:
         raise HTTPException(status_code=422, detail="At least one tool must be provided.")
     try:
-        result = await run_rca(req)
+        #result = await run_rca(req)
+        payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+        result = await run_rca(payload)
         return RCAResponse(**result)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
