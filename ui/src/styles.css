@@ -4052,3 +4052,68 @@ html[data-theme="dark"] .obsco-fact-chip {
   }
   .obsco-launcher { right: 12px; bottom: 12px; }
 }
+
+/* ============================================
+   EMERALD / SLO STUDIO THEME
+   ============================================ */
+
+:root {
+  --emerald: #10b981;
+  --emerald-dark: #059669;
+  --emerald-glow: rgba(16, 185, 129, 0.12);
+  --shadow-emerald: 0 4px 14px rgba(16, 185, 129, 0.35);
+  --grad-emerald: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.hub-tile.tile-emerald::before {
+  background: linear-gradient(to right, transparent, rgba(16,185,129,0.55), transparent);
+}
+
+.hub-tile.tile-emerald:hover {
+  box-shadow: var(--shadow-card), 0 0 40px rgba(16,185,129,0.14);
+  border-color: rgba(16,185,129,0.3);
+}
+
+.tile-emerald .hub-tile-icon-wrap {
+  background: rgba(16,185,129,0.1);
+  border: 1px solid rgba(16,185,129,0.2);
+}
+
+.tile-emerald .hub-tile-tagline { color: var(--emerald-dark); }
+.tile-emerald .hub-feature-dot { background: var(--emerald); }
+
+.badge-emerald {
+  background: rgba(16,185,129,0.1);
+  color: var(--emerald-dark);
+  border: 1px solid rgba(16,185,129,0.25);
+}
+
+.tile-emerald-cta {
+  background: rgba(16,185,129,0.1);
+  color: var(--emerald-dark);
+  border: 1px solid rgba(16,185,129,0.25);
+}
+
+.hub-tile.tile-emerald:hover .tile-emerald-cta {
+  background: var(--grad-emerald);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: var(--shadow-emerald);
+}
+
+.modal-header-emerald {
+  background: linear-gradient(135deg, rgba(16,185,129,0.08) 0%, transparent 100%);
+}
+
+.btn-emerald {
+  background: var(--grad-emerald);
+  color: #fff;
+  border: none;
+  box-shadow: var(--shadow-emerald);
+}
+
+.btn-emerald:hover:not(:disabled) {
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+  box-shadow: 0 6px 20px rgba(16,185,129,0.45);
+  transform: translateY(-1px);
+}

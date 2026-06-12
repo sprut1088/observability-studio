@@ -27,6 +27,9 @@ export const v1Rca = (payload) => api.post("/v1/rca", payload);
 // ── ObsCo — Observability Copilot (floating chat bot)
 export const obscoChat = (payload) => api.post("/v1/obsco/chat", payload);
 
+// ── SLO Studio
+export const v1SloStudio = (payload) => api.post("/v1/slo-studio", payload);
+
 // ── Platform feature flags
 export const getFeatureFlags = () => api.get("/feature-flags");
 

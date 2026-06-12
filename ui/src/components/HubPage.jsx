@@ -7,6 +7,7 @@ import GapMapModal from "./GapMapModal";
 import GlobalToolConnectivity from "./GlobalToolConnectivity";
 import { getFeatureFlags } from "../api";
 import AYOSAModal from "./AYOSAModal";
+import SLOStudioModal from "./SLOStudioModal";
 
 /* ── Tile definitions ───────────────────────────────────── */
 const TILES = [
@@ -89,6 +90,22 @@ const TILES = [
     ],
     badge: "GENAI COPILOT",
     badgeClass: "badge-violet",
+  },
+  {
+    id: "slo_studio",
+    icon: "📏",
+    title: "SLO Studio",
+    tagline: "SLO Design & Error Budgets",
+    description:
+      "Discover missing SLOs, validate existing objectives, and generate production-ready burn-rate alerts from your observability data.",
+    accentClass: "tile-emerald",
+    features: [
+      "SLO discovery and coverage analysis",
+      "Sloth / Prometheus rule generation",
+      "Error budget and burn-rate intelligence",
+    ],
+    badge: "SLO",
+    badgeClass: "badge-emerald",
   }
 ];
 
@@ -103,6 +120,7 @@ export default function HubPage() {
     red_panel_intelligence: true,
     observability_gap_map: true,
     ayosa: true,
+    slo_studio: true,
   });
 
   const validatedTools = useMemo(
@@ -218,6 +236,13 @@ export default function HubPage() {
 
       {activeTile === "ayosa" && (
         <AYOSAModal 
+          onClose={() => setActiveTile(null)}
+          validatedTools={validatedTools}
+        />
+      )}
+
+      {activeTile === "slo_studio" && (
+        <SLOStudioModal
           onClose={() => setActiveTile(null)}
           validatedTools={validatedTools}
         />

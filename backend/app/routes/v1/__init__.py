@@ -4,6 +4,7 @@ from .crawl import router as crawl_router
 from .assess import router as assess_router
 from .rca import router as rca_router
 from .obsco import router as obsco_router
+from backend.app.routes.v1.slo import router as slo_router
 
 router = APIRouter(prefix="/v1", tags=["Hub v1"])
 
@@ -12,3 +13,4 @@ router.include_router(crawl_router)
 router.include_router(assess_router)
 router.include_router(rca_router)
 router.include_router(obsco_router)
+router.include_router(slo_router)
