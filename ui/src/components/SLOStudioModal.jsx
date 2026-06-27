@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { API_HOST, v1SloStudio } from "../api";
 
-const SUPPORTED = ["prometheus", "jaeger", "tempo", "grafana", "alertmanager", "loki", "splunk", "opensearch"];
+const SUPPORTED = ["prometheus", "jaeger", "tempo", "grafana", "alertmanager", "loki", "splunk", "opensearch", "elasticsearch", "dynatrace", "datadog", "appdynamics"];
 
 function normalizeTools(validatedTools = []) {
   return validatedTools
@@ -47,7 +47,7 @@ export default function SLOStudioModal({ onClose, validatedTools = [] }) {
   const [primaryJourney, setPrimaryJourney] = useState("");
   const [criticality, setCriticality] = useState("balanced");
   const [objectiveStyle, setObjectiveStyle] = useState("balanced");
-  const [lookbackDays, setLookbackDays] = useState(7);
+  const [lookbackDays, setLookbackDays] = useState(30);
   const [windowDays, setWindowDays] = useState(30);
   const [repoPath, setRepoPath] = useState("");
   const [running, setRunning] = useState(false);
