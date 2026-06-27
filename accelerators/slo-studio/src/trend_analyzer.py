@@ -64,6 +64,8 @@ def discover_services(prom: PrometheusClient) -> list[str]:
         "kubernetes",
         "kube-state-metrics",
         "pushgateway",
+        "docker",
+        "container",
     }
 
     deny_contains = [
@@ -79,7 +81,33 @@ def discover_services(prom: PrometheusClient) -> list[str]:
         "cadvisor",
         "kube",
         "node",
+        "docker",
+        "container",
+        "promtail",
+        "loki",
     ]
+
+    allow_if_known_demo_service = {
+        "accounting",
+        "ad",
+        "cart",
+        "checkout",
+        "currency",
+        "email",
+        "flagd",
+        "flagd-ui",
+        "fraud-detection",
+        "frontend",
+        "frontend-proxy",
+        "image-provider",
+        "load-generator",
+        "payment",
+        "product-catalog",
+        "product-reviews",
+        "quote",
+        "recommendation",
+        "shipping",
+    }
 
     for label in SERVICE_LABELS:
         try:
@@ -90,13 +118,20 @@ def discover_services(prom: PrometheusClient) -> list[str]:
                 value = str(value).strip()
                 lowered = value.lower()
 
+                if lowered in allow_if_known_demo_service:
+                    services.add(value)
+                    continue
+
                 if lowered in deny_exact:
                     continue
 
                 if any(token in lowered for token in deny_contains):
                     continue
 
-                if lowered.startswith(("prometheus-", "grafana-", "kube-", "otel-")):
+                if lowered.startswith(("prometheus-", "grafana-", "kube-", "otel-", "node-")):
+                    continue
+
+                if len(lowered) < 2:
                     continue
 
                 services.add(value)

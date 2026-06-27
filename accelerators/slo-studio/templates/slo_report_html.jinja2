@@ -5,45 +5,74 @@
   <title>SLO Studio Report</title>
   <style>
     body { font-family: Inter, system-ui, sans-serif; background:#f5f7fb; color:#172033; padding:32px; }
-    .page { max-width:1200px; margin:0 auto; }
-    .hero { background:linear-gradient(135deg,#0f172a,#059669); color:white; padding:30px; border-radius:20px; margin-bottom:22px; }
-    .hero h1 { margin:0 0 8px; font-size:30px; }
-    .hero p { margin:0; opacity:.85; }
+    .page { max-width:1240px; margin:0 auto; }
+    .hero { background:linear-gradient(135deg,#0f172a,#047857); color:white; padding:32px; border-radius:22px; margin-bottom:22px; }
+    .hero h1 { margin:0 0 8px; font-size:32px; }
+    .hero p { margin:0; opacity:.86; max-width:850px; line-height:1.65; }
     .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; margin-bottom:20px; }
-    .card { background:white; border:1px solid #e5e7eb; border-radius:14px; padding:18px; margin-bottom:18px; box-shadow:0 8px 22px rgba(15,23,42,.06); }
+    .card { background:white; border:1px solid #e5e7eb; border-radius:16px; padding:18px; margin-bottom:18px; box-shadow:0 8px 24px rgba(15,23,42,.06); }
     .kpi { text-align:center; }
     .kpi strong { display:block; font-size:30px; color:#059669; }
+    .kpi span { color:#64748b; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
+    h2 { margin:0 0 12px; font-size:20px; }
+    h3 { margin:0 0 8px; font-size:15px; }
     table { width:100%; border-collapse:collapse; font-size:13px; }
     th,td { padding:10px; border-bottom:1px solid #e5e7eb; text-align:left; vertical-align:top; }
     th { color:#64748b; text-transform:uppercase; font-size:11px; letter-spacing:.06em; }
-    .sev-critical { color:#dc2626; font-weight:700; }
-    .sev-high { color:#ea580c; font-weight:700; }
-    .sev-medium { color:#d97706; font-weight:700; }
-    .sev-low { color:#059669; font-weight:700; }
-    .pill { display:inline-block; padding:3px 8px; border-radius:999px; background:#ecfdf5; color:#059669; font-size:11px; font-weight:700; margin:2px; }
+    .sev-critical { color:#dc2626; font-weight:800; }
+    .sev-high { color:#ea580c; font-weight:800; }
+    .sev-medium { color:#d97706; font-weight:800; }
+    .sev-low { color:#059669; font-weight:800; }
+    .pill { display:inline-block; padding:3px 8px; border-radius:999px; background:#ecfdf5; color:#059669; font-size:11px; font-weight:800; margin:2px; border:1px solid #bbf7d0; }
+    .pill-blue { background:#eff6ff; color:#2563eb; border-color:#bfdbfe; }
+    .pill-orange { background:#fff7ed; color:#ea580c; border-color:#fed7aa; }
     .evidence { margin-top:8px; padding:10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; font-size:12px; }
     .muted { color:#64748b; }
+    .summary-box { background:#ecfdf5; border:1px solid #bbf7d0; border-radius:14px; padding:16px; line-height:1.7; }
+    .warn-box { background:#fff7ed; border:1px solid #fed7aa; border-radius:14px; padding:14px; color:#9a3412; }
     pre { white-space:pre-wrap; word-break:break-word; background:#0f172a; color:#e2e8f0; padding:16px; border-radius:12px; font-size:12px; }
+    code { font-family: Consolas, monospace; font-size:11px; color:#334155; word-break:break-word; }
+    .confidence { font-weight:800; color:#047857; }
   </style>
 </head>
 <body>
 <div class="page">
   <div class="hero">
     <h1>📏 SLO Studio Report</h1>
-    <p>Evidence-backed SLO discovery, trend analysis, and Sloth rule generation.</p>
+    <p>
+      Evidence-backed SLO discovery based on observed service behavior, historical reliability trends,
+      existing SLO coverage, trace operations, and generated Sloth-compatible alerting rules.
+    </p>
   </div>
 
   <div class="grid">
     <div class="card kpi"><strong>{{ summary.service_count }}</strong><span>Services Profiled</span></div>
     <div class="card kpi"><strong>{{ summary.existing_slo_count }}</strong><span>Existing SLOs</span></div>
-    <div class="card kpi"><strong>{{ summary.recommended_slo_count }}</strong><span>Recommended SLOs</span></div>
+    <div class="card kpi"><strong>{{ summary.top_recommendation_count }}</strong><span>Top SLOs</span></div>
+    <div class="card kpi"><strong>{{ summary.production_ready_slo_count }}</strong><span>Production Ready</span></div>
+    <div class="card kpi"><strong>{{ summary.candidate_slo_count }}</strong><span>Candidates</span></div>
     <div class="card kpi"><strong>{{ summary.evidence_count }}</strong><span>Evidence Items</span></div>
-    <div class="card kpi"><strong>{{ summary.lookback_days }}</strong><span>Lookback Days</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Executive Summary</h2>
+    <div class="summary-box">
+      SLO Studio analyzed <strong>{{ summary.service_count }}</strong> services over a
+      <strong>{{ summary.lookback_days }} day</strong> lookback window and detected
+      <strong>{{ summary.existing_slo_count }}</strong> existing SLO-related rules or alerts.
+      It produced <strong>{{ summary.production_ready_slo_count }}</strong> production-ready SLO recommendations
+      backed by telemetry evidence, plus <strong>{{ summary.candidate_slo_count }}</strong> lower-confidence candidates
+      requiring metric or ownership validation.
+      Generated YAML includes only production-ready recommendations.
+    </div>
   </div>
 
   {% if collection_errors %}
   <div class="card">
     <h2>Collection Warnings</h2>
+    <div class="warn-box">
+      Some signals could not be collected. Recommendations are still generated from available evidence.
+    </div>
     <table>
       <thead><tr><th>Source</th><th>Operation</th><th>Error</th></tr></thead>
       <tbody>
@@ -56,15 +85,63 @@
   {% endif %}
 
   <div class="card">
+    <h2>Top 10 SLOs to Implement First</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Priority</th>
+          <th>Service</th>
+          <th>SLO</th>
+          <th>Type</th>
+          <th>Objective</th>
+          <th>Confidence</th>
+          <th>Why This Matters</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for rec in top_recommendations %}
+        <tr>
+          <td><strong>#{{ loop.index }}</strong></td>
+          <td><strong>{{ rec.service }}</strong></td>
+          <td>{{ rec.name }}</td>
+          <td><span class="pill">{{ rec.sli_type }}</span></td>
+          <td>{{ rec.objective }}% / {{ rec.window }}</td>
+          <td class="confidence">{{ (rec.confidence * 100) | round(0) }}%</td>
+          <td>
+            {{ rec.rationale }}
+            {% for ev in rec.evidence[:2] %}
+              <div class="evidence">
+                <strong>{{ ev.source }} · {{ ev.signal_type }}</strong><br/>
+                {{ ev.title }}: {{ ev.value }}<br/>
+                <span class="muted">{{ ev.interpretation }}</span>
+              </div>
+            {% endfor %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
     <h2>Service Understanding</h2>
     <table>
-      <thead><tr><th>Service</th><th>Criticality</th><th>Journeys</th><th>Operations</th><th>Entrypoints</th><th>Evidence</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Service</th>
+          <th>Criticality</th>
+          <th>Journeys</th>
+          <th>Trace Operations</th>
+          <th>Entrypoints</th>
+          <th>Evidence</th>
+        </tr>
+      </thead>
       <tbody>
       {% for profile in profiles %}
         <tr>
           <td><strong>{{ profile.name }}</strong></td>
           <td class="sev-{{ profile.criticality }}">{{ profile.criticality }}</td>
-          <td>{% for j in profile.user_journeys %}<span class="pill">{{ j }}</span>{% endfor %}</td>
+          <td>{% for j in profile.user_journeys %}<span class="pill pill-blue">{{ j }}</span>{% endfor %}</td>
           <td>{{ profile.operations[:6] | join(", ") }}</td>
           <td>{{ profile.entrypoints[:6] | join(", ") }}</td>
           <td>{{ profile.evidence | length }}</td>
@@ -97,19 +174,19 @@
   </div>
 
   <div class="card">
-    <h2>Recommended SLOs</h2>
+    <h2>Production-ready SLO Recommendations</h2>
     <table>
       <thead>
-        <tr><th>Service</th><th>SLO</th><th>Type</th><th>Objective</th><th>Confidence</th><th>Rationale & Evidence</th></tr>
+        <tr><th>Service</th><th>SLO</th><th>Type</th><th>Objective</th><th>Confidence</th><th>Evidence-backed Rationale</th></tr>
       </thead>
       <tbody>
-      {% for rec in recommendations %}
+      {% for rec in production_ready_recommendations %}
         <tr>
           <td><strong>{{ rec.service }}</strong></td>
           <td>{{ rec.name }}</td>
-          <td>{{ rec.sli_type }}</td>
+          <td><span class="pill">{{ rec.sli_type }}</span></td>
           <td>{{ rec.objective }}% / {{ rec.window }}</td>
-          <td>{{ (rec.confidence * 100) | round(0) }}%</td>
+          <td class="confidence">{{ (rec.confidence * 100) | round(0) }}%</td>
           <td>
             {{ rec.rationale }}
             {% for ev in rec.evidence %}
@@ -124,6 +201,29 @@
               <div class="evidence"><strong>Assumptions:</strong> {{ rec.assumptions | join("; ") }}</div>
             {% endif %}
           </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Candidate SLOs Requiring Validation</h2>
+    <p class="muted">
+      These recommendations were not included in generated YAML because confidence or evidence quality was below the production threshold.
+    </p>
+    <table>
+      <thead>
+        <tr><th>Service</th><th>SLO</th><th>Type</th><th>Confidence</th><th>Reason to Validate</th></tr>
+      </thead>
+      <tbody>
+      {% for rec in candidate_recommendations %}
+        <tr>
+          <td>{{ rec.service }}</td>
+          <td>{{ rec.name }}</td>
+          <td><span class="pill pill-orange">{{ rec.sli_type }}</span></td>
+          <td>{{ (rec.confidence * 100) | round(0) }}%</td>
+          <td>{{ rec.assumptions | join("; ") if rec.assumptions else "Needs additional telemetry or ownership validation." }}</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -149,6 +249,9 @@
 
   <div class="card">
     <h2>Generated Sloth YAML</h2>
+    <p class="muted">
+      YAML below includes production-ready SLOs only. Candidate SLOs are intentionally excluded until validated.
+    </p>
     <pre>{{ sloth_yaml }}</pre>
   </div>
 </div>

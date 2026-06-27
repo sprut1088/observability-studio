@@ -12,6 +12,7 @@ from report_writer import write_reports
 from sloth_generator import generate_sloth_yaml
 from slo_intelligence import recommend_slos
 from trend_analyzer import analyze_service_trends, discover_services
+from recommendation_ranker import split_recommendations
 
 
 class SLOStudio:
@@ -149,13 +150,21 @@ class SLOStudio:
             window_days=self.window_days,
         )
 
-        sloth_yaml = generate_sloth_yaml(recommendations) if self.include_yaml else ""
+        top_recommendations, production_ready_recommendations, candidate_recommendations = split_recommendations(
+            recommendations,
+            production_confidence_threshold=0.55,
+        )
+
+        sloth_yaml = generate_sloth_yaml(production_ready_recommendations) if self.include_yaml else ""
 
         summary = {
             "application": self.application,
             "service_count": len(profiles),
             "existing_slo_count": len(existing_slos),
             "recommended_slo_count": len(recommendations),
+            "top_recommendation_count": len(top_recommendations),
+            "production_ready_slo_count": len(production_ready_recommendations),
+            "candidate_slo_count": len(candidate_recommendations),
             "finding_count": len(findings),
             "evidence_count": sum(len(profile.evidence) for profile in profiles),
             "lookback_days": self.lookback_days,
@@ -167,6 +176,9 @@ class SLOStudio:
             "summary": summary,
             "profiles": profiles,
             "existing_slos": existing_slos,
+            "top_recommendations": top_recommendations,
+            "production_ready_recommendations": production_ready_recommendations,
+            "candidate_recommendations": candidate_recommendations,
             "recommendations": recommendations,
             "findings": findings,
             "repo_profile": repo_profile,

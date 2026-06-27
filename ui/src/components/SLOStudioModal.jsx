@@ -170,7 +170,7 @@ export default function SLOStudioModal({ onClose, validatedTools = [] }) {
               <div>
                 <div className="modal-alert-title">SLO Studio report ready</div>
                 <div className="modal-alert-msg">
-                  Services: {result.summary?.service_count ?? 0} · Existing SLOs: {result.summary?.existing_slo_count ?? 0} · Recommendations: {result.summary?.recommended_slo_count ?? 0} · Evidence: {result.summary?.evidence_count ?? 0}
+                  Services: {result.summary?.service_count ?? 0} · Existing SLOs: {result.summary?.existing_slo_count ?? 0} · Top SLOs: {result.summary?.top_recommendation_count ?? 0} · Production-ready: {result.summary?.production_ready_slo_count ?? 0} · Evidence: {result.summary?.evidence_count ?? 0}
                 </div>
               </div>
             </div>
