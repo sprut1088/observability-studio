@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { v1Validate } from "../api";
+import { DEMO_TOOLS, DEMO_TOOLS_ENABLED } from "../demoTools";
 
 const TOOL_OPTIONS = [
   { value: "prometheus", label: "🔥 Prometheus" },
@@ -9,6 +10,7 @@ const TOOL_OPTIONS = [
   { value: "alertmanager", label: "🔔 Alertmanager" },
   { value: "tempo", label: "⚡ Tempo" },
   { value: "elasticsearch", label: "🔎 Elasticsearch" },
+  { value: "opensearch", label: "🔎 OpenSearch" },
   { value: "dynatrace", label: "🛡️ Dynatrace" },
   { value: "datadog", label: "🐶 Datadog" },
   { value: "appdynamics", label: "🎛️ AppDynamics" },
@@ -31,22 +33,74 @@ function deriveSplunkUrls(inputUrl) {
   }
 }
 
+function normalizeToolIdentity(tool) {
+  return `${tool.tool_name || tool.toolName || tool.name || ""}::${
+    tool.base_url || tool.baseUrl || tool.url || ""
+  }`;
+}
+
+function mergeDemoTools(nextTools = []) {
+  if (!DEMO_TOOLS_ENABLED) {
+    return nextTools;
+  }
+
+  const manualTools = nextTools.filter(
+    (tool) =>
+      !DEMO_TOOLS.some(
+        (demoTool) => normalizeToolIdentity(demoTool) === normalizeToolIdentity(tool)
+      )
+  );
+
+  return [...DEMO_TOOLS, ...manualTools];
+}
+
+function loadInitialTools() {
+  if (DEMO_TOOLS_ENABLED) {
+    return DEMO_TOOLS;
+  }
+
+  try {
+    const saved = sessionStorage.getItem("observabilityStudioTools");
+    return saved ? JSON.parse(saved) : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function GlobalToolConnectivity({ onChange }) {
   const [toolName, setToolName] = useState("prometheus");
   const [baseUrl, setBaseUrl] = useState("");
   const [authToken, setAuthToken] = useState("");
-  const [tools, setTools] = useState([]);
+  const [tools, setTools] = useState(loadInitialTools);
   const [validating, setValidating] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(
+    DEMO_TOOLS_ENABLED ? "Demo observability tools are preloaded and ready." : ""
+  );
 
   const validatedTools = useMemo(
     () => tools.filter((tool) => tool.validated),
     [tools]
   );
 
+  useEffect(() => {
+    onChange?.(tools);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const persistInMemory = (nextTools) => {
-    setTools(nextTools);
-    onChange?.(nextTools);
+    const finalTools = mergeDemoTools(nextTools);
+
+    setTools(finalTools);
+    onChange?.(finalTools);
+
+    try {
+      sessionStorage.setItem(
+        "observabilityStudioTools",
+        JSON.stringify(finalTools)
+      );
+    } catch {
+      // ignore session storage failure
+    }
   };
 
   const addAndValidateTool = async () => {
@@ -63,8 +117,13 @@ export default function GlobalToolConnectivity({ onChange }) {
 
     const candidate = {
       tool_name: toolName,
+      toolName,
+      name: toolName,
       base_url: baseUrl.trim(),
+      baseUrl: baseUrl.trim(),
+      url: baseUrl.trim(),
       auth_token: authToken.trim() || null,
+      authToken: authToken.trim() || null,
       ...splunkFields,
       splunk_hec_token:
         toolName === "splunk" ? authToken.trim() || null : undefined,
@@ -78,6 +137,7 @@ export default function GlobalToolConnectivity({ onChange }) {
         id: `${toolName}-${Date.now()}`,
         validated: true,
         validation_result: res.data,
+        validation: res.data,
         validated_at: new Date().toISOString(),
       };
 
@@ -85,8 +145,8 @@ export default function GlobalToolConnectivity({ onChange }) {
         ...tools.filter(
           (tool) =>
             !(
-              tool.tool_name === nextTool.tool_name &&
-              tool.base_url === nextTool.base_url
+              (tool.tool_name || tool.toolName) === nextTool.tool_name &&
+              (tool.base_url || tool.baseUrl || tool.url) === nextTool.base_url
             )
         ),
         nextTool,
@@ -99,6 +159,7 @@ export default function GlobalToolConnectivity({ onChange }) {
     } catch (error) {
       setMessage(
         error?.response?.data?.detail ||
+          error?.response?.data?.error ||
           error?.message ||
           "Validation failed."
       );
@@ -108,13 +169,34 @@ export default function GlobalToolConnectivity({ onChange }) {
   };
 
   const removeTool = (id) => {
+    if (DEMO_TOOLS_ENABLED && String(id).startsWith("demo-")) {
+      setMessage("Demo default tools cannot be removed. Use Clear All to reset manual tools.");
+      return;
+    }
+
     const nextTools = tools.filter((tool) => tool.id !== id);
     persistInMemory(nextTools);
   };
 
   const clearAll = () => {
-    persistInMemory([]);
-    setMessage("All session tools cleared.");
+    const nextTools = DEMO_TOOLS_ENABLED ? DEMO_TOOLS : [];
+    setTools(nextTools);
+    onChange?.(nextTools);
+
+    try {
+      sessionStorage.setItem(
+        "observabilityStudioTools",
+        JSON.stringify(nextTools)
+      );
+    } catch {
+      // ignore session storage failure
+    }
+
+    setMessage(
+      DEMO_TOOLS_ENABLED
+        ? "Manual tools cleared. Demo observability tools remain preloaded."
+        : "All session tools cleared."
+    );
   };
 
   return (
@@ -123,8 +205,9 @@ export default function GlobalToolConnectivity({ onChange }) {
         <div>
           <h2>Tool Connectivity</h2>
           <p>
-            Add and validate tools for this session. Reloading the page clears
-            them.
+            {DEMO_TOOLS_ENABLED
+              ? "Demo observability tools are preloaded for this environment. You can add extra tools if needed."
+              : "Add and validate tools for this session. Reloading the page clears them."}
           </p>
         </div>
 
@@ -182,11 +265,18 @@ export default function GlobalToolConnectivity({ onChange }) {
           tools.map((tool) => (
             <div className="validated-tool" key={tool.id}>
               <div>
-                <strong>{tool.tool_name}</strong>
+                <strong>
+                  {tool.tool_name}
+                  {tool.demo_default ? " · Demo Default" : ""}
+                </strong>
                 <span>{tool.base_url}</span>
               </div>
+
               <span className="status-ok">Validated</span>
-              <button onClick={() => removeTool(tool.id)}>Remove</button>
+
+              <button onClick={() => removeTool(tool.id)}>
+                {tool.demo_default ? "Locked" : "Remove"}
+              </button>
             </div>
           ))
         )}

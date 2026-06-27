@@ -112,7 +112,18 @@ const TILES = [
 
 export default function HubPage() {
   const [activeTile, setActiveTile] = useState(null);
-  const [tools, setTools] = useState([]);
+  const [tools, setTools] = useState(() => {
+    if (DEMO_TOOLS_ENABLED) {
+      return DEMO_TOOLS;
+    }
+
+    try {
+      const saved = sessionStorage.getItem("observabilityStudioTools");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   const [flags, setFlags] = useState({
     observascore: true,
@@ -129,6 +140,33 @@ export default function HubPage() {
     [tools]
   );
 
+  function handleToolsChange(nextTools) {
+    const mergedTools = DEMO_TOOLS_ENABLED
+      ? [
+          ...DEMO_TOOLS,
+          ...(nextTools || []).filter(
+            (tool) =>
+              !DEMO_TOOLS.some(
+                (demoTool) =>
+                  (demoTool.toolName || demoTool.tool_name) ===
+                  (tool.toolName || tool.tool_name || tool.name)
+              )
+          ),
+        ]
+      : nextTools || [];
+
+    setTools(mergedTools);
+
+    try {
+      sessionStorage.setItem(
+        "observabilityStudioTools",
+        JSON.stringify(mergedTools)
+      );
+    } catch {
+      // ignore session storage failures
+    }
+  }
+
   const hasValidatedTools = validatedTools.length > 0;
 
   useEffect(() => {
@@ -141,7 +179,7 @@ export default function HubPage() {
 
   return (
     <div className="hub-wrapper">
-      <GlobalToolConnectivity onChange={setTools} />
+      <GlobalToolConnectivity onChange={handleToolsChange} />
 
       {!hasValidatedTools && (
         <div className="module-lock-message">
