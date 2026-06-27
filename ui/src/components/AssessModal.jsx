@@ -1,38 +1,16 @@
 import { useMemo, useState } from "react";
 import { runAssessment, API_HOST } from "../api";
+import {
+  TOOL_ICONS,
+  buildLegacyToolsPayload,
+  formatApiError,
+  normalizeLegacyTools,
+} from "../lib/toolPayloads";
 
 const AI_PROVIDERS = [
   { value: "anthropic", label: "✨ Anthropic (Claude)" },
   { value: "azure", label: "🧠 Azure OpenAI" },
 ];
-
-const DEFAULT_USAGES = {
-  prometheus: ["metrics", "alerts"],
-  grafana: ["dashboards", "alerts"],
-  loki: ["logs"],
-  jaeger: ["traces"],
-  alertmanager: ["alerts"],
-  tempo: ["traces"],
-  elasticsearch: ["logs"],
-  dynatrace: ["metrics", "traces", "logs", "dashboards", "alerts"],
-  datadog: ["metrics", "traces", "logs", "dashboards", "alerts"],
-  appdynamics: ["metrics", "traces", "dashboards", "alerts"],
-  splunk: ["logs", "alerts", "dashboards"],
-};
-
-const TOOL_ICONS = {
-  prometheus: "🔥",
-  grafana: "📊",
-  loki: "📋",
-  jaeger: "🔍",
-  alertmanager: "🔔",
-  tempo: "⚡",
-  elasticsearch: "🔎",
-  dynatrace: "🛡️",
-  datadog: "🐕",
-  appdynamics: "📱",
-  splunk: "🌊",
-};
 
 function triggerDownload(downloadPath) {
   if (!downloadPath) return;
@@ -55,30 +33,6 @@ function resolveApiUrl(path) {
   return path.startsWith("http") ? path : `${API_HOST}${path}`;
 }
 
-function normalizeValidatedTools(validatedTools = []) {
-  return validatedTools.map((tool) => ({
-    toolName: tool.tool_name || tool.toolName || tool.name,
-    baseUrl: tool.base_url || tool.baseUrl || tool.url,
-    authToken: tool.auth_token || tool.authToken || tool.api_key || null,
-    validation: tool.validation_result || tool.validation || { reachable: true },
-
-    splunkBaseUrl: tool.splunk_base_url || tool.splunkBaseUrl || null,
-    splunkMgmtUrl: tool.splunk_mgmt_url || tool.splunkMgmtUrl || null,
-    splunkHecUrl: tool.splunk_hec_url || tool.splunkHecUrl || null,
-    splunkHecToken:
-      tool.splunk_hec_token ||
-      tool.splunkHecToken ||
-      tool.auth_token ||
-      tool.authToken ||
-      tool.api_key ||
-      null,
-    splunkVerifySsl:
-      tool.splunk_verify_ssl ??
-      tool.splunkVerifySsl ??
-      false,
-  }));
-}
-
 export default function AssessModal({ onClose, validatedTools = [] }) {
   const [useAi, setUseAi] = useState(false);
   const [aiProvider, setAiProvider] = useState("anthropic");
@@ -91,7 +45,7 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
   const [previewFailed, setPreviewFailed] = useState(false);
 
   const tools = useMemo(
-    () => normalizeValidatedTools(validatedTools),
+    () => normalizeLegacyTools(validatedTools),
     [validatedTools]
   );
 
@@ -126,18 +80,7 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
     try {
       const payload = {
         client: { name: "ObservaScore Hub", environment: "hub" },
-        tools: tools.map((tool) => ({
-          name: tool.toolName,
-          enabled: true,
-          usages: DEFAULT_USAGES[tool.toolName] ?? ["metrics"],
-          url: tool.baseUrl,
-          api_key: tool.authToken ?? null,
-          splunk_base_url: tool.splunkBaseUrl ?? null,
-          splunk_mgmt_url: tool.splunkMgmtUrl ?? null,
-          splunk_hec_url: tool.splunkHecUrl ?? null,
-          splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
-          splunk_verify_ssl: tool.splunkVerifySsl ?? false,
-        })),
+        tools: buildLegacyToolsPayload(tools),
         ai: {
           enabled: useAi,
           provider: useAi ? aiProvider : null,
@@ -167,7 +110,7 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
       setStatus({
         type: "error",
         title: "Assessment failed",
-        msg: err?.response?.data?.detail || err.message,
+        msg: formatApiError(err, "Assessment failed."),
       });
     } finally {
       setAssessing(false);

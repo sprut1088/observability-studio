@@ -1,33 +1,11 @@
 import { useMemo, useState } from "react";
 import { API_HOST, runRedIntelligence } from "../api";
-
-const DEFAULT_USAGES = {
-  prometheus: ["metrics", "alerts"],
-  grafana: ["dashboards", "alerts"],
-  loki: ["logs"],
-  jaeger: ["traces"],
-  alertmanager: ["alerts"],
-  tempo: ["traces"],
-  elasticsearch: ["logs"],
-  dynatrace: ["metrics", "traces", "logs", "dashboards", "alerts"],
-  datadog: ["metrics", "traces", "logs", "dashboards", "alerts"],
-  appdynamics: ["metrics", "traces", "dashboards", "alerts"],
-  splunk: ["logs", "alerts", "dashboards"],
-};
-
-const TOOL_ICONS = {
-  prometheus: "🔥",
-  grafana: "📊",
-  loki: "📋",
-  jaeger: "🔍",
-  alertmanager: "🔔",
-  tempo: "⚡",
-  elasticsearch: "🔎",
-  dynatrace: "🛡️",
-  datadog: "🐕",
-  appdynamics: "📱",
-  splunk: "🌊",
-};
+import {
+  TOOL_ICONS,
+  buildLegacyToolsPayload,
+  formatApiError,
+  normalizeLegacyTools,
+} from "../lib/toolPayloads";
 
 function resolveApiUrl(path) {
   if (!path) return null;
@@ -50,32 +28,6 @@ function triggerDownload(downloadPath) {
   document.body.removeChild(a);
 }
 
-function normalizeValidatedTools(validatedTools = []) {
-  return validatedTools
-    .map((tool) => ({
-      toolName: tool.tool_name || tool.toolName || tool.name,
-      baseUrl: tool.base_url || tool.baseUrl || tool.url,
-      authToken: tool.auth_token || tool.authToken || tool.api_key || null,
-      validation: tool.validation_result || tool.validation || { reachable: true },
-
-      splunkBaseUrl: tool.splunk_base_url || tool.splunkBaseUrl || null,
-      splunkMgmtUrl: tool.splunk_mgmt_url || tool.splunkMgmtUrl || null,
-      splunkHecUrl: tool.splunk_hec_url || tool.splunkHecUrl || null,
-      splunkHecToken:
-        tool.splunk_hec_token ||
-        tool.splunkHecToken ||
-        tool.auth_token ||
-        tool.authToken ||
-        tool.api_key ||
-        null,
-      splunkVerifySsl:
-        tool.splunk_verify_ssl ??
-        tool.splunkVerifySsl ??
-        false,
-    }))
-    .filter((tool) => tool.toolName && tool.baseUrl && DEFAULT_USAGES[tool.toolName]);
-}
-
 export default function RedIntelligenceModal({ onClose, validatedTools = [] }) {
   const [applicationName, setApplicationName] = useState("");
   const [environment, setEnvironment] = useState("prod");
@@ -88,7 +40,7 @@ export default function RedIntelligenceModal({ onClose, validatedTools = [] }) {
   const [previewFailed, setPreviewFailed] = useState(false);
 
   const tools = useMemo(
-    () => normalizeValidatedTools(validatedTools),
+    () => normalizeLegacyTools(validatedTools),
     [validatedTools]
   );
 
@@ -120,18 +72,7 @@ export default function RedIntelligenceModal({ onClose, validatedTools = [] }) {
         environment: environment.trim() || "prod",
         canonical_services: canonicalServices,
         auto_discover_services: autoDiscoverServices,
-        tools: tools.map((tool) => ({
-          name: tool.toolName,
-          enabled: true,
-          usages: DEFAULT_USAGES[tool.toolName] ?? ["metrics"],
-          url: tool.baseUrl,
-          api_key: tool.authToken ?? null,
-          splunk_base_url: tool.splunkBaseUrl ?? null,
-          splunk_mgmt_url: tool.splunkMgmtUrl ?? null,
-          splunk_hec_url: tool.splunkHecUrl ?? null,
-          splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
-          splunk_verify_ssl: tool.splunkVerifySsl ?? false,
-        })),
+        tools: buildLegacyToolsPayload(tools),
       };
 
       const res = await runRedIntelligence(payload);
@@ -152,7 +93,7 @@ export default function RedIntelligenceModal({ onClose, validatedTools = [] }) {
       setStatus({
         type: "error",
         title: "RED analysis failed",
-        msg: err?.response?.data?.detail || err.message,
+        msg: formatApiError(err, "RED analysis failed."),
       });
     } finally {
       setRunning(false);
