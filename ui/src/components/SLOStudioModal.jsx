@@ -25,6 +25,20 @@ function absoluteUrl(path) {
   return path.startsWith("http") ? path : `${API_HOST}${path}`;
 }
 
+function downloadArtifact(path, fallbackName) {
+  const url = absoluteUrl(path);
+  if (!url) return;
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fallbackName || "";
+  a.target = "_blank";
+  a.rel = "noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 export default function SLOStudioModal({ onClose, validatedTools = [] }) {
   const tools = useMemo(() => normalizeTools(validatedTools), [validatedTools]);
 
@@ -167,10 +181,66 @@ export default function SLOStudioModal({ onClose, validatedTools = [] }) {
           {result && (
             <div className="modal-alert modal-alert-success">
               <span className="modal-alert-icon">✓</span>
-              <div>
+
+              <div style={{ flex: 1 }}>
                 <div className="modal-alert-title">SLO Studio report ready</div>
+
                 <div className="modal-alert-msg">
-                  Services: {result.summary?.service_count ?? 0} · Existing SLOs: {result.summary?.existing_slo_count ?? 0} · Top SLOs: {result.summary?.top_recommendation_count ?? 0} · Production-ready: {result.summary?.production_ready_slo_count ?? 0} · Evidence: {result.summary?.evidence_count ?? 0}
+                  Services: {result.summary?.service_count ?? 0} · Existing SLOs:{" "}
+                  {result.summary?.existing_slo_count ?? 0} · Top SLOs:{" "}
+                  {result.summary?.top_recommendation_count ??
+                    result.summary?.recommended_slo_count ??
+                    0}{" "}
+                  · Production-ready:{" "}
+                  {result.summary?.production_ready_slo_count ??
+                    result.summary?.recommended_slo_count ??
+                    0}{" "}
+                  · Evidence: {result.summary?.evidence_count ?? 0}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: "10px",
+                    display: "flex",
+                    gap: "8px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {result.report_url && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() =>
+                        downloadArtifact(result.report_url, "slo-studio-report.html")
+                      }
+                    >
+                      ⬇ Download Report
+                    </button>
+                  )}
+
+                  {result.json_url && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() =>
+                        downloadArtifact(result.json_url, "slo-studio-report.json")
+                      }
+                    >
+                      ⬇ Download JSON
+                    </button>
+                  )}
+
+                  {result.yaml_url && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() =>
+                        downloadArtifact(result.yaml_url, "sloth-slos.yaml")
+                      }
+                    >
+                      ⬇ Download YAML
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -181,12 +251,32 @@ export default function SLOStudioModal({ onClose, validatedTools = [] }) {
               <div className="report-preview-header">
                 <div>
                   <div className="report-preview-title">SLO Studio Report Preview</div>
-                  <div className="report-preview-subtitle">Evidence-backed recommendations and generated Sloth YAML.</div>
+                  <div className="report-preview-subtitle">
+                    Evidence-backed recommendations and generated Sloth YAML.
+                  </div>
+                </div>
+
+                <div className="report-preview-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() =>
+                      downloadArtifact(result.report_url, "slo-studio-report.html")
+                    }
+                  >
+                    ⬇ Download Report
+                  </button>
                 </div>
               </div>
-              <iframe className="report-preview-frame" title="SLO Studio report" src={reportUrl} />
+
+              <iframe
+                className="report-preview-frame"
+                title="SLO Studio report"
+                src={reportUrl}
+              />
             </div>
           )}
+
         </div>
 
         <div className="modal-footer">
