@@ -15,6 +15,7 @@ def _evidence_value(evidence: list[SignalEvidence], signal_type: str) -> SignalE
 def _availability_from_evidence(ev: SignalEvidence | None) -> float | None:
     if not ev:
         return None
+
     raw = ev.raw or {}
     value = raw.get("estimated_availability")
     try:
@@ -22,9 +23,10 @@ def _availability_from_evidence(ev: SignalEvidence | None) -> float | None:
     except Exception:
         pass
 
-    match = re.search(r"availability=([0-9.]+)%", ev.value)
+    match = re.search(r"availability=([0-9.]+)%", ev.value or "")
     if match:
         return float(match.group(1))
+
     return None
 
 
@@ -40,7 +42,7 @@ def choose_objective(observed_availability: float | None, style: str, criticalit
     if style == "aggressive":
         candidate = min(99.95, observed_availability + 0.05)
     elif style == "conservative":
-        candidate = max(95.0, observed_availability - 0.2)
+        candidate = max(95.0, observed_availability - 0.20)
     else:
         candidate = max(95.0, observed_availability - 0.05)
 
@@ -55,7 +57,19 @@ def choose_objective(observed_availability: float | None, style: str, criticalit
         return 99.5
     if candidate >= 99.0:
         return 99.0
+
     return round(candidate, 2)
+
+
+def _metric_label_from_evidence(evidence: list[SignalEvidence]) -> tuple[str, str]:
+    traffic_ev = _evidence_value(evidence, "traffic_trend")
+    if traffic_ev and traffic_ev.raw:
+        metric = traffic_ev.raw.get("metric")
+        service_label = traffic_ev.raw.get("service_label")
+        if metric and service_label:
+            return str(metric), str(service_label)
+
+    return "http_requests_total", "service"
 
 
 def generate_sli_candidates(profile: ServiceProfile) -> list[SLICandidate]:
@@ -65,6 +79,9 @@ def generate_sli_candidates(profile: ServiceProfile) -> list[SLICandidate]:
     availability = _evidence_value(profile.evidence, "availability_trend")
     latency = _evidence_value(profile.evidence, "latency_trend")
 
+    metric, service_label = _metric_label_from_evidence(profile.evidence)
+    selector = f'{service_label}="{profile.name}"'
+
     if traffic or availability:
         candidates.append(
             SLICandidate(
@@ -72,8 +89,8 @@ def generate_sli_candidates(profile: ServiceProfile) -> list[SLICandidate]:
                 name=f"{profile.name}-availability",
                 sli_type="availability",
                 description=f"{profile.name} successful requests divided by total requests.",
-                good_query=f'sum(rate(http_requests_total{{service="{profile.name}",status!~"5.."}}[5m]))',
-                total_query=f'sum(rate(http_requests_total{{service="{profile.name}"}}[5m]))',
+                good_query=f'sum(rate({metric}{{{selector},status!~"5.."}}[5m]))',
+                total_query=f'sum(rate({metric}{{{selector}}}[5m]))',
                 evidence=[ev for ev in [traffic, availability] if ev],
             )
         )
@@ -100,8 +117,8 @@ def generate_sli_candidates(profile: ServiceProfile) -> list[SLICandidate]:
                 name=f"{profile.name}-{safe_journey}-journey-availability",
                 sli_type="journey_availability",
                 description=f"Availability of the {journey} user journey involving {profile.name}.",
-                good_query=f'sum(rate(http_requests_total{{service="{profile.name}",route=~".*{journey}.*",status!~"5.."}}[5m]))',
-                total_query=f'sum(rate(http_requests_total{{service="{profile.name}",route=~".*{journey}.*"}}[5m]))',
+                good_query=f'sum(rate({metric}{{{selector},status!~"5.."}}[5m]))',
+                total_query=f'sum(rate({metric}{{{selector}}}[5m]))',
                 evidence=profile.evidence[:5],
             )
         )
@@ -115,7 +132,12 @@ def recommend_slos(
     objective_style: str,
     window_days: int,
 ) -> tuple[list[SLORecommendation], list[SLOFinding]]:
-    existing_services = {item.get("service") for item in existing_slos if item.get("service")}
+    existing_services = {
+        item.get("service")
+        for item in existing_slos
+        if item.get("service")
+    }
+
     recommendations: list[SLORecommendation] = []
     findings: list[SLOFinding] = []
 
@@ -123,23 +145,24 @@ def recommend_slos(
         candidates = generate_sli_candidates(profile)
 
         if profile.name not in existing_services:
-            findings.append(
-                SLOFinding(
-                    service=profile.name,
-                    severity="high" if profile.criticality in {"critical", "high"} else "medium",
-                    title="Missing service-level SLO",
-                    description=f"No existing SLO was detected for service '{profile.name}'.",
-                    recommendation="Define at least one availability SLO and one latency or journey SLO if telemetry supports it.",
-                    evidence=profile.evidence[:3],
+            if profile.evidence:
+                findings.append(
+                    SLOFinding(
+                        service=profile.name,
+                        severity="high" if profile.criticality in {"critical", "high"} else "medium",
+                        title="Missing service-level SLO",
+                        description=f"No existing SLO was detected for service '{profile.name}'.",
+                        recommendation="Define an availability or latency SLO after validating metric labels and ownership.",
+                        evidence=profile.evidence[:3],
+                    )
                 )
-            )
 
         for candidate in candidates:
             availability_ev = _evidence_value(candidate.evidence, "availability_trend")
             observed_availability = _availability_from_evidence(availability_ev)
             objective = choose_objective(observed_availability, objective_style, profile.criticality)
 
-                        score = 0.25
+            score = 0.25
             assumptions: list[str] = []
 
             traffic_ev = _evidence_value(profile.evidence, "traffic_trend")
@@ -150,7 +173,7 @@ def recommend_slos(
             if traffic_ev:
                 score += 0.20
             else:
-                assumptions.append("Request traffic metric was not found; generated query may require metric-name adjustment.")
+                assumptions.append("Request traffic metric was not found.")
 
             if availability_ev:
                 score += 0.30
@@ -169,7 +192,6 @@ def recommend_slos(
             if profile.criticality in {"critical", "high"}:
                 score += 0.05
 
-            # Journey SLOs must have stronger evidence than generic service SLOs.
             if candidate.sli_type == "journey_availability" and not (traffic_ev and availability_ev):
                 score -= 0.10
                 assumptions.append("Journey-specific SLO needs route/span-level validation before production rollout.")
@@ -180,16 +202,27 @@ def recommend_slos(
                 objective = 95.0
 
             rationale_parts = [
-                f"Service '{profile.name}' was discovered from observability data.",
+                f"Service '{profile.name}' was discovered from observability data."
             ]
+
             if observed_availability is not None:
-                rationale_parts.append(f"Observed historical availability is approximately {observed_availability:.3f}%.")
+                rationale_parts.append(
+                    f"Historical availability is approximately {observed_availability:.3f}%."
+                )
+
+            if traffic_ev:
+                rationale_parts.append("Request traffic was observed over the selected lookback window.")
+
+            if latency_ev:
+                rationale_parts.append("Latency telemetry is available for SLO validation.")
+
             if profile.operations:
-                rationale_parts.append(f"Trace operations were found: {', '.join(profile.operations[:5])}.")
-            if profile.entrypoints:
-                rationale_parts.append(f"Repository or configuration entrypoints were found: {', '.join(profile.entrypoints[:5])}.")
+                rationale_parts.append(
+                    f"Trace operations were found: {', '.join(profile.operations[:5])}."
+                )
+
             if candidate.evidence:
-                rationale_parts.append("Recommendation is backed by collected signal evidence.")
+                rationale_parts.append("Recommendation is backed by collected telemetry evidence.")
 
             recommendations.append(
                 SLORecommendation(
@@ -203,7 +236,7 @@ def recommend_slos(
                     total_query=candidate.total_query,
                     rationale=" ".join(rationale_parts),
                     confidence=confidence,
-                    page_alert=profile.criticality in {"critical", "high"} or candidate.sli_type in {"availability", "journey_availability"},
+                    page_alert=profile.criticality in {"critical", "high"} and confidence >= 0.70,
                     evidence=candidate.evidence,
                     assumptions=assumptions,
                 )
