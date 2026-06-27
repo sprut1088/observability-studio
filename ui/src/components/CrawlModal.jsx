@@ -6,7 +6,6 @@ const DEFAULT_USAGES = {
   grafana: ["dashboards", "alerts"],
   loki: ["logs"],
   jaeger: ["traces"],
-  alertmanager: ["alerts"],
   tempo: ["traces"],
   elasticsearch: ["logs"],
   dynatrace: ["metrics", "traces", "logs", "dashboards", "alerts"],
@@ -15,19 +14,26 @@ const DEFAULT_USAGES = {
   splunk: ["logs", "alerts", "dashboards"],
 };
 
+const TOOL_ALIASES = {
+  opensearch: "elasticsearch",
+};
+
 const TOOL_ICONS = {
   prometheus: "🔥",
   grafana: "📊",
   loki: "📋",
   jaeger: "🔍",
-  alertmanager: "🔔",
   tempo: "⚡",
   elasticsearch: "🔎",
+  opensearch: "🔎",
   dynatrace: "🛡️",
   datadog: "🐕",
   appdynamics: "📱",
   splunk: "🌊",
+  alertmanager: "🔔",
 };
+
+const OBSCRAWL_SUPPORTED_TOOLS = new Set(Object.keys(DEFAULT_USAGES));
 
 function triggerDownload(downloadPath) {
   if (!downloadPath) return;
@@ -45,28 +51,148 @@ function triggerDownload(downloadPath) {
   document.body.removeChild(a);
 }
 
-function normalizeValidatedTools(validatedTools = []) {
-  return validatedTools.map((tool) => ({
-    toolName: tool.tool_name || tool.toolName || tool.name,
-    baseUrl: tool.base_url || tool.baseUrl || tool.url,
-    authToken: tool.auth_token || tool.authToken || tool.api_key || null,
-    validation: tool.validation_result || tool.validation || { reachable: true },
+function normalizeToolName(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  return TOOL_ALIASES[raw] || raw;
+}
 
-    splunkBaseUrl: tool.splunk_base_url || tool.splunkBaseUrl || null,
-    splunkMgmtUrl: tool.splunk_mgmt_url || tool.splunkMgmtUrl || null,
-    splunkHecUrl: tool.splunk_hec_url || tool.splunkHecUrl || null,
-    splunkHecToken:
-      tool.splunk_hec_token ||
-      tool.splunkHecToken ||
-      tool.auth_token ||
-      tool.authToken ||
-      tool.api_key ||
-      null,
-    splunkVerifySsl:
-      tool.splunk_verify_ssl ??
-      tool.splunkVerifySsl ??
-      false,
-  }));
+function deriveSplunkUrls(inputUrl) {
+  try {
+    const parsed = new URL(inputUrl);
+    const hostname = parsed.hostname;
+
+    return {
+      splunkBaseUrl: `http://${hostname}:8000`,
+      splunkMgmtUrl: `https://${hostname}:8089`,
+      splunkHecUrl: `http://${hostname}:8088`,
+      splunkVerifySsl: false,
+    };
+  } catch {
+    return {
+      splunkBaseUrl: null,
+      splunkMgmtUrl: null,
+      splunkHecUrl: null,
+      splunkVerifySsl: false,
+    };
+  }
+}
+
+function normalizeValidatedTools(validatedTools = []) {
+  return validatedTools
+    .map((tool) => {
+      const originalToolName = String(
+        tool.tool_name || tool.toolName || tool.name || tool.tool || ""
+      ).trim().toLowerCase();
+
+      const toolName = normalizeToolName(originalToolName);
+      const baseUrl = tool.base_url || tool.baseUrl || tool.url || "";
+      const authToken = tool.auth_token || tool.authToken || tool.api_key || null;
+      const splunkDerived = toolName === "splunk" ? deriveSplunkUrls(baseUrl) : {};
+
+      if (!toolName || !baseUrl) {
+        return null;
+      }
+
+      return {
+        originalToolName,
+        toolName,
+        displayName: originalToolName || toolName,
+        baseUrl,
+        authToken,
+        validation: tool.validation_result || tool.validation || { reachable: true },
+
+        splunkBaseUrl:
+          tool.splunk_base_url ||
+          tool.splunkBaseUrl ||
+          splunkDerived.splunkBaseUrl ||
+          null,
+        splunkMgmtUrl:
+          tool.splunk_mgmt_url ||
+          tool.splunkMgmtUrl ||
+          splunkDerived.splunkMgmtUrl ||
+          null,
+        splunkHecUrl:
+          tool.splunk_hec_url ||
+          tool.splunkHecUrl ||
+          splunkDerived.splunkHecUrl ||
+          null,
+        splunkHecToken:
+          tool.splunk_hec_token ||
+          tool.splunkHecToken ||
+          authToken ||
+          null,
+        splunkVerifySsl:
+          tool.splunk_verify_ssl ??
+          tool.splunkVerifySsl ??
+          splunkDerived.splunkVerifySsl ??
+          false,
+        supported: OBSCRAWL_SUPPORTED_TOOLS.has(toolName),
+      };
+    })
+    .filter(Boolean);
+}
+
+function compactObject(input) {
+  return Object.fromEntries(
+    Object.entries(input).filter(
+      ([, value]) => value !== undefined && value !== null && value !== ""
+    )
+  );
+}
+
+function toExportToolPayload(tool) {
+  const payload = {
+    name: tool.toolName,
+    enabled: true,
+    usages: DEFAULT_USAGES[tool.toolName] ?? ["metrics"],
+    url: tool.toolName === "splunk" ? tool.splunkMgmtUrl || tool.baseUrl : tool.baseUrl,
+  };
+
+  if (tool.authToken) {
+    payload.api_key = tool.authToken;
+  }
+
+  if (tool.toolName === "splunk") {
+    payload.splunk_base_url = tool.splunkBaseUrl || tool.baseUrl;
+    payload.splunk_mgmt_url = tool.splunkMgmtUrl;
+    payload.splunk_hec_url = tool.splunkHecUrl;
+    payload.splunk_hec_token = tool.splunkHecToken || tool.authToken;
+    payload.splunk_verify_ssl = tool.splunkVerifySsl ?? false;
+  }
+
+  return compactObject(payload);
+}
+
+function formatApiError(err) {
+  const detail = err?.response?.data?.detail;
+
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        const loc = Array.isArray(item.loc) ? item.loc.join(".") : item.loc;
+        return `${loc || "request"}: ${item.msg || JSON.stringify(item)}`;
+      })
+      .join("; ");
+  }
+
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  if (detail && typeof detail === "object") {
+    return JSON.stringify(detail);
+  }
+
+  const data = err?.response?.data;
+  if (typeof data === "string") {
+    return data;
+  }
+
+  if (data && typeof data === "object") {
+    return data.message || data.error || JSON.stringify(data);
+  }
+
+  return err?.message || "ObsCrawl export failed.";
 }
 
 export default function CrawlModal({ onClose, validatedTools = [] }) {
@@ -78,10 +204,27 @@ export default function CrawlModal({ onClose, validatedTools = [] }) {
     [validatedTools]
   );
 
+  const crawlTools = useMemo(
+    () => tools.filter((tool) => tool.supported),
+    [tools]
+  );
+
+  const skippedTools = useMemo(
+    () => tools.filter((tool) => !tool.supported),
+    [tools]
+  );
+
   const busy = crawling;
 
   async function handleCrawl() {
-    if (tools.length === 0) return;
+    if (crawlTools.length === 0) {
+      setStatus({
+        type: "error",
+        title: "No crawl-supported tools",
+        msg: "ObsCrawl does not have collectors for the currently selected tools.",
+      });
+      return;
+    }
 
     setCrawling(true);
     setStatus(null);
@@ -89,19 +232,8 @@ export default function CrawlModal({ onClose, validatedTools = [] }) {
     try {
       const payload = {
         client: { name: "ObsCrawl Hub", environment: "hub" },
-        tools: tools.map((tool) => ({
-          name: tool.toolName,
-          enabled: true,
-          usages: DEFAULT_USAGES[tool.toolName] ?? ["metrics"],
-          url: tool.baseUrl,
-          api_key: tool.authToken ?? null,
-          splunk_base_url: tool.splunkBaseUrl ?? null,
-          splunk_mgmt_url: tool.splunkMgmtUrl ?? null,
-          splunk_hec_url: tool.splunkHecUrl ?? null,
-          splunk_hec_token: tool.splunkHecToken ?? tool.authToken ?? null,
-          splunk_verify_ssl: tool.splunkVerifySsl ?? false,
-        })),
-        ai: { enabled: false, provider: null, model: null, api_key: null },
+        tools: crawlTools.map(toExportToolPayload),
+        ai: { enabled: false },
       };
 
       const res = await exportExcel(payload);
@@ -114,10 +246,11 @@ export default function CrawlModal({ onClose, validatedTools = [] }) {
 
       triggerDownload(res.data.download_url);
     } catch (err) {
+      console.error("ObsCrawl export failed", err);
       setStatus({
         type: "error",
         title: "Crawl failed",
-        msg: err?.response?.data?.detail || err.message,
+        msg: formatApiError(err),
       });
     } finally {
       setCrawling(false);
@@ -161,7 +294,10 @@ export default function CrawlModal({ onClose, validatedTools = [] }) {
                     {tools.length} validated tool{tools.length !== 1 ? "s" : ""} loaded
                   </div>
                   <div className="modal-alert-msg">
-                    These connections were validated from the Hub and will be reused by ObsCrawl.
+                    {crawlTools.length} tool{crawlTools.length !== 1 ? "s" : ""} can be used by ObsCrawl.
+                    {skippedTools.length > 0
+                      ? ` Skipping ${skippedTools.map((tool) => tool.displayName).join(", ")} because ObsCrawl has no collector for them.`
+                      : " These connections were validated from the Hub and will be reused by ObsCrawl."}
                   </div>
                 </div>
               </div>
@@ -177,14 +313,15 @@ export default function CrawlModal({ onClose, validatedTools = [] }) {
 
                 {tools.map((tool, index) => (
                   <div
-                    key={`${tool.toolName}-${tool.baseUrl}`}
+                    key={`${tool.displayName}-${tool.baseUrl}`}
                     className="mtool-cols mtool-cols-global mtool-row"
                   >
                     <span className="mtool-num">{index + 1}</span>
 
                     <span className="mtool-name">
-                      <span>{TOOL_ICONS[tool.toolName] ?? "🔧"}</span>
-                      {tool.toolName}
+                      <span>{TOOL_ICONS[tool.displayName] ?? TOOL_ICONS[tool.toolName] ?? "🔧"}</span>
+                      {tool.displayName}
+                      {tool.displayName !== tool.toolName ? ` → ${tool.toolName}` : ""}
                     </span>
 
                     <span className="mtool-url" title={tool.baseUrl}>
@@ -196,13 +333,19 @@ export default function CrawlModal({ onClose, validatedTools = [] }) {
                     </span>
 
                     <span className="mtool-status">
-                      <span className="validation-badge ok">✓ Global</span>
+                      {tool.supported ? (
+                        <span className="validation-badge ok">✓ Used</span>
+                      ) : (
+                        <span className="validation-badge warn">Skipped</span>
+                      )}
                     </span>
                   </div>
                 ))}
 
                 <div className="mtool-summary-bar">
-                  <span>{tools.length} tool{tools.length !== 1 ? "s" : ""} ready</span>
+                  <span>
+                    {crawlTools.length} crawl-supported tool{crawlTools.length !== 1 ? "s" : ""} ready
+                  </span>
                   <span>Source: Hub connectivity</span>
                 </div>
               </div>
@@ -237,14 +380,14 @@ export default function CrawlModal({ onClose, validatedTools = [] }) {
           <button
             className="btn btn-teal"
             onClick={handleCrawl}
-            disabled={busy || tools.length === 0}
+            disabled={busy || crawlTools.length === 0}
           >
             {crawling ? (
               <>
                 <span className="spinner" /> Generating…
               </>
             ) : (
-              `⬇ Generate Report (${tools.length} tool${tools.length !== 1 ? "s" : ""})`
+              `⬇ Generate Report (${crawlTools.length} tool${crawlTools.length !== 1 ? "s" : ""})`
             )}
           </button>
         </div>

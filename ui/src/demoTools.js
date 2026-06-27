@@ -2,6 +2,7 @@ export const DEMO_TOOLS_ENABLED = true;
 
 export const DEMO_TOOLS = [
   {
+    id: "demo-prometheus",
     toolName: "prometheus",
     tool_name: "prometheus",
     name: "prometheus",
@@ -13,8 +14,10 @@ export const DEMO_TOOLS = [
     validated: true,
     validation: { reachable: true, demoDefault: true },
     validation_result: { reachable: true, demoDefault: true },
+    demo_default: true,
   },
   {
+    id: "demo-grafana",
     toolName: "grafana",
     tool_name: "grafana",
     name: "grafana",
@@ -26,8 +29,10 @@ export const DEMO_TOOLS = [
     validated: true,
     validation: { reachable: true, demoDefault: true },
     validation_result: { reachable: true, demoDefault: true },
+    demo_default: true,
   },
   {
+    id: "demo-jaeger",
     toolName: "jaeger",
     tool_name: "jaeger",
     name: "jaeger",
@@ -39,8 +44,10 @@ export const DEMO_TOOLS = [
     validated: true,
     validation: { reachable: true, demoDefault: true },
     validation_result: { reachable: true, demoDefault: true },
+    demo_default: true,
   },
   {
+    id: "demo-opensearch",
     toolName: "opensearch",
     tool_name: "opensearch",
     name: "opensearch",
@@ -52,8 +59,10 @@ export const DEMO_TOOLS = [
     validated: true,
     validation: { reachable: true, demoDefault: true },
     validation_result: { reachable: true, demoDefault: true },
+    demo_default: true,
   },
   {
+    id: "demo-splunk",
     toolName: "splunk",
     tool_name: "splunk",
     name: "splunk",
@@ -62,11 +71,23 @@ export const DEMO_TOOLS = [
     url: "http://10.235.21.132:8000",
     authToken: import.meta.env.VITE_DEMO_SPLUNK_TOKEN || null,
     auth_token: import.meta.env.VITE_DEMO_SPLUNK_TOKEN || null,
+    splunkBaseUrl: "http://10.235.21.132:8000",
+    splunk_base_url: "http://10.235.21.132:8000",
+    splunkMgmtUrl: "https://10.235.21.132:8089",
+    splunk_mgmt_url: "https://10.235.21.132:8089",
+    splunkHecUrl: "http://10.235.21.132:8088",
+    splunk_hec_url: "http://10.235.21.132:8088",
+    splunkHecToken: import.meta.env.VITE_DEMO_SPLUNK_TOKEN || null,
+    splunk_hec_token: import.meta.env.VITE_DEMO_SPLUNK_TOKEN || null,
+    splunkVerifySsl: false,
+    splunk_verify_ssl: false,
     validated: true,
     validation: { reachable: true, demoDefault: true },
     validation_result: { reachable: true, demoDefault: true },
+    demo_default: true,
   },
   {
+    id: "demo-alertmanager",
     toolName: "alertmanager",
     tool_name: "alertmanager",
     name: "alertmanager",
@@ -78,5 +99,6 @@ export const DEMO_TOOLS = [
     validated: true,
     validation: { reachable: true, demoDefault: true },
     validation_result: { reachable: true, demoDefault: true },
+    demo_default: true,
   },
 ];
