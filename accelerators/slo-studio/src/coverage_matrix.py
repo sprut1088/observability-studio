@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from models import ServiceProfile, SLORecommendation
 
 
@@ -66,6 +68,50 @@ def _evidence_summary(profile: ServiceProfile) -> str:
     return "Evidence available from " + ", ".join(sources) + "."
 
 
+def _error_budget_pct(objective: float | None) -> float | None:
+    if objective is None:
+        return None
+    try:
+        return max(0.0, round(100.0 - float(objective), 4))
+    except Exception:
+        return None
+
+
+def _threshold_from_recommendation(rec: SLORecommendation | None) -> str | None:
+    if not rec:
+        return None
+
+    text = " ".join([str(rec.name or ""), str(rec.description or "")])
+    match = re.search(r"under[- ]+([0-9]+)\s*ms", text, flags=re.I)
+    if match:
+        return f"{match.group(1)} ms"
+
+    return None
+
+
+def _objective_text(rec: SLORecommendation | None) -> str | None:
+    if not rec:
+        return None
+
+    if rec.sli_type == "latency":
+        threshold = _threshold_from_recommendation(rec) or "the selected threshold"
+        return f"{rec.objective}% of valid requests under {threshold} over {rec.window}"
+
+    if rec.sli_type == "error_rate":
+        budget = _error_budget_pct(rec.objective)
+        if budget is not None:
+            return f"Error rate <= {budget:.4g}% of valid requests over {rec.window} (success >= {rec.objective}%)"
+        return f"Success rate >= {rec.objective}% over {rec.window}"
+
+    if rec.sli_type == "availability":
+        budget = _error_budget_pct(rec.objective)
+        if budget is not None:
+            return f"Availability >= {rec.objective}% over {rec.window} (error budget <= {budget:.4g}%)"
+        return f"Availability >= {rec.objective}% over {rec.window}"
+
+    return f"{rec.objective}% over {rec.window}"
+
+
 def build_slo_coverage_matrix(
     profiles: list[ServiceProfile],
     existing_slos: list[dict],
@@ -80,12 +126,14 @@ def build_slo_coverage_matrix(
             existing = _existing_matches(existing_slos, profile.name, sli_type)
             rec = _recommendation_for(recommendations, profile.name, sli_type)
 
+            objective_text = _objective_text(rec)
+
             if existing:
                 status = "existing"
                 action = "Existing SLO coverage detected. Review objective, burn-rate windows, ownership, and alert routing."
             elif rec:
                 status = "recommended"
-                action = f"Create missing {sli_type} SLO at {rec.objective}% over {rec.window}."
+                action = f"Create missing {sli_type} SLO: {objective_text}."
             elif sli_type == "availability" and "availability_trend" not in evidence_types:
                 status = "missing_telemetry"
                 action = "Expose or standardize request count metrics with HTTP/gRPC status-code labels."
@@ -106,6 +154,7 @@ def build_slo_coverage_matrix(
                     "status": status,
                     "recommended_objective": rec.objective if rec else None,
                     "recommended_window": rec.window if rec else None,
+                    "recommended_objective_text": objective_text,
                     "confidence": rec.confidence if rec else None,
                     "evidence_summary": _evidence_summary(profile),
                     "action": action,

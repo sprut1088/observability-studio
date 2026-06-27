@@ -395,8 +395,52 @@ def _latency_objective(profile: ServiceProfile) -> float:
     return 95.0
 
 
+def _error_budget_pct(objective: float) -> float:
+    return max(0.0, round(100.0 - float(objective), 4))
+
+
+def _latency_threshold_from_candidate(candidate: SLICandidate) -> str:
+    if candidate.threshold:
+        return str(candidate.threshold).replace(" ", "")
+
+    match = re.search(r"under-([0-9]+)ms", candidate.name or "")
+    if match:
+        return f"{match.group(1)}ms"
+
+    return "configured-threshold"
+
+
+def _readable_threshold(threshold: str) -> str:
+    threshold = str(threshold or "").strip()
+    if threshold.endswith("ms"):
+        return threshold[:-2] + " ms"
+    return threshold
+
+
+def _slo_statement(candidate: SLICandidate, objective: float, window_days: int) -> str:
+    window = f"{window_days}d"
+
+    if candidate.sli_type == "latency":
+        threshold = _readable_threshold(_latency_threshold_from_candidate(candidate))
+        return f"{objective:.1f}% of valid requests under {threshold} over {window}"
+
+    if candidate.sli_type == "error_rate":
+        error_budget = _error_budget_pct(objective)
+        return f"Error rate <= {error_budget:.4g}% of valid requests over {window} (success rate >= {objective:.3g}%)"
+
+    if candidate.sli_type == "availability":
+        error_budget = _error_budget_pct(objective)
+        return f"Availability >= {objective:.3g}% over {window} (error budget <= {error_budget:.4g}%)"
+
+    return f"{objective:.3g}% over {window}"
+
+
 def _rationale(profile: ServiceProfile, candidate: SLICandidate, objective: float, window_days: int) -> str:
-    parts = [f"Missing {candidate.sli_type} SLO detected for service '{profile.name}'."]
+    statement = _slo_statement(candidate, objective, window_days)
+    parts = [
+        f"Missing {candidate.sli_type} SLO detected for service '{profile.name}'.",
+        f"Recommended SLO: {statement}.",
+    ]
 
     availability_ev = _evidence_value(profile.evidence, "availability_trend")
     error_rate_ev = _evidence_value(profile.evidence, "error_rate_trend")
@@ -409,21 +453,22 @@ def _rationale(profile: ServiceProfile, candidate: SLICandidate, objective: floa
 
     if candidate.sli_type == "availability" and observed_availability is not None:
         parts.append(
-            f"Observed availability was {observed_availability:.3f}%, so the recommended SLO is {objective}% over {window_days} days."
+            f"Observed availability was {observed_availability:.3f}%, so the objective was set below recent behavior with an explicit error budget of {_error_budget_pct(objective):.4g}%."
         )
 
     if candidate.sli_type == "error_rate" and avg_error_ratio is not None:
         parts.append(
-            f"Observed average error rate was {avg_error_ratio * 100.0:.4f}%, so the recommended success objective is {objective}% over {window_days} days."
+            f"Observed average error rate was {avg_error_ratio * 100.0:.4f}%; the recommendation keeps the allowed bad-event budget at or below {_error_budget_pct(objective):.4g}% of valid requests."
         )
 
     if candidate.sli_type == "latency" and avg_p95_ms is not None:
+        threshold = _readable_threshold(_latency_threshold_from_candidate(candidate))
         parts.append(
-            f"Observed average p95 latency was {avg_p95_ms:.2f} ms, so the threshold was calibrated from recent behavior."
+            f"Observed average p95 latency was {avg_p95_ms:.2f} ms, so the latency threshold was calibrated to {threshold} from recent behavior."
         )
 
     if traffic_ev:
-        parts.append("Prometheus request traffic supports the SLI denominator.")
+        parts.append("Prometheus request traffic supports the valid-event denominator.")
 
     if _evidence_value(profile.evidence, "trace_operations"):
         parts.append("Jaeger trace operations confirm the service handles real request paths.")
@@ -514,7 +559,7 @@ def recommend_slos(
                     sli_type=candidate.sli_type,
                     objective=objective,
                     window=f"{window_days}d",
-                    description=candidate.description,
+                    description=_slo_statement(candidate, objective, window_days),
                     good_query=candidate.good_query,
                     total_query=candidate.total_query,
                     rationale=_rationale(profile, candidate, objective, window_days),

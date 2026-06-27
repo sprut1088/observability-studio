@@ -30,6 +30,8 @@
     .evidence { margin-top:8px; padding:10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; font-size:12px; }
     .muted { color:#64748b; }
     .small { font-size:12px; }
+    .objective-main { font-weight:900; color:#0f172a; line-height:1.35; }
+    .objective-sub { color:#64748b; font-size:12px; margin-top:4px; }
     code { font-family: Consolas, monospace; font-size:11px; color:#334155; word-break:break-word; }
     .two-col { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
     @media (max-width: 900px) { .two-col { grid-template-columns:1fr; } }
@@ -62,8 +64,8 @@
       <strong>{{ summary.tools_used | join(", ") }}</strong>. It found
       <strong>{{ summary.existing_slo_count }}</strong> existing SLO signals and identified
       <strong>{{ summary.production_ready_slo_count }}</strong> evidence-backed recommendations for missing or incomplete
-      availability, latency, and error-rate SLO coverage. Recommended objectives are calibrated from observed behavior and
-      should be reviewed by service owners before production rollout.
+      availability, latency, and error-rate SLO coverage. Recommendations follow SRE style: each SLO states a good-event
+      ratio, an explicit threshold where applicable, a measurement window, and the resulting error budget.
     </div>
   </div>
 
@@ -110,7 +112,14 @@
           <td><strong>{{ rec.service }}</strong></td>
           <td><span class="pill">{{ rec.sli_type }}</span></td>
           <td>
-            <strong>{{ rec.objective }}% over {{ rec.window }}</strong><br/>
+            <div class="objective-main">{{ rec.description }}</div>
+            {% if rec.sli_type == "availability" %}
+              <div class="objective-sub">SLI = successful valid requests / all valid requests</div>
+            {% elif rec.sli_type == "error_rate" %}
+              <div class="objective-sub">SLI = bad valid requests / all valid requests; keep bad events below budget</div>
+            {% elif rec.sli_type == "latency" %}
+              <div class="objective-sub">SLI = requests faster than threshold / all valid requests</div>
+            {% endif %}
             <span class="muted">{{ rec.name }}</span>
           </td>
           <td class="{% if pct >= 80 %}confidence-high{% elif pct >= 65 %}confidence-medium{% else %}confidence-low{% endif %}">{{ pct }}%</td>
@@ -157,7 +166,9 @@
             {% endif %}
           </td>
           <td>
-            {% if row.recommended_objective %}
+            {% if row.recommended_objective_text %}
+              <div class="objective-main">{{ row.recommended_objective_text }}</div>
+            {% elif row.recommended_objective %}
               {{ row.recommended_objective }}% over {{ row.recommended_window }}
             {% else %}
               <span class="muted">n/a</span>
@@ -201,7 +212,7 @@
         {% for rec in candidate_recommendations[:12] %}
           <tr>
             <td>{{ rec.service }}</td>
-            <td><span class="pill pill-warn">{{ rec.sli_type }}</span><br/>{{ rec.name }}</td>
+            <td><span class="pill pill-warn">{{ rec.sli_type }}</span><br/>{{ rec.description or rec.name }}<br/><span class="muted small">{{ rec.name }}</span></td>
             <td>{{ (rec.confidence * 100) | round(0) }}%</td>
             <td>{{ rec.assumptions | join("; ") if rec.assumptions else "Validate metric labels, ownership, and operational relevance." }}</td>
           </tr>
