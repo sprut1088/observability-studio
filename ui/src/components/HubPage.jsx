@@ -8,6 +8,7 @@ import GlobalToolConnectivity from "./GlobalToolConnectivity";
 import { getFeatureFlags } from "../api";
 import AYOSAModal from "./AYOSAModal";
 import SLOStudioModal from "./SLOStudioModal";
+import { DEMO_TOOLS, DEMO_TOOLS_ENABLED } from "../demoTools";
 
 /* ── Tile definitions ───────────────────────────────────── */
 const TILES = [
