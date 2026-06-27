@@ -112,6 +112,7 @@ def _find_metric_series(
                 if canonical_service_name(raw_value) == canonical:
                     status_label = None
                     for candidate in [
+                        "http_status_code",
                         "http_response_status_code",
                         "status",
                         "status_code",
@@ -128,10 +129,12 @@ def _find_metric_series(
 
 
 def _status_error_matcher(status_label: str) -> str:
-    if status_label in {"http_response_status_code", "status_code", "code"}:
-        return f'{status_label}=~"5..|500|501|502|503|504|error|failed"'
+    if status_label in {"http_status_code", "http_response_status_code", "status_code", "code"}:
+        return f'{status_label}=~"5.."'
+
     if status_label == "grpc_status_code":
         return f'{status_label}!~"0|OK|ok"'
+
     return f'{status_label}=~"5..|error|failed"'
 
 
@@ -331,6 +334,7 @@ def analyze_service_trends(
                     raw={
                         "metric": bucket_metric,
                         "service_label": bucket_service_label,
+                        "unit": "milliseconds" if "milliseconds" in bucket_metric else "seconds",
                     },
                 )
             )

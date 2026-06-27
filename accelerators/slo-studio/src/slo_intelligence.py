@@ -78,25 +78,36 @@ def choose_latency_threshold_ms(latency_ev: SignalEvidence | None, criticality: 
         return 2000
 
     raw_value = latency_ev.value or ""
+    unit = (latency_ev.raw or {}).get("unit", "seconds")
 
-    # Expected format:
-    # avg_p95=0.1234, peak_p95=0.5678
     match = re.search(r"avg_p95=([0-9.]+)", raw_value)
     if not match:
         return 1000 if criticality in {"critical", "high"} else 2000
 
     avg_p95 = float(match.group(1))
 
-    # Convert seconds to milliseconds if value looks like seconds.
-    if avg_p95 < 100:
-        avg_p95_ms = avg_p95 * 1000
-    else:
+    if unit == "milliseconds":
         avg_p95_ms = avg_p95
+    else:
+        avg_p95_ms = avg_p95 * 1000
 
-    # Recommend a threshold slightly above observed p95.
     threshold = avg_p95_ms * 1.25
 
-    standard_thresholds = [100, 200, 300, 500, 750, 1000, 1500, 2000, 3000, 5000, 8000]
+    standard_thresholds = [
+        50,
+        100,
+        200,
+        300,
+        500,
+        750,
+        1000,
+        1500,
+        2000,
+        3000,
+        5000,
+        8000,
+        10000,
+    ]
 
     for item in standard_thresholds:
         if threshold <= item:
@@ -128,7 +139,7 @@ def _status_good_selector(evidence: list[SignalEvidence]) -> str:
 
     status_label = raw.get("status_label") or "status"
 
-    if status_label in {"http_response_status_code", "status_code", "code"}:
+    if status_label in {"http_status_code", "http_response_status_code", "status_code", "code"}:
         return f'{status_label}!~"5.."'
 
     if status_label == "grpc_status_code":
