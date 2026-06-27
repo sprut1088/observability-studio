@@ -14,6 +14,7 @@ suited to provide (narrative, trend awareness, cross-dimensional reasoning).
 """
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import os
@@ -71,7 +72,7 @@ SRE PRACTICES:
 
 Your analysis is precise, opinionated, and actionable. You identify gaps other tools miss. You speak to both engineering teams (technical depth) and leadership (business impact).
 
-RESPONSE FORMAT: Respond ONLY with a valid JSON object. No markdown, no explanation outside the JSON. The JSON must exactly match the schema provided in the user message."""
+RESPONSE FORMAT: Respond ONLY with a valid JSON object. No markdown, no explanation outside the JSON. The JSON must exactly match the schema provided in the user message. Escape all double quotes inside string values, or avoid double quotes inside string values entirely."""
 
 
 # ---------------------------------------------------------------------------
@@ -332,9 +333,12 @@ class ObservabilityAIAnalyst:
           - max_tokens, temperature
         """
         self.provider = (config.get("provider") or "anthropic").strip().lower()
-        self.max_tokens = config.get("max_tokens", 4096)
-        #self.temperature = config.get("temperature", 1.0)
-        self.temperature = config.get("temperature", 0.2)
+        # Keep responses compact enough to stay valid JSON. Long LLM JSON responses
+        # are much more likely to contain unescaped quotes or truncation.
+        self.max_tokens = int(config.get("max_tokens") or 3200)
+        self.max_tokens = max(1200, min(self.max_tokens, 5000))
+        self.repair_max_tokens = int(config.get("repair_max_tokens") or 2200)
+        self.temperature = float(config.get("temperature", 0.2))
         # Bug fix: use `or` so that an explicit null/None value falls back to
         # the default rather than being passed as-is to the SDK.
         self.model = config.get("model") or "claude-sonnet-4-6"
@@ -423,6 +427,7 @@ class ObservabilityAIAnalyst:
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=self.max_tokens,
+                    temperature=self.temperature,
                     system=_SYSTEM_PROMPT,
                     messages=[{"role": "user", "content": user_message}],
                 )
@@ -467,10 +472,20 @@ class ObservabilityAIAnalyst:
 
         try:
             parsed = self._parse_response(raw_text)
-        except Exception as e:
-            logger.error("Failed to parse AI response: %s", e)
-            logger.debug("Raw AI response: %s", raw_text[:2000])
-            return self._error_analysis(f"Response parse error: {e}")
+        except Exception as first_error:
+            logger.warning("Failed to parse AI response, attempting JSON repair: %s", first_error)
+            logger.debug("Raw AI response: %s", raw_text[:4000])
+            try:
+                repaired_text = self._repair_response(raw_text)
+                parsed = self._parse_response(repaired_text)
+                logger.info("AI response repaired successfully")
+            except Exception as repair_error:
+                logger.error("Failed to repair AI response: %s", repair_error)
+                parsed = self._fallback_payload_from_context(
+                    context=context,
+                    raw_text=raw_text,
+                    parse_error=f"{first_error}; repair failed: {repair_error}",
+                )
 
         return self._build_analysis(parsed)
 
@@ -524,6 +539,15 @@ Respond ONLY with a JSON object matching this exact schema (no markdown fences, 
 
 **Strengths** — acknowledge what they're doing well (critical for executive reports).
 
+JSON SAFETY RULES:
+- Return compact JSON only.
+- Do not wrap JSON in markdown fences.
+- Do not use unescaped double quotes inside string values. Use apostrophes instead.
+- Keep each description under 35 words.
+- Keep each recommendation under 35 words.
+- Use arrays of strings for evidence, strengths, and prioritized_recommendations.
+- Use only valid JSON booleans, numbers, strings, arrays, and objects.
+
 BE SPECIFIC. Do not give generic advice. Reference actual data from the estate (metric names, alert names, service names, tool configurations) wherever possible."""
 
     #def _parse_response(self, raw: str) -> dict[str, Any]:
@@ -539,29 +563,348 @@ BE SPECIFIC. Do not give generic advice. Reference actual data from the estate (
     #    text = text.strip()
     #    return json.loads(text)
 
-    def _parse_response(self, raw: str) -> dict[str, Any]:
-        """Extract JSON from the LLM response."""
-        text = raw.strip()
-
+    def _strip_markdown_fences(self, raw: str) -> str:
+        text = (raw or "").strip()
         if text.startswith("```"):
             lines = text.splitlines()
-            if lines and lines[0].startswith("```"):
+            if lines and lines[0].strip().startswith("```"):
                 lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
+            if lines and lines[-1].strip().startswith("```"):
                 lines = lines[:-1]
             text = "\n".join(lines).strip()
+        return text
 
+    def _extract_balanced_json_object(self, text: str) -> str:
+        """Return the first balanced JSON object from text.
+
+        rfind('}') is unsafe when the model appends text or produces stray braces
+        inside explanations. This scanner respects quoted strings and escapes.
+        """
         start = text.find("{")
+        if start == -1:
+            raise ValueError("No JSON object start found in AI response")
+
+        depth = 0
+        in_string = False
+        escape = False
+
+        for index in range(start, len(text)):
+            char = text[index]
+
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:index + 1]
+
+        # Fall back to the broad slice so a useful parse error is raised.
         end = text.rfind("}")
+        if end > start:
+            return text[start:end + 1]
 
-        if start == -1 or end == -1 or end <= start:
-            raise ValueError("No valid JSON object found in AI response")
+        raise ValueError("No balanced JSON object found in AI response")
 
-        text = text[start:end + 1]
-        return json.loads(text)
+    def _json_cleanup_candidates(self, text: str) -> list[str]:
+        """Generate conservative cleanup variants for common LLM JSON mistakes."""
+        base = text.strip()
+        base = base.replace("\ufeff", "")
+        base = base.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+        base = re.sub(r",\s*([}\]])", r"\1", base)
+
+        candidates = [base]
+
+        # Remove JavaScript-style comments if any appear.
+        no_line_comments = re.sub(r"(?m)^\s*//.*$", "", base)
+        no_block_comments = re.sub(r"/\*.*?\*/", "", no_line_comments, flags=re.S)
+        no_block_comments = re.sub(r",\s*([}\]])", r"\1", no_block_comments)
+        if no_block_comments not in candidates:
+            candidates.append(no_block_comments)
+
+        return candidates
+
+    def _parse_response(self, raw: str) -> dict[str, Any]:
+        """Extract and parse a JSON object from the LLM response."""
+        text = self._strip_markdown_fences(raw)
+        text = self._extract_balanced_json_object(text)
+
+        last_error: Exception | None = None
+        for candidate in self._json_cleanup_candidates(text):
+            try:
+                parsed = json.loads(candidate)
+                if not isinstance(parsed, dict):
+                    raise ValueError("AI JSON root must be an object")
+                return parsed
+            except Exception as exc:
+                last_error = exc
+
+        # Some providers occasionally return Python-style dicts with single quotes.
+        # This is not ideal, but ast.literal_eval is safe for literals and improves
+        # demo resilience without adding extra dependencies.
+        try:
+            parsed = ast.literal_eval(text)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception as exc:
+            last_error = exc
+
+        raise ValueError(str(last_error or "Could not parse AI response as JSON"))
+
+    def _repair_response(self, raw_text: str) -> str:
+        """Ask the configured model to repair malformed JSON once."""
+        broken = self._strip_markdown_fences(raw_text)
+        broken = broken[:14000]
+
+        repair_prompt = f"""Repair the following malformed JSON into valid compact JSON.
+
+Rules:
+- Return JSON only. No markdown.
+- Keep the same meaning.
+- Do not add new facts.
+- Use the exact top-level keys from this schema: narrative, technical_gaps, functional_gaps, trend_alignments, prioritized_recommendations, trend_score, strengths.
+- Escape any double quotes inside strings, or replace them with apostrophes.
+- Keep descriptions short.
+
+Schema example:
+{json.dumps(_RESPONSE_SCHEMA, indent=2)}
+
+Malformed JSON or response text:
+{broken}
+""".strip()
+
+        if self.provider == "anthropic":
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=self.repair_max_tokens,
+                temperature=0,
+                system="You repair malformed JSON. Return valid JSON only.",
+                messages=[{"role": "user", "content": repair_prompt}],
+            )
+            if getattr(response, "content", None):
+                try:
+                    return response.content[0].text
+                except Exception:
+                    return str(response)
+            return str(response)
+
+        messages = [
+            {"role": "system", "content": "You repair malformed JSON. Return valid JSON only."},
+            {"role": "user", "content": repair_prompt},
+        ]
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            max_tokens=self.repair_max_tokens,
+            temperature=0,
+        )
+        return response.choices[0].message.content or ""
+
+    def _as_list(self, value: Any) -> list[Any]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return value
+        return [value]
+
+    def _as_string_list(self, value: Any, limit: int | None = None) -> list[str]:
+        rows = []
+        for item in self._as_list(value):
+            if isinstance(item, dict):
+                rows.append("; ".join(f"{k}: {v}" for k, v in item.items() if v is not None))
+            else:
+                rows.append(str(item))
+        if limit is not None:
+            rows = rows[:limit]
+        return rows
+
+    def _normalise_gap(self, item: Any, category: str) -> dict[str, Any]:
+        if isinstance(item, dict):
+            return {
+                "title": str(item.get("title") or item.get("name") or category.replace("_", " ").title()),
+                "description": str(item.get("description") or item.get("summary") or ""),
+                "severity": str(item.get("severity") or "medium").lower(),
+                "recommendation": str(item.get("recommendation") or item.get("action") or "Review and remediate this gap."),
+                "evidence": self._as_string_list(item.get("evidence", []), limit=8),
+            }
+        return {
+            "title": category.replace("_", " ").title(),
+            "description": str(item),
+            "severity": "medium",
+            "recommendation": "Review and remediate this gap.",
+            "evidence": [],
+        }
+
+    def _normalise_trend(self, item: Any) -> dict[str, str]:
+        if isinstance(item, dict):
+            status = str(item.get("status") or "partial").lower()
+            if status not in {"adopted", "partial", "absent"}:
+                status = "partial"
+            impact = str(item.get("impact") or "medium").lower()
+            if impact not in {"high", "medium", "low"}:
+                impact = "medium"
+            return {
+                "trend": str(item.get("trend") or item.get("name") or "Modern observability practice"),
+                "status": status,
+                "impact": impact,
+                "description": str(item.get("description") or item.get("summary") or ""),
+            }
+        return {
+            "trend": str(item),
+            "status": "partial",
+            "impact": "medium",
+            "description": str(item),
+        }
+
+    def _normalise_payload(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Coerce model JSON into the exact shape expected by _build_analysis."""
+        if not isinstance(data, dict):
+            raise ValueError("AI response must be a JSON object")
+
+        return {
+            "narrative": str(data.get("narrative") or data.get("executive_summary") or ""),
+            "technical_gaps": [
+                self._normalise_gap(item, "technical_gap")
+                for item in self._as_list(data.get("technical_gaps", []))
+            ],
+            "functional_gaps": [
+                self._normalise_gap(item, "functional_gap")
+                for item in self._as_list(data.get("functional_gaps", []))
+            ],
+            "trend_alignments": [
+                self._normalise_trend(item)
+                for item in self._as_list(data.get("trend_alignments", []))
+            ],
+            "prioritized_recommendations": self._as_string_list(
+                data.get("prioritized_recommendations") or data.get("recommendations") or [],
+                limit=15,
+            ),
+            "trend_score": data.get("trend_score", 0),
+            "strengths": self._as_string_list(data.get("strengths", []), limit=8),
+        }
+
+    def _fallback_payload_from_context(
+        self,
+        context: dict[str, Any],
+        raw_text: str,
+        parse_error: str,
+    ) -> dict[str, Any]:
+        """Create a safe structured advisor output when the LLM returns invalid JSON.
+
+        This prevents the report from showing an API-key style error when the model
+        response was usable but malformed. It uses deterministic context only.
+        """
+        maturity = context.get("maturity_scores", {}) or {}
+        alert_portfolio = context.get("alert_portfolio", {}) or {}
+        modern = context.get("modern_stack_signals", {}) or {}
+        findings = context.get("top_deterministic_findings", []) or []
+        tools = context.get("configured_tools", []) or []
+
+        high_findings = [f for f in findings if f.get("severity") in {"critical", "high"}]
+        selected_findings = (high_findings or findings)[:6]
+
+        technical_gaps = []
+        for finding in selected_findings[:5]:
+            technical_gaps.append({
+                "title": finding.get("title", "Observability gap"),
+                "description": finding.get("description", "Deterministic rules identified an observability gap."),
+                "severity": finding.get("severity", "medium"),
+                "recommendation": "Prioritize remediation, assign an owner, and validate the fix in the next assessment cycle.",
+                "evidence": [finding.get("rule_id", "deterministic finding")],
+            })
+
+        functional_gaps = []
+        if alert_portfolio.get("runbook_coverage_pct", 100) < 80:
+            functional_gaps.append({
+                "title": "Runbook coverage needs improvement",
+                "description": f"Only {alert_portfolio.get('runbook_coverage_pct', 0)}% of alerts have runbook coverage.",
+                "severity": "high",
+                "recommendation": "Add runbook_url annotations and generate first-draft runbooks for noisy and critical alerts.",
+                "evidence": ["alert_portfolio.runbook_coverage_pct"],
+            })
+        if not alert_portfolio.get("has_pagerduty_or_opsgenie_routing"):
+            functional_gaps.append({
+                "title": "Incident escalation integration is missing",
+                "description": "No PagerDuty or OpsGenie receiver was detected in Alertmanager routing.",
+                "severity": "high",
+                "recommendation": "Integrate Alertmanager with incident escalation tooling and define severity-based routing.",
+                "evidence": ["alert_portfolio.has_pagerduty_or_opsgenie_routing=false"],
+            })
+
+        trend_map = [
+            ("OpenTelemetry Collector pipeline", modern.get("otel_collector_pipeline"), "high"),
+            ("OpenTelemetry semantic conventions", modern.get("otel_semantic_conventions"), "high"),
+            ("Continuous profiling", modern.get("continuous_profiling"), "medium"),
+            ("Synthetic monitoring", modern.get("synthetic_monitoring"), "medium"),
+            ("Service mesh or eBPF telemetry", modern.get("service_mesh_telemetry"), "medium"),
+            ("Security observability", modern.get("security_observability"), "medium"),
+            ("Business KPI metrics", modern.get("business_kpi_metrics"), "medium"),
+            ("DORA metrics", modern.get("dora_metrics"), "medium"),
+            ("Cost observability", modern.get("cost_observability"), "low"),
+        ]
+        trend_alignments = [
+            {
+                "trend": name,
+                "status": "adopted" if present else "absent",
+                "impact": impact,
+                "description": f"{'Detected' if present else 'Not detected'} in the configured observability estate.",
+            }
+            for name, present, impact in trend_map
+        ]
+
+        recommendations = []
+        for finding in selected_findings[:8]:
+            recommendations.append(
+                f"Address {finding.get('title', 'observability gap')}: {finding.get('description', '')}"
+            )
+        if not recommendations:
+            recommendations.append("Review deterministic findings with service owners and prioritize high-risk gaps.")
+
+        strengths = []
+        if "prometheus" in tools:
+            strengths.append("Prometheus metrics are available for deterministic maturity analysis.")
+        if "grafana" in tools:
+            strengths.append("Grafana dashboards and datasources are available for dashboard maturity checks.")
+        if "jaeger" in tools or "tempo" in tools:
+            strengths.append("Distributed tracing data is available for service visibility.")
+        if "splunk" in tools or "elasticsearch" in tools:
+            strengths.append("Log data sources are connected for broader observability coverage.")
+        if not strengths:
+            strengths.append("The assessment produced deterministic findings that can guide remediation.")
+
+        narrative = (
+            f"The observability estate is assessed at Level {maturity.get('overall_level')} "
+            f"({maturity.get('overall_level_name')}) with an overall score of "
+            f"{maturity.get('overall')}/100. The deterministic engine identified "
+            f"{len(findings)} prioritized findings across the maturity model. "
+            "The AI provider returned malformed JSON, so ObservaScore used a safe advisor fallback based on deterministic evidence. "
+            "This keeps the report actionable while avoiding a false API-key error."
+        )
+
+        return {
+            "narrative": narrative,
+            "technical_gaps": technical_gaps,
+            "functional_gaps": functional_gaps[:5],
+            "trend_alignments": trend_alignments,
+            "prioritized_recommendations": recommendations,
+            "trend_score": maturity.get("overall", 0) or 0,
+            "strengths": strengths,
+        }
 
     def _build_analysis(self, data: dict[str, Any]) -> AIAnalysis:
         """Convert parsed LLM JSON into AIAnalysis dataclass."""
+        data = self._normalise_payload(data)
+
         technical_gaps = [
             AIInsight(
                 category="technical_gap",
@@ -596,13 +939,19 @@ BE SPECIFIC. Do not give generic advice. Reference actual data from the estate (
             for t in data.get("trend_alignments", [])
         ]
 
+        try:
+            trend_score = float(data.get("trend_score", 0))
+        except Exception:
+            trend_score = 0.0
+        trend_score = max(0.0, min(trend_score, 100.0))
+
         return AIAnalysis(
             narrative=data.get("narrative", ""),
             technical_gaps=technical_gaps,
             functional_gaps=functional_gaps,
             trend_alignments=trend_alignments,
             prioritized_recommendations=data.get("prioritized_recommendations", []),
-            trend_score=float(data.get("trend_score", 0)),
+            trend_score=trend_score,
             strengths=data.get("strengths", []),
             model_used=self.model,
             generated_at=datetime.now(timezone.utc).isoformat(),
