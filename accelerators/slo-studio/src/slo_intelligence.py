@@ -139,32 +139,42 @@ def recommend_slos(
             observed_availability = _availability_from_evidence(availability_ev)
             objective = choose_objective(observed_availability, objective_style, profile.criticality)
 
-            score = 0.35
+                        score = 0.25
             assumptions: list[str] = []
 
-            if _evidence_value(profile.evidence, "traffic_trend"):
-                score += 0.15
+            traffic_ev = _evidence_value(profile.evidence, "traffic_trend")
+            latency_ev = _evidence_value(profile.evidence, "latency_trend")
+            trace_ev = _evidence_value(profile.evidence, "trace_operations")
+            repo_ev = _evidence_value(profile.evidence, "service_profile")
+
+            if traffic_ev:
+                score += 0.20
             else:
                 assumptions.append("Request traffic metric was not found; generated query may require metric-name adjustment.")
 
             if availability_ev:
-                score += 0.2
+                score += 0.30
             else:
                 assumptions.append("Historical availability could not be measured from Prometheus.")
 
-            if _evidence_value(profile.evidence, "latency_trend"):
-                score += 0.1
+            if latency_ev:
+                score += 0.15
 
-            if profile.operations:
-                score += 0.1
+            if trace_ev or profile.operations:
+                score += 0.10
 
-            if profile.entrypoints:
+            if repo_ev or profile.entrypoints:
                 score += 0.05
 
             if profile.criticality in {"critical", "high"}:
                 score += 0.05
 
-            confidence = min(0.95, round(score, 2))
+            # Journey SLOs must have stronger evidence than generic service SLOs.
+            if candidate.sli_type == "journey_availability" and not (traffic_ev and availability_ev):
+                score -= 0.10
+                assumptions.append("Journey-specific SLO needs route/span-level validation before production rollout.")
+
+            confidence = max(0.25, min(0.95, round(score, 2)))
 
             if candidate.sli_type == "latency":
                 objective = 95.0

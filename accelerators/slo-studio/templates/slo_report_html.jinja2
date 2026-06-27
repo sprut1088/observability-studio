@@ -5,34 +5,30 @@
   <title>SLO Studio Report</title>
   <style>
     body { font-family: Inter, system-ui, sans-serif; background:#f5f7fb; color:#172033; padding:32px; }
-    .page { max-width:1240px; margin:0 auto; }
-    .hero { background:linear-gradient(135deg,#0f172a,#047857); color:white; padding:32px; border-radius:22px; margin-bottom:22px; }
-    .hero h1 { margin:0 0 8px; font-size:32px; }
-    .hero p { margin:0; opacity:.86; max-width:850px; line-height:1.65; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; margin-bottom:20px; }
-    .card { background:white; border:1px solid #e5e7eb; border-radius:16px; padding:18px; margin-bottom:18px; box-shadow:0 8px 24px rgba(15,23,42,.06); }
+    .page { max-width:1100px; margin:0 auto; }
+    .hero { background:linear-gradient(135deg,#0f172a,#047857); color:white; padding:30px; border-radius:20px; margin-bottom:20px; }
+    .hero h1 { margin:0 0 8px; font-size:30px; }
+    .hero p { margin:0; opacity:.86; line-height:1.6; max-width:820px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:18px; }
+    .card { background:white; border:1px solid #e5e7eb; border-radius:14px; padding:18px; margin-bottom:16px; box-shadow:0 8px 22px rgba(15,23,42,.06); }
     .kpi { text-align:center; }
-    .kpi strong { display:block; font-size:30px; color:#059669; }
-    .kpi span { color:#64748b; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
-    h2 { margin:0 0 12px; font-size:20px; }
-    h3 { margin:0 0 8px; font-size:15px; }
+    .kpi strong { display:block; font-size:28px; color:#059669; }
+    .kpi span { color:#64748b; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; }
+    h2 { margin:0 0 12px; font-size:19px; }
     table { width:100%; border-collapse:collapse; font-size:13px; }
     th,td { padding:10px; border-bottom:1px solid #e5e7eb; text-align:left; vertical-align:top; }
     th { color:#64748b; text-transform:uppercase; font-size:11px; letter-spacing:.06em; }
-    .sev-critical { color:#dc2626; font-weight:800; }
-    .sev-high { color:#ea580c; font-weight:800; }
-    .sev-medium { color:#d97706; font-weight:800; }
-    .sev-low { color:#059669; font-weight:800; }
-    .pill { display:inline-block; padding:3px 8px; border-radius:999px; background:#ecfdf5; color:#059669; font-size:11px; font-weight:800; margin:2px; border:1px solid #bbf7d0; }
-    .pill-blue { background:#eff6ff; color:#2563eb; border-color:#bfdbfe; }
+    .pill { display:inline-block; padding:3px 8px; border-radius:999px; background:#ecfdf5; color:#047857; font-size:11px; font-weight:800; border:1px solid #bbf7d0; }
     .pill-orange { background:#fff7ed; color:#ea580c; border-color:#fed7aa; }
+    .confidence-high { color:#047857; font-weight:900; }
+    .confidence-medium { color:#d97706; font-weight:900; }
+    .confidence-low { color:#dc2626; font-weight:900; }
+    .summary-box { background:#ecfdf5; border:1px solid #bbf7d0; border-radius:14px; padding:15px; line-height:1.65; }
     .evidence { margin-top:8px; padding:10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; font-size:12px; }
     .muted { color:#64748b; }
-    .summary-box { background:#ecfdf5; border:1px solid #bbf7d0; border-radius:14px; padding:16px; line-height:1.7; }
-    .warn-box { background:#fff7ed; border:1px solid #fed7aa; border-radius:14px; padding:14px; color:#9a3412; }
-    pre { white-space:pre-wrap; word-break:break-word; background:#0f172a; color:#e2e8f0; padding:16px; border-radius:12px; font-size:12px; }
     code { font-family: Consolas, monospace; font-size:11px; color:#334155; word-break:break-word; }
-    .confidence { font-weight:800; color:#047857; }
+    .artifact-box { display:flex; flex-wrap:wrap; gap:10px; }
+    .artifact { padding:10px 12px; border-radius:10px; background:#f8fafc; border:1px solid #e2e8f0; font-size:13px; }
   </style>
 </head>
 <body>
@@ -40,219 +36,130 @@
   <div class="hero">
     <h1>📏 SLO Studio Report</h1>
     <p>
-      Evidence-backed SLO discovery based on observed service behavior, historical reliability trends,
-      existing SLO coverage, trace operations, and generated Sloth-compatible alerting rules.
+      Concise evidence-backed SLO recommendations based on historical telemetry,
+      existing SLO coverage, and confidence scoring.
     </p>
   </div>
 
   <div class="grid">
-    <div class="card kpi"><strong>{{ summary.service_count }}</strong><span>Services Profiled</span></div>
+    <div class="card kpi"><strong>{{ summary.service_count }}</strong><span>Services</span></div>
     <div class="card kpi"><strong>{{ summary.existing_slo_count }}</strong><span>Existing SLOs</span></div>
-    <div class="card kpi"><strong>{{ summary.top_recommendation_count }}</strong><span>Top SLOs</span></div>
-    <div class="card kpi"><strong>{{ summary.production_ready_slo_count }}</strong><span>Production Ready</span></div>
+    <div class="card kpi"><strong>{{ summary.production_ready_slo_count }}</strong><span>Ready</span></div>
     <div class="card kpi"><strong>{{ summary.candidate_slo_count }}</strong><span>Candidates</span></div>
-    <div class="card kpi"><strong>{{ summary.evidence_count }}</strong><span>Evidence Items</span></div>
+    <div class="card kpi"><strong>{{ summary.evidence_count }}</strong><span>Evidence</span></div>
   </div>
 
   <div class="card">
     <h2>Executive Summary</h2>
     <div class="summary-box">
-      SLO Studio analyzed <strong>{{ summary.service_count }}</strong> services over a
-      <strong>{{ summary.lookback_days }} day</strong> lookback window and detected
-      <strong>{{ summary.existing_slo_count }}</strong> existing SLO-related rules or alerts.
-      It produced <strong>{{ summary.production_ready_slo_count }}</strong> production-ready SLO recommendations
-      backed by telemetry evidence, plus <strong>{{ summary.candidate_slo_count }}</strong> lower-confidence candidates
-      requiring metric or ownership validation.
-      Generated YAML includes only production-ready recommendations.
+      SLO Studio analyzed <strong>{{ summary.service_count }}</strong> application services over
+      <strong>{{ summary.lookback_days }} days</strong>, found <strong>{{ summary.existing_slo_count }}</strong>
+      existing SLO-related signals, and identified <strong>{{ summary.production_ready_slo_count }}</strong>
+      production-ready SLO recommendations. Recommendations are marked production-ready only when backed by
+      measurable telemetry evidence and sufficient confidence.
     </div>
   </div>
 
-  {% if collection_errors %}
   <div class="card">
-    <h2>Collection Warnings</h2>
-    <div class="warn-box">
-      Some signals could not be collected. Recommendations are still generated from available evidence.
-    </div>
-    <table>
-      <thead><tr><th>Source</th><th>Operation</th><th>Error</th></tr></thead>
-      <tbody>
-      {% for err in collection_errors %}
-        <tr><td>{{ err.source }}</td><td>{{ err.operation }}</td><td>{{ err.error }}</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  <div class="card">
-    <h2>Top 10 SLOs to Implement First</h2>
+    <h2>Recommended SLOs</h2>
+    {% if production_ready_recommendations %}
     <table>
       <thead>
         <tr>
           <th>Priority</th>
           <th>Service</th>
           <th>SLO</th>
-          <th>Type</th>
           <th>Objective</th>
           <th>Confidence</th>
-          <th>Why This Matters</th>
+          <th>Evidence</th>
         </tr>
       </thead>
       <tbody>
-      {% for rec in top_recommendations %}
+      {% for rec in production_ready_recommendations[:5] %}
+        {% set pct = (rec.confidence * 100) | round(0) %}
         <tr>
           <td><strong>#{{ loop.index }}</strong></td>
           <td><strong>{{ rec.service }}</strong></td>
-          <td>{{ rec.name }}</td>
-          <td><span class="pill">{{ rec.sli_type }}</span></td>
+          <td><span class="pill">{{ rec.sli_type }}</span><br/>{{ rec.name }}</td>
           <td>{{ rec.objective }}% / {{ rec.window }}</td>
-          <td class="confidence">{{ (rec.confidence * 100) | round(0) }}%</td>
+          <td class="{% if pct >= 80 %}confidence-high{% elif pct >= 65 %}confidence-medium{% else %}confidence-low{% endif %}">
+            {{ pct }}%
+          </td>
           <td>
             {{ rec.rationale }}
             {% for ev in rec.evidence[:2] %}
               <div class="evidence">
                 <strong>{{ ev.source }} · {{ ev.signal_type }}</strong><br/>
-                {{ ev.title }}: {{ ev.value }}<br/>
+                {{ ev.value }}<br/>
                 <span class="muted">{{ ev.interpretation }}</span>
+                {% if ev.query %}<br/><code>{{ ev.query }}</code>{% endif %}
               </div>
             {% endfor %}
           </td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <div class="card">
-    <h2>Service Understanding</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Service</th>
-          <th>Criticality</th>
-          <th>Journeys</th>
-          <th>Trace Operations</th>
-          <th>Entrypoints</th>
-          <th>Evidence</th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for profile in profiles %}
-        <tr>
-          <td><strong>{{ profile.name }}</strong></td>
-          <td class="sev-{{ profile.criticality }}">{{ profile.criticality }}</td>
-          <td>{% for j in profile.user_journeys %}<span class="pill pill-blue">{{ j }}</span>{% endfor %}</td>
-          <td>{{ profile.operations[:6] | join(", ") }}</td>
-          <td>{{ profile.entrypoints[:6] | join(", ") }}</td>
-          <td>{{ profile.evidence | length }}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <div class="card">
-    <h2>Existing SLO Coverage</h2>
-    {% if existing_slos %}
-    <table>
-      <thead><tr><th>Name</th><th>Service</th><th>SLO</th><th>Severity</th><th>Source</th></tr></thead>
-      <tbody>
-      {% for slo in existing_slos %}
-        <tr>
-          <td>{{ slo.name }}</td>
-          <td>{{ slo.service }}</td>
-          <td>{{ slo.slo }}</td>
-          <td>{{ slo.severity }}</td>
-          <td>{{ slo.source }}</td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
     {% else %}
-    <p class="muted">No existing SLOs detected from Prometheus rules or alerts.</p>
+      <p class="muted">
+        No production-ready SLOs met the confidence threshold. SLO Studio found candidates, but they need stronger
+        availability, latency, trace, or ownership evidence before YAML should be promoted.
+      </p>
     {% endif %}
   </div>
 
   <div class="card">
-    <h2>Production-ready SLO Recommendations</h2>
-    <table>
-      <thead>
-        <tr><th>Service</th><th>SLO</th><th>Type</th><th>Objective</th><th>Confidence</th><th>Evidence-backed Rationale</th></tr>
-      </thead>
-      <tbody>
-      {% for rec in production_ready_recommendations %}
-        <tr>
-          <td><strong>{{ rec.service }}</strong></td>
-          <td>{{ rec.name }}</td>
-          <td><span class="pill">{{ rec.sli_type }}</span></td>
-          <td>{{ rec.objective }}% / {{ rec.window }}</td>
-          <td class="confidence">{{ (rec.confidence * 100) | round(0) }}%</td>
-          <td>
-            {{ rec.rationale }}
-            {% for ev in rec.evidence %}
-              <div class="evidence">
-                <strong>{{ ev.source }} · {{ ev.signal_type }}</strong><br/>
-                {{ ev.title }}: {{ ev.value }}<br/>
-                <span class="muted">{{ ev.interpretation }}</span><br/>
-                {% if ev.query %}<code>{{ ev.query }}</code>{% endif %}
-              </div>
-            {% endfor %}
-            {% if rec.assumptions %}
-              <div class="evidence"><strong>Assumptions:</strong> {{ rec.assumptions | join("; ") }}</div>
-            {% endif %}
-          </td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+    <h2>Existing SLO Coverage</h2>
+    {% if existing_slos %}
+      <table>
+        <thead><tr><th>Service</th><th>SLO / Alert</th><th>Severity</th><th>Source</th></tr></thead>
+        <tbody>
+        {% for slo in existing_slos[:8] %}
+          <tr>
+            <td>{{ slo.service or "unknown" }}</td>
+            <td>{{ slo.slo or slo.name }}</td>
+            <td>{{ slo.severity or "n/a" }}</td>
+            <td>{{ slo.source }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% if existing_slos | length > 8 %}
+        <p class="muted">Showing first 8 of {{ existing_slos | length }} existing SLO-related signals.</p>
+      {% endif %}
+    {% else %}
+      <p class="muted">No existing SLOs detected from Prometheus rules or alerts.</p>
+    {% endif %}
   </div>
 
   <div class="card">
-    <h2>Candidate SLOs Requiring Validation</h2>
-    <p class="muted">
-      These recommendations were not included in generated YAML because confidence or evidence quality was below the production threshold.
-    </p>
+    <h2>Candidate SLOs Needing Validation</h2>
+    {% if candidate_recommendations %}
     <table>
-      <thead>
-        <tr><th>Service</th><th>SLO</th><th>Type</th><th>Confidence</th><th>Reason to Validate</th></tr>
-      </thead>
+      <thead><tr><th>Service</th><th>Candidate</th><th>Confidence</th><th>Reason</th></tr></thead>
       <tbody>
-      {% for rec in candidate_recommendations %}
+      {% for rec in candidate_recommendations[:8] %}
         <tr>
           <td>{{ rec.service }}</td>
-          <td>{{ rec.name }}</td>
-          <td><span class="pill pill-orange">{{ rec.sli_type }}</span></td>
+          <td><span class="pill pill-orange">{{ rec.sli_type }}</span><br/>{{ rec.name }}</td>
           <td>{{ (rec.confidence * 100) | round(0) }}%</td>
-          <td>{{ rec.assumptions | join("; ") if rec.assumptions else "Needs additional telemetry or ownership validation." }}</td>
+          <td>{{ rec.assumptions | join("; ") if rec.assumptions else "Requires stronger telemetry evidence before production rollout." }}</td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
+    {% else %}
+      <p class="muted">No candidate SLOs require additional validation.</p>
+    {% endif %}
   </div>
 
   <div class="card">
-    <h2>Findings</h2>
-    <table>
-      <thead><tr><th>Service</th><th>Severity</th><th>Finding</th><th>Recommendation</th></tr></thead>
-      <tbody>
-      {% for finding in findings %}
-        <tr>
-          <td>{{ finding.service }}</td>
-          <td class="sev-{{ finding.severity }}">{{ finding.severity }}</td>
-          <td><strong>{{ finding.title }}</strong><br/>{{ finding.description }}</td>
-          <td>{{ finding.recommendation }}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <div class="card">
-    <h2>Generated Sloth YAML</h2>
-    <p class="muted">
-      YAML below includes production-ready SLOs only. Candidate SLOs are intentionally excluded until validated.
-    </p>
-    <pre>{{ sloth_yaml }}</pre>
+    <h2>Generated Artifacts</h2>
+    <div class="artifact-box">
+      <div class="artifact"><strong>HTML Report</strong><br/><span class="muted">Executive-ready SLO summary</span></div>
+      <div class="artifact"><strong>JSON Evidence</strong><br/><span class="muted">Machine-readable recommendations</span></div>
+      <div class="artifact"><strong>Sloth YAML</strong><br/><span class="muted">Generated only for production-ready SLOs</span></div>
+    </div>
   </div>
 </div>
 </body>

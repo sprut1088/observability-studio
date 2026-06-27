@@ -11,8 +11,8 @@ from repo_profiler import profile_repo
 from report_writer import write_reports
 from sloth_generator import generate_sloth_yaml
 from slo_intelligence import recommend_slos
-from trend_analyzer import analyze_service_trends, discover_services
 from recommendation_ranker import split_recommendations
+from trend_analyzer import analyze_service_trends, discover_services, canonical_service_name
 
 
 class SLOStudio:
@@ -81,7 +81,7 @@ class SLOStudio:
             except Exception as exc:
                 collection_errors.append({"source": "jaeger", "operation": "service discovery", "error": str(exc)})
 
-        services = sorted(set([svc for svc in services if svc]))
+        services = sorted(set([canonical_service_name(svc) for svc in services if svc]))
 
         if self.service:
             services = [svc for svc in services if svc == self.service]
@@ -92,6 +92,7 @@ class SLOStudio:
         profiles: list[ServiceProfile] = []
 
         for svc in services:
+            svc = canonical_service_name(svc)
             profile = ServiceProfile(name=svc, criticality=self._service_criticality(svc))
 
             if self.primary_journey:
@@ -152,7 +153,7 @@ class SLOStudio:
 
         top_recommendations, production_ready_recommendations, candidate_recommendations = split_recommendations(
             recommendations,
-            production_confidence_threshold=0.55,
+            production_confidence_threshold=0.70,
         )
 
         sloth_yaml = generate_sloth_yaml(production_ready_recommendations) if self.include_yaml else ""

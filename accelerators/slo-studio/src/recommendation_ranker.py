@@ -42,7 +42,7 @@ def score_recommendation(rec: SLORecommendation) -> float:
 
 def split_recommendations(
     recommendations: list[SLORecommendation],
-    production_confidence_threshold: float = 0.55,
+    production_confidence_threshold: float = 0.70,
 ) -> tuple[list[SLORecommendation], list[SLORecommendation], list[SLORecommendation]]:
     for rec in recommendations:
         setattr(rec, "priority_score", score_recommendation(rec))
@@ -55,7 +55,9 @@ def split_recommendations(
 
     production_ready = [
         rec for rec in ranked
-        if rec.confidence >= production_confidence_threshold and rec.evidence
+        if rec.confidence >= production_confidence_threshold
+        and rec.evidence
+        and any(ev.signal_type in {"availability_trend", "latency_trend"} for ev in rec.evidence)
     ]
 
     candidate_only = [

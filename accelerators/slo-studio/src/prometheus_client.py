@@ -28,6 +28,23 @@ class PrometheusClient:
         )
         resp.raise_for_status()
         return resp.json()
+    
+    def series(self, matchers: list[str], start: int, end: int) -> dict[str, Any]:
+        params: list[tuple[str, str | int]] = [
+            ("start", start),
+            ("end", end),
+        ]
+
+        for matcher in matchers:
+            params.append(("match[]", matcher))
+
+        resp = requests.get(
+            f"{self.url}/api/v1/series",
+            params=params,
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     def rules(self) -> list[dict[str, Any]]:
         resp = requests.get(f"{self.url}/api/v1/rules", timeout=self.timeout)
