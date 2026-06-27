@@ -1,0 +1,57 @@
+{
+  "name": "Google SRE SLO Methodology Pack",
+  "version": "2026-06-demo",
+  "sources": [
+    {
+      "title": "Google SRE Book - Service Level Objectives",
+      "url": "https://sre.google/sre-book/service-level-objectives/"
+    },
+    {
+      "title": "Google SRE Workbook - Implementing SLOs",
+      "url": "https://sre.google/workbook/implementing-slos/"
+    },
+    {
+      "title": "Google SRE Workbook - Alerting on SLOs",
+      "url": "https://sre.google/workbook/alerting-on-slos/"
+    },
+    {
+      "title": "Google SRE Workbook - Example Error Budget Policy",
+      "url": "https://sre.google/workbook/error-budget-policy/"
+    }
+  ],
+  "principles": [
+    "An SLO is a target value or target range measured by an SLI.",
+    "SLIs should represent user-visible reliability wherever possible.",
+    "Availability SLOs should be based on good valid events divided by total valid events.",
+    "Latency SLOs should include a clear threshold, such as 95% of valid requests under 100 ms.",
+    "Error-rate SLOs should be expressed as failed valid events divided by total valid events, or equivalently as a success-rate objective.",
+    "SLOs should include a measurement window, commonly 28 or 30 days for monthly operational review.",
+    "Every SLO should have a defined error budget.",
+    "Error budgets should guide release and reliability trade-offs.",
+    "Burn-rate alerts should be used to detect fast and slow SLO budget consumption.",
+    "SLO rollout should include service-owner review, dashboard coverage, alert routing, and operational runbooks."
+  ],
+  "advisor_rules": [
+    "Do not change deterministic SLO recommendations.",
+    "Do not invent telemetry or evidence.",
+    "Do not claim AI calculated objectives.",
+    "Use the deterministic SLOs as the source of truth.",
+    "Prioritize recommendations by user impact, confidence, alert context, and telemetry completeness.",
+    "Call out telemetry gaps clearly.",
+    "Use bank-friendly governance language.",
+    "Separate immediate rollout actions from service-owner review questions."
+  ],
+  "slo_review_checklist": [
+    "Is the SLI user-visible?",
+    "Is the valid-event denominator clearly defined?",
+    "Is the SLO objective explicit?",
+    "Does latency include a threshold in milliseconds or seconds?",
+    "Is the measurement window clear?",
+    "Is the error budget clear?",
+    "Are burn-rate alerts defined?",
+    "Is dashboard coverage available?",
+    "Is service ownership clear?",
+    "Is alert routing clear?",
+    "Does the service owner accept the threshold as realistic and meaningful?"
+  ]
+}

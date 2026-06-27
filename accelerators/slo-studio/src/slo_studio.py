@@ -20,6 +20,7 @@ from service_behavior import (
 )
 from sloth_generator import generate_sloth_yaml
 from slo_intelligence import recommend_slos
+from slo_ai_advisor import generate_ai_advisor
 
 
 class SLOStudio:
@@ -160,6 +161,18 @@ class SLOStudio:
             "tools_used": [item["name"] for item in tool_inventory],
         }
 
+        ai_advisor = generate_ai_advisor(
+            summary=summary,
+            tool_inventory=tool_inventory,
+            production_ready_recommendations=production_ready_recommendations,
+            candidate_recommendations=candidate_recommendations,
+            slo_coverage_matrix=slo_coverage_matrix,
+            existing_slos=existing_slos,
+            collection_errors=collection_errors,
+        )
+
+        summary["ai_advisor_status"] = ai_advisor.get("status")
+
         context = {
             "summary": summary,
             "tool_inventory": tool_inventory,
@@ -174,7 +187,9 @@ class SLOStudio:
             "repo_profile": repo_profile,
             "collection_errors": collection_errors,
             "sloth_yaml": sloth_yaml,
+            "ai_advisor": ai_advisor,
         }
+
 
         write_reports(self.output_dir, context, sloth_yaml)
         return context

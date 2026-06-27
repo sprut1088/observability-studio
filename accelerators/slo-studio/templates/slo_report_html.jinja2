@@ -32,6 +32,12 @@
     .small { font-size:12px; }
     .objective-main { font-weight:900; color:#0f172a; line-height:1.35; }
     .objective-sub { color:#64748b; font-size:12px; margin-top:4px; }
+    .ai-box { background:#f8fafc; border:1px solid #c7d2fe; border-radius:14px; padding:16px; line-height:1.65; }
+    .ai-section { margin-top:12px; }
+    .ai-section h3 { margin:0 0 8px; color:#0f172a; }
+    .ai-list { margin:8px 0 0 18px; padding:0; }
+    .ai-list li { margin-bottom:7px; }
+    .ai-badge { display:inline-block; padding:3px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; font-size:11px; font-weight:800; border:1px solid #c7d2fe; }
     code { font-family: Consolas, monospace; font-size:11px; color:#334155; word-break:break-word; }
     .two-col { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
     @media (max-width: 900px) { .two-col { grid-template-columns:1fr; } }
@@ -68,6 +74,89 @@
       ratio, an explicit threshold where applicable, a measurement window, and the resulting error budget.
     </div>
   </div>
+
+  {% if ai_advisor %}
+  <div class="card">
+    <h2>AI Advisor for Leadership and Service Owners</h2>
+    <div class="ai-box">
+      <div class="muted small">
+        <span class="ai-badge">AI Advisor</span>
+        AI explains and prioritizes deterministic SLO evidence. It does not calculate objectives,
+        thresholds, confidence, or PromQL.
+        Status: {{ ai_advisor.status }}{% if ai_advisor.provider %} · Provider: {{ ai_advisor.provider }}{% endif %}
+      </div>
+
+      {% if ai_advisor.executive_interpretation %}
+      <div class="ai-section">
+        <h3>Executive Interpretation</h3>
+        <p>{{ ai_advisor.executive_interpretation }}</p>
+      </div>
+      {% endif %}
+
+      {% if ai_advisor.top_actions %}
+      <div class="ai-section">
+        <h3>Priority Actions</h3>
+        <ol class="ai-list">
+          {% for item in ai_advisor.top_actions %}
+          <li>
+            <strong>{{ item.service }}:</strong> {{ item.action }}<br/>
+            <span class="objective-main">{{ item.recommended_slo }}</span><br/>
+            {{ item.why }}<br/>
+            <span class="muted small">Owner: {{ item.owner }} · Risk: {{ item.risk }}</span>
+          </li>
+          {% endfor %}
+        </ol>
+      </div>
+      {% endif %}
+
+      {% if ai_advisor.governance_notes %}
+      <div class="ai-section">
+        <h3>Governance Notes</h3>
+        <ul class="ai-list">
+          {% for note in ai_advisor.governance_notes %}
+          <li>{{ note }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if ai_advisor.service_owner_questions %}
+      <div class="ai-section">
+        <h3>Questions for Service Owners</h3>
+        <ul class="ai-list">
+          {% for item in ai_advisor.service_owner_questions %}
+          <li><strong>{{ item.service }}:</strong> {{ item.question }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if ai_advisor.rollout_plan %}
+      <div class="ai-section">
+        <h3>Service-Owner Rollout Plan</h3>
+        <ol class="ai-list">
+          {% for step in ai_advisor.rollout_plan %}
+          <li>{{ step }}</li>
+          {% endfor %}
+        </ol>
+      </div>
+      {% endif %}
+
+      {% if ai_advisor.leadership_summary %}
+      <div class="ai-section">
+        <h3>Leadership Summary</h3>
+        <p>{{ ai_advisor.leadership_summary }}</p>
+      </div>
+      {% endif %}
+
+      {% if ai_advisor.error %}
+      <div class="muted small">
+        AI provider note: {{ ai_advisor.error }}. The deterministic advisor fallback was used for this report.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
 
   <div class="card">
     <h2>Tools Used for Evidence</h2>
