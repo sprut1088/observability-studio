@@ -9,7 +9,7 @@ services:
     environment:
       SLO_AI_ENABLED: ${SLO_AI_ENABLED:-true}
       SLO_AI_PROVIDER: ${SLO_AI_PROVIDER:-anthropic}
-      SLO_AI_MODEL: ${SLO_AI_MODEL:-claude-3-5-sonnet-latest}
+      SLO_AI_MODEL: ${SLO_AI_MODEL:-claude-sonnet-4-6}
       SLO_AI_API_KEY: ${SLO_AI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}

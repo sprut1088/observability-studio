@@ -194,7 +194,7 @@ def _call_anthropic(prompt: str) -> str:
         os.getenv("SLO_AI_MODEL")
         or os.getenv("ANTHROPIC_MODEL")
         or os.getenv("AI_MODEL")
-        or "claude-3-5-sonnet-latest"
+        or "claude-sonnet-4-6"
     )
 
     if not api_key:

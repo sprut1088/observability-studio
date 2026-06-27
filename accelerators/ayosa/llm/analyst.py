@@ -218,7 +218,7 @@ class AyosaAIAnalyst:
           - model (Anthropic model name or OpenRouter model slug)
           - azure_endpoint (required for Azure)
           - azure_deployment (required for Azure, used as model name)
-          - openrouter_model (e.g. "anthropic/claude-3.5-sonnet")
+          - openrouter_model (e.g. "anthropic/claude-sonnet-4-6")
           - max_tokens, temperature
         """
         self.provider = (config.get("provider") or "anthropic").strip().lower()
@@ -290,7 +290,7 @@ class AyosaAIAnalyst:
             self.model = (
                 config.get("openrouter_model")
                 or config.get("model")
-                or "anthropic/claude-3.5-sonnet"
+                or "anthropic/claude-sonnet-4-6"
             )
             self.client = OpenAI(
                 api_key=api_key,
