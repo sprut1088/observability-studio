@@ -34,31 +34,75 @@ def choose_objective(observed_availability: float | None, style: str, criticalit
     style = (style or "balanced").lower()
     criticality = (criticality or "balanced").lower()
 
+    # Fallback only when availability could not be measured.
     if observed_availability is None:
         if criticality in {"critical", "high"}:
-            return 99.9
-        return 99.5
-
-    if style == "aggressive":
-        candidate = min(99.95, observed_availability + 0.05)
-    elif style == "conservative":
-        candidate = max(95.0, observed_availability - 0.20)
-    else:
-        candidate = max(95.0, observed_availability - 0.05)
-
-    if criticality in {"critical", "high"}:
-        candidate = max(candidate, 99.0)
-
-    if candidate >= 99.95:
-        return 99.95
-    if candidate >= 99.9:
-        return 99.9
-    if candidate >= 99.5:
-        return 99.5
-    if candidate >= 99.0:
+            return 99.5
+        if criticality == "low":
+            return 95.0
         return 99.0
 
-    return round(candidate, 2)
+    # Behavior-based objective selection.
+    # The recommendation should be slightly below observed reliability,
+    # so it is achievable but still meaningful.
+    if style == "conservative":
+        margin = 0.30
+    elif style == "aggressive":
+        margin = 0.02
+    else:
+        margin = 0.10
+
+    candidate = observed_availability - margin
+
+    # Critical services should not get weak SLOs unless observed behavior is weak.
+    if criticality in {"critical", "high"}:
+        if observed_availability >= 99.95:
+            candidate = max(candidate, 99.9)
+        elif observed_availability >= 99.8:
+            candidate = max(candidate, 99.5)
+        elif observed_availability >= 99.0:
+            candidate = max(candidate, 99.0)
+
+    # Snap to standard SRE-friendly targets.
+    standard_targets = [99.99, 99.95, 99.9, 99.8, 99.5, 99.0, 98.0, 95.0]
+    for target in standard_targets:
+        if candidate >= target:
+            return target
+
+    return 95.0
+
+def choose_latency_threshold_ms(latency_ev: SignalEvidence | None, criticality: str) -> int:
+    if not latency_ev:
+        if criticality in {"critical", "high"}:
+            return 1000
+        return 2000
+
+    raw_value = latency_ev.value or ""
+
+    # Expected format:
+    # avg_p95=0.1234, peak_p95=0.5678
+    match = re.search(r"avg_p95=([0-9.]+)", raw_value)
+    if not match:
+        return 1000 if criticality in {"critical", "high"} else 2000
+
+    avg_p95 = float(match.group(1))
+
+    # Convert seconds to milliseconds if value looks like seconds.
+    if avg_p95 < 100:
+        avg_p95_ms = avg_p95 * 1000
+    else:
+        avg_p95_ms = avg_p95
+
+    # Recommend a threshold slightly above observed p95.
+    threshold = avg_p95_ms * 1.25
+
+    standard_thresholds = [100, 200, 300, 500, 750, 1000, 1500, 2000, 3000, 5000, 8000]
+
+    for item in standard_thresholds:
+        if threshold <= item:
+            return item
+
+    return 10000
 
 
 def _metric_label_from_evidence(evidence: list[SignalEvidence]) -> tuple[str, str]:
@@ -72,6 +116,27 @@ def _metric_label_from_evidence(evidence: list[SignalEvidence]) -> tuple[str, st
     return "http_requests_total", "service"
 
 
+def _status_good_selector(evidence: list[SignalEvidence]) -> str:
+    availability_ev = _evidence_value(evidence, "availability_trend")
+    traffic_ev = _evidence_value(evidence, "traffic_trend")
+
+    raw = {}
+    if availability_ev and availability_ev.raw:
+        raw = availability_ev.raw
+    elif traffic_ev and traffic_ev.raw:
+        raw = traffic_ev.raw
+
+    status_label = raw.get("status_label") or "status"
+
+    if status_label in {"http_response_status_code", "status_code", "code"}:
+        return f'{status_label}!~"5.."'
+
+    if status_label == "grpc_status_code":
+        return f'{status_label}=~"0|OK|ok"'
+
+    return f'{status_label}!~"5..|error|failed"'
+
+
 def generate_sli_candidates(profile: ServiceProfile) -> list[SLICandidate]:
     candidates: list[SLICandidate] = []
 
@@ -82,29 +147,44 @@ def generate_sli_candidates(profile: ServiceProfile) -> list[SLICandidate]:
     metric, service_label = _metric_label_from_evidence(profile.evidence)
     selector = f'{service_label}="{profile.name}"'
 
+    good_status_selector = _status_good_selector(profile.evidence)
+
     if traffic or availability:
         candidates.append(
             SLICandidate(
                 service=profile.name,
                 name=f"{profile.name}-availability",
                 sli_type="availability",
-                description=f"{profile.name} successful requests divided by total requests.",
-                good_query=f'sum(rate({metric}{{{selector},status!~"5.."}}[5m]))',
+                description=f"{profile.name} availability based on successful requests divided by total valid requests.",
+                good_query=f'sum(rate({metric}{{{selector},{good_status_selector}}}[5m]))',
+                total_query=f'sum(rate({metric}{{{selector}}}[5m]))',
+                evidence=[ev for ev in [traffic, availability] if ev],
+            )
+        )
+
+        candidates.append(
+            SLICandidate(
+                service=profile.name,
+                name=f"{profile.name}-error-rate",
+                sli_type="error_rate",
+                description=f"{profile.name} error-rate SLO based on non-5xx responses divided by total valid requests.",
+                good_query=f'sum(rate({metric}{{{selector},{good_status_selector}}}[5m]))',
                 total_query=f'sum(rate({metric}{{{selector}}}[5m]))',
                 evidence=[ev for ev in [traffic, availability] if ev],
             )
         )
 
     if latency:
+        threshold_ms = choose_latency_threshold_ms(latency, profile.criticality)
         candidates.append(
             SLICandidate(
                 service=profile.name,
-                name=f"{profile.name}-latency",
+                name=f"{profile.name}-latency-p95-under-{threshold_ms}ms",
                 sli_type="latency",
-                description=f"{profile.name} requests served within the agreed latency threshold.",
-                good_query=f'sum(rate(http_request_duration_seconds_bucket{{service="{profile.name}",le="1"}}[5m]))',
+                description=f"{profile.name} p95 latency should stay under {threshold_ms}ms for valid requests.",
+                good_query=f'sum(rate(http_request_duration_seconds_bucket{{service="{profile.name}",le="{threshold_ms / 1000}"}}[5m]))',
                 total_query=f'sum(rate(http_request_duration_seconds_count{{service="{profile.name}"}}[5m]))',
-                threshold="1s",
+                threshold=f"{threshold_ms}ms",
                 evidence=[latency],
             )
         )
@@ -116,8 +196,8 @@ def generate_sli_candidates(profile: ServiceProfile) -> list[SLICandidate]:
                 service=profile.name,
                 name=f"{profile.name}-{safe_journey}-journey-availability",
                 sli_type="journey_availability",
-                description=f"Availability of the {journey} user journey involving {profile.name}.",
-                good_query=f'sum(rate({metric}{{{selector},status!~"5.."}}[5m]))',
+                description=f"Availability of the {journey} journey involving {profile.name}.",
+                good_query=f'sum(rate({metric}{{{selector},{good_status_selector}}}[5m]))',
                 total_query=f'sum(rate({metric}{{{selector}}}[5m]))',
                 evidence=profile.evidence[:5],
             )
@@ -162,10 +242,11 @@ def recommend_slos(
             observed_availability = _availability_from_evidence(availability_ev)
             objective = choose_objective(observed_availability, objective_style, profile.criticality)
 
-            score = 0.25
+            score = 0.20
             assumptions: list[str] = []
 
             traffic_ev = _evidence_value(profile.evidence, "traffic_trend")
+            availability_ev = _evidence_value(profile.evidence, "availability_trend")
             latency_ev = _evidence_value(profile.evidence, "latency_trend")
             trace_ev = _evidence_value(profile.evidence, "trace_operations")
             repo_ev = _evidence_value(profile.evidence, "service_profile")
@@ -173,15 +254,19 @@ def recommend_slos(
             if traffic_ev:
                 score += 0.20
             else:
-                assumptions.append("Request traffic metric was not found.")
+                assumptions.append("No request-volume evidence was found.")
 
-            if availability_ev:
-                score += 0.30
-            else:
-                assumptions.append("Historical availability could not be measured from Prometheus.")
+            if candidate.sli_type in {"availability", "error_rate", "journey_availability"}:
+                if availability_ev:
+                    score += 0.35
+                else:
+                    assumptions.append("Historical availability/error ratio was not measured.")
 
-            if latency_ev:
-                score += 0.15
+            if candidate.sli_type == "latency":
+                if latency_ev:
+                    score += 0.35
+                else:
+                    assumptions.append("Historical latency percentile was not measured.")
 
             if trace_ev or profile.operations:
                 score += 0.10
@@ -192,14 +277,19 @@ def recommend_slos(
             if profile.criticality in {"critical", "high"}:
                 score += 0.05
 
-            if candidate.sli_type == "journey_availability" and not (traffic_ev and availability_ev):
-                score -= 0.10
-                assumptions.append("Journey-specific SLO needs route/span-level validation before production rollout.")
+            if candidate.sli_type == "journey_availability" and not (availability_ev and trace_ev):
+                score -= 0.15
+                assumptions.append("Journey SLO needs trace or route-level validation.")
 
             confidence = max(0.25, min(0.95, round(score, 2)))
 
             if candidate.sli_type == "latency":
-                objective = 95.0
+                if profile.criticality in {"critical", "high"}:
+                    objective = 95.0
+                elif profile.criticality == "low":
+                    objective = 90.0
+                else:
+                    objective = 95.0
 
             rationale_parts = [
                 f"Service '{profile.name}' was discovered from observability data."
@@ -207,7 +297,7 @@ def recommend_slos(
 
             if observed_availability is not None:
                 rationale_parts.append(
-                    f"Historical availability is approximately {observed_availability:.3f}%."
+                    f"Observed availability over the selected lookback window was {observed_availability:.3f}%, so the recommended objective is calibrated below recent behavior."
                 )
 
             if traffic_ev:
