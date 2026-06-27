@@ -1,7 +1,23 @@
+import os
 import yaml
 from pathlib import Path
 from uuid import uuid4
 from urllib.parse import urlparse
+
+
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+
+ANTHROPIC_MODEL_ALIASES = {
+    "claude-3-5-sonnet-latest": DEFAULT_ANTHROPIC_MODEL,
+    "claude-3-5-sonnet": DEFAULT_ANTHROPIC_MODEL,
+    "claude-3.5-sonnet": DEFAULT_ANTHROPIC_MODEL,
+    "claude-3-5-sonnet-20240620": DEFAULT_ANTHROPIC_MODEL,
+    "claude-3-5-sonnet-20241022": DEFAULT_ANTHROPIC_MODEL,
+    "claude-3-7-sonnet-20250219": DEFAULT_ANTHROPIC_MODEL,
+    "claude-sonnet-4": DEFAULT_ANTHROPIC_MODEL,
+    "claude-sonnet-4-20250514": DEFAULT_ANTHROPIC_MODEL,
+}
+
 
 def load_local_config() -> dict:
     config_path = Path("config/config.yaml")
@@ -10,7 +26,26 @@ def load_local_config() -> dict:
 
     with open(config_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
-    
+
+
+def normalize_ai_model(model: str | None, provider: str | None = None) -> str | None:
+    provider = (provider or "anthropic").lower()
+    raw = (model or "").strip()
+
+    if provider in {"anthropic", "claude"}:
+        if not raw:
+            raw = (
+                os.getenv("SLO_AI_MODEL")
+                or os.getenv("ANTHROPIC_MODEL")
+                or os.getenv("AI_MODEL")
+                or DEFAULT_ANTHROPIC_MODEL
+            )
+
+        return ANTHROPIC_MODEL_ALIASES.get(raw, raw)
+
+    return raw or model
+
+
 def derive_splunk_urls(base_url: str) -> dict:
     parsed = urlparse(base_url)
     hostname = parsed.hostname
@@ -27,6 +62,7 @@ def derive_splunk_urls(base_url: str) -> dict:
         "mgmt": f"https://{hostname}:8089",
         "hec": f"http://{hostname}:8088",
     }
+
 
 def build_runtime_config(payload: dict, workdir: Path) -> Path:
     workdir.mkdir(parents=True, exist_ok=True)
@@ -54,23 +90,14 @@ def build_runtime_config(payload: dict, workdir: Path) -> Path:
         if tool.get("password"):
             source_cfg["password"] = tool["password"]
 
-        # Splunk-specific fields
         if name == "splunk":
             urls = derive_splunk_urls(tool.get("url", ""))
-            if tool.get("splunk_base_url"):
-                source_cfg["splunk_base_url"] = tool.get("splunk_base_url") or urls["base"]
-            if tool.get("splunk_mgmt_url"):
-                source_cfg["splunk_mgmt_url"] = tool.get("splunk_mgmt_url") or urls["mgmt"]
-            if tool.get("splunk_hec_url"):
-                source_cfg["splunk_hec_url"] = tool.get("splunk_hec_url") or urls["hec"]
 
-            # Existing Auth Token field becomes Splunk HEC token
-            source_cfg["splunk_hec_token"] = (
-                tool.get("splunk_hec_token")
-                or tool.get("api_key")
-            )
+            source_cfg["splunk_base_url"] = tool.get("splunk_base_url") or urls["base"]
+            source_cfg["splunk_mgmt_url"] = tool.get("splunk_mgmt_url") or urls["mgmt"]
+            source_cfg["splunk_hec_url"] = tool.get("splunk_hec_url") or urls["hec"]
+            source_cfg["splunk_hec_token"] = tool.get("splunk_hec_token") or tool.get("api_key")
 
-            # Private values come from local config/config.yaml
             source_cfg["username"] = splunk_config.get("username")
             source_cfg["password"] = splunk_config.get("password")
             source_cfg["splunk_app"] = splunk_config.get("app", "search")
@@ -81,13 +108,42 @@ def build_runtime_config(payload: dict, workdir: Path) -> Path:
     ai_raw = payload.get("ai") or {"enabled": False}
     ai_cfg = {k: v for k, v in ai_raw.items() if v is not None}
 
-    # If AI is enabled but no api_key in the request, read from server config/config.yaml
-    if ai_cfg.get("enabled") and not ai_cfg.get("api_key"):
+    if ai_cfg.get("enabled"):
         server_ai = local_config.get("ai", {})
-        if server_ai.get("api_key"):
-            ai_cfg["api_key"] = server_ai["api_key"]
-        if not ai_cfg.get("model") and server_ai.get("model"):
-            ai_cfg["model"] = server_ai["model"]
+
+        provider = (
+            ai_cfg.get("provider")
+            or server_ai.get("provider")
+            or os.getenv("SLO_AI_PROVIDER")
+            or os.getenv("AI_PROVIDER")
+            or "anthropic"
+        ).lower()
+
+        ai_cfg["provider"] = provider
+
+        if not ai_cfg.get("api_key"):
+            api_key = (
+                server_ai.get("api_key")
+                or os.getenv("SLO_AI_API_KEY")
+                or os.getenv("ANTHROPIC_API_KEY")
+                or os.getenv("OPENAI_API_KEY")
+                or os.getenv("AI_API_KEY")
+            )
+            if api_key:
+                ai_cfg["api_key"] = api_key
+
+        requested_model = (
+            ai_cfg.get("model")
+            or server_ai.get("model")
+            or os.getenv("SLO_AI_MODEL")
+            or os.getenv("ANTHROPIC_MODEL")
+            or os.getenv("OPENAI_MODEL")
+            or os.getenv("AI_MODEL")
+        )
+
+        normalized_model = normalize_ai_model(requested_model, provider)
+        if normalized_model:
+            ai_cfg["model"] = normalized_model
 
     cfg = {
         "client": payload.get("client", {}),
