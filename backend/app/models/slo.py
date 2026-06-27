@@ -5,12 +5,18 @@ from pydantic import BaseModel, Field
 
 
 class SLOStudioRequest(BaseModel):
+    application: Optional[str] = None
     service: Optional[str] = None
     environment: Optional[str] = None
-    objective: Optional[float] = 99.9
+    primary_journey: Optional[str] = None
+    criticality: str = "balanced"
+    objective_style: str = "balanced"
+    lookback_days: int = 7
     window_days: int = 30
     include_yaml: bool = True
     include_ai: bool = False
+    repo_path: Optional[str] = None
+    repo_url: Optional[str] = None
     tools: list[dict[str, Any]] = Field(default_factory=list)
 
 

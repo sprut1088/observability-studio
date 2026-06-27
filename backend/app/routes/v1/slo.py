@@ -13,7 +13,4 @@ async def run_slo_studio_analysis(req: SLOStudioRequest) -> SLOStudioResponse:
         result = await run_slo_studio(payload)
         return SLOStudioResponse(**result)
     except Exception as exc:
-        return SLOStudioResponse(
-            success=False,
-            error=str(exc),
-        )
+        return SLOStudioResponse(success=False, error=str(exc))

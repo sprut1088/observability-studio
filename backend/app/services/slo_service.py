@@ -25,10 +25,17 @@ async def run_slo_studio(request_data: dict[str, Any]) -> dict[str, Any]:
 
     studio = SLOStudio(
         tools=request_data.get("tools", []),
+        application=request_data.get("application"),
         service=request_data.get("service"),
         environment=request_data.get("environment"),
-        objective=request_data.get("objective", 99.9),
-        window_days=request_data.get("window_days", 30),
+        primary_journey=request_data.get("primary_journey"),
+        criticality=request_data.get("criticality", "balanced"),
+        objective_style=request_data.get("objective_style", "balanced"),
+        lookback_days=int(request_data.get("lookback_days") or 7),
+        window_days=int(request_data.get("window_days") or 30),
+        include_yaml=bool(request_data.get("include_yaml", True)),
+        repo_path=request_data.get("repo_path"),
+        repo_url=request_data.get("repo_url"),
         output_dir=runtime_dir,
     )
 

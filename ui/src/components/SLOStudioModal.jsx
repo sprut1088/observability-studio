@@ -1,440 +1,198 @@
 import { useMemo, useState } from "react";
-import { v1SloStudio, API_HOST } from "../api";
+import { API_HOST, v1SloStudio } from "../api";
 
-const SLO_SUPPORTED_TOOLS = [
-  "prometheus",
-  "alertmanager",
-  "grafana",
-  "jaeger",
-  "tempo",
-];
+const SUPPORTED = ["prometheus", "jaeger", "tempo", "grafana", "alertmanager", "loki", "splunk", "opensearch"];
 
-const TOOL_ICONS = {
-  prometheus: "🔥",
-  alertmanager: "🔔",
-  grafana: "📊",
-  jaeger: "🔍",
-  tempo: "⏱️",
-};
-
-function triggerDownload(downloadPath) {
-  if (!downloadPath) return;
-
-  const url = downloadPath.startsWith("http")
-    ? downloadPath
-    : `${API_HOST}${downloadPath}`;
-
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "";
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-}
-
-function normalizeValidatedTools(validatedTools = []) {
+function normalizeTools(validatedTools = []) {
   return validatedTools
     .map((tool) => {
-      const toolName = (
-        tool.tool_name ||
-        tool.toolName ||
-        tool.name ||
-        tool.tool ||
-        ""
-      ).toLowerCase();
-
+      const name = (tool.tool_name || tool.toolName || tool.name || tool.tool || "").toLowerCase();
+      const url = tool.base_url || tool.baseUrl || tool.url || "";
       return {
-        toolName,
-        baseUrl: tool.base_url || tool.baseUrl || tool.url,
-        authToken: tool.auth_token || tool.authToken || tool.api_key || null,
-        validation: tool.validation_result || tool.validation || { reachable: true },
+        name,
+        tool: name,
+        tool_name: name,
+        url,
+        base_url: url,
+        auth_token: tool.auth_token || tool.authToken || tool.api_key || null,
       };
     })
-    .filter(
-      (tool) =>
-        tool.toolName &&
-        tool.baseUrl &&
-        SLO_SUPPORTED_TOOLS.includes(tool.toolName)
-    );
+    .filter((tool) => tool.name && tool.url && SUPPORTED.includes(tool.name));
+}
+
+function absoluteUrl(path) {
+  if (!path) return null;
+  return path.startsWith("http") ? path : `${API_HOST}${path}`;
 }
 
 export default function SLOStudioModal({ onClose, validatedTools = [] }) {
-  const tools = useMemo(
-    () => normalizeValidatedTools(validatedTools),
-    [validatedTools]
-  );
+  const tools = useMemo(() => normalizeTools(validatedTools), [validatedTools]);
 
+  const [application, setApplication] = useState("");
   const [service, setService] = useState("");
-  const [objective, setObjective] = useState(99.9);
+  const [primaryJourney, setPrimaryJourney] = useState("");
+  const [criticality, setCriticality] = useState("balanced");
+  const [objectiveStyle, setObjectiveStyle] = useState("balanced");
+  const [lookbackDays, setLookbackDays] = useState(7);
   const [windowDays, setWindowDays] = useState(30);
-  const [includeYaml, setIncludeYaml] = useState(true);
-
+  const [repoPath, setRepoPath] = useState("");
   const [running, setRunning] = useState(false);
-  const [status, setStatus] = useState(null);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
 
-  const busy = running;
-
-  async function handleRunSLOStudio() {
-    if (tools.length === 0) {
-      setStatus({
-        type: "error",
-        title: "Validation error",
-        msg: "No SLO-compatible globally validated tools found. Validate Prometheus first from Tool Connectivity.",
-        stats: [],
-        reportUrl: null,
-        jsonUrl: null,
-        yamlUrl: null,
-      });
-      return;
-    }
-
+  async function run() {
     setRunning(true);
-    setStatus(null);
+    setError(null);
+    setResult(null);
 
     try {
       const payload = {
-        service: service.trim() || null,
-        environment: null,
-        objective: Number(objective),
+        application: application || null,
+        service: service || null,
+        primary_journey: primaryJourney || null,
+        criticality,
+        objective_style: objectiveStyle,
+        lookback_days: Number(lookbackDays),
         window_days: Number(windowDays),
-        include_yaml: includeYaml,
+        include_yaml: true,
         include_ai: false,
-        tools: tools.map((tool) => ({
-          name: tool.toolName,
-          tool: tool.toolName,
-          url: tool.baseUrl,
-          tool_name: tool.toolName,
-          base_url: tool.baseUrl,
-          auth_token: tool.authToken ?? null,
-        })),
+        repo_path: repoPath || null,
+        tools,
       };
 
       const res = await v1SloStudio(payload);
-      const data = res.data;
+      if (!res.data?.success) {
+        throw new Error(res.data?.error || "SLO Studio failed");
+      }
 
-      const summary = data.summary || {};
-      const statLines = [
-        summary.service_count != null ? `${summary.service_count} service(s)` : null,
-        summary.existing_slo_count != null ? `${summary.existing_slo_count} existing SLO(s)` : null,
-        summary.recommended_slo_count != null ? `${summary.recommended_slo_count} recommended SLO(s)` : null,
-        summary.finding_count != null ? `${summary.finding_count} finding(s)` : null,
-      ].filter(Boolean);
-
-      setStatus({
-        type: data.success ? "success" : "error",
-        title: data.success ? "SLO Studio report ready" : "SLO Studio failed",
-        msg: data.success
-          ? "SLO discovery, coverage analysis, and Sloth YAML generation completed."
-          : data.error || "SLO Studio failed.",
-        stats: statLines,
-        reportUrl: data.report_url || null,
-        jsonUrl: data.json_url || null,
-        yamlUrl: data.yaml_url || null,
-      });
+      setResult(res.data);
     } catch (err) {
-      setStatus({
-        type: "error",
-        title: "SLO Studio failed",
-        msg: err?.response?.data?.detail || err?.response?.data?.error || err.message,
-        stats: [],
-        reportUrl: null,
-        jsonUrl: null,
-        yamlUrl: null,
-      });
+      setError(err?.response?.data?.error || err?.response?.data?.detail || err.message || String(err));
     } finally {
       setRunning(false);
     }
   }
 
-  const reportPreviewUrl = status?.reportUrl
-    ? status.reportUrl.startsWith("http")
-      ? status.reportUrl
-      : `${API_HOST}${status.reportUrl}`
-    : null;
+  const reportUrl = absoluteUrl(result?.report_url);
 
   return (
-    <div
-      className="modal-overlay"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div
-        className="modal modal-wide"
-        role="dialog"
-        aria-modal="true"
-        aria-label="SLO Studio"
-      >
-        <div className="modal-header modal-header-emerald">
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal modal-wide" role="dialog" aria-modal="true" aria-label="SLO Studio">
+        <div className="modal-header modal-header-teal">
           <div className="modal-header-left">
             <span className="modal-icon">📏</span>
             <div>
               <div className="modal-title">SLO Studio</div>
               <div className="modal-subtitle">
-                Discover SLO coverage, recommend objectives, and generate Sloth-compatible rules.
+                Evidence-backed SLO discovery from metrics, traces, alerts, and repository context.
               </div>
             </div>
           </div>
-
-          <button className="modal-close" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
+          <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
         </div>
 
         <div className="modal-body">
-          <div className="rca-step-label">
-            <span className="rca-step-num">1</span>
-            <span>Validated SLO tools</span>
+          <div className="modal-alert modal-alert-success">
+            <span className="modal-alert-icon">✓</span>
+            <div>
+              <div className="modal-alert-title">{tools.length} compatible tool(s) loaded</div>
+              <div className="modal-alert-msg">
+                SLO Studio will use Prometheus for trends, Jaeger/Tempo for operations, and optional repository context.
+              </div>
+            </div>
           </div>
 
-          {tools.length > 0 ? (
-            <>
-              <div className="modal-alert modal-alert-success animate-in">
-                <span className="modal-alert-icon">✓</span>
-                <div>
-                  <div className="modal-alert-title">
-                    {tools.length} SLO-compatible tool{tools.length !== 1 ? "s" : ""} loaded
-                  </div>
-                  <div className="modal-alert-msg">
-                    These connections were validated from the Hub and will be reused by SLO Studio.
-                  </div>
-                </div>
+          <div className="form-grid form-grid-2">
+            <div className="form-group">
+              <label className="form-label">Application</label>
+              <input className="form-input" value={application} onChange={(e) => setApplication(e.target.value)} placeholder="e.g. astronomy-shop" />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Service</label>
+              <input className="form-input" value={service} onChange={(e) => setService(e.target.value)} placeholder="Optional, e.g. cart" />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Primary Journey</label>
+              <input className="form-input" value={primaryJourney} onChange={(e) => setPrimaryJourney(e.target.value)} placeholder="e.g. checkout" />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Criticality</label>
+              <select className="form-select" value={criticality} onChange={(e) => setCriticality(e.target.value)}>
+                <option value="balanced">Auto / Balanced</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Objective Style</label>
+              <select className="form-select" value={objectiveStyle} onChange={(e) => setObjectiveStyle(e.target.value)}>
+                <option value="conservative">Conservative</option>
+                <option value="balanced">Balanced</option>
+                <option value="aggressive">Aggressive</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Lookback Days</label>
+              <input className="form-input" type="number" min="1" max="90" value={lookbackDays} onChange={(e) => setLookbackDays(e.target.value)} />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">SLO Window Days</label>
+              <input className="form-input" type="number" min="7" max="90" value={windowDays} onChange={(e) => setWindowDays(e.target.value)} />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Repo Path</label>
+              <input className="form-input" value={repoPath} onChange={(e) => setRepoPath(e.target.value)} placeholder="/app or /home/user/repo, optional" />
+            </div>
+          </div>
+
+          {error && (
+            <div className="modal-alert modal-alert-error">
+              <span className="modal-alert-icon">✗</span>
+              <div>
+                <div className="modal-alert-title">SLO Studio failed</div>
+                <div className="modal-alert-msg">{error}</div>
               </div>
-
-              <div className="mtool-table-wrap animate-in">
-                <div className="mtool-cols mtool-cols-global mtool-header">
-                  <span>#</span>
-                  <span>Tool</span>
-                  <span>URL</span>
-                  <span>Auth</span>
-                  <span>Status</span>
-                </div>
-
-                {tools.map((tool, index) => (
-                  <div
-                    key={`${tool.toolName}-${tool.baseUrl}`}
-                    className="mtool-cols mtool-cols-global mtool-row"
-                  >
-                    <span className="mtool-num">{index + 1}</span>
-
-                    <span className="mtool-name">
-                      <span>{TOOL_ICONS[tool.toolName] ?? "🔧"}</span>
-                      {tool.toolName}
-                    </span>
-
-                    <span className="mtool-url" title={tool.baseUrl}>
-                      {tool.baseUrl}
-                    </span>
-
-                    <span className="mtool-auth">
-                      {tool.authToken ? "•••••" : <span className="mtool-none">—</span>}
-                    </span>
-
-                    <span className="mtool-status">
-                      <span className="validation-badge ok">✓ Global</span>
-                    </span>
-                  </div>
-                ))}
-
-                <div className="mtool-summary-bar">
-                  <span>{tools.length} tool{tools.length !== 1 ? "s" : ""} ready</span>
-                  <span>Source: Hub connectivity</span>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="empty-state">
-              <span className="empty-icon">🔌</span>
-              <span className="empty-text">
-                No SLO-compatible globally validated tools found. Validate Prometheus from Tool Connectivity.
-              </span>
             </div>
           )}
 
-          <div className="rca-step-label" style={{ marginTop: "1.25rem" }}>
-            <span className="rca-step-num">2</span>
-            <span>SLO generation options</span>
-          </div>
-
-          <div className="rca-incident-grid">
-            <div className="form-group">
-              <label className="form-label">Service / Component</label>
-              <input
-                className="form-input"
-                type="text"
-                value={service}
-                onChange={(e) => setService(e.target.value)}
-                placeholder="Optional, e.g. cart"
-                disabled={busy}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Default Objective %</label>
-              <input
-                className="form-input"
-                type="number"
-                min={90}
-                max={99.999}
-                step={0.01}
-                value={objective}
-                onChange={(e) => setObjective(e.target.value)}
-                disabled={busy}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Window Days</label>
-              <input
-                className="form-input"
-                type="number"
-                min={1}
-                max={90}
-                value={windowDays}
-                onChange={(e) => setWindowDays(e.target.value)}
-                disabled={busy}
-              />
-            </div>
-          </div>
-
-          <div className="rca-ai-row" style={{ marginTop: ".75rem" }}>
-            <label className="toggle-label">
-              <span
-                className={`toggle-switch ${includeYaml ? "active" : ""}`}
-                onClick={() => !busy && setIncludeYaml((value) => !value)}
-                role="switch"
-                aria-checked={includeYaml}
-                tabIndex={0}
-                onKeyDown={(e) =>
-                  e.key === " " && !busy && setIncludeYaml((value) => !value)
-                }
-              >
-                <span className="toggle-thumb" />
-              </span>
-              <span className="toggle-text">
-                Generate Sloth / Prometheus YAML
-              </span>
-            </label>
-          </div>
-
-          {status && (
-            <div
-              className={`modal-alert modal-alert-${status.type} animate-in`}
-              style={{ marginTop: "1rem" }}
-            >
-              <span className="modal-alert-icon">
-                {status.type === "success" ? "✓" : "✗"}
-              </span>
-
-              <div style={{ flex: 1 }}>
-                <div className="modal-alert-title">{status.title}</div>
-                <div className="modal-alert-msg">{status.msg}</div>
-
-                {status.stats && status.stats.length > 0 && (
-                  <div
-                    style={{
-                      marginTop: ".35rem",
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: ".4rem",
-                    }}
-                  >
-                    {status.stats.map((item, index) => (
-                      <span
-                        key={index}
-                        style={{
-                          display: "inline-block",
-                          padding: ".15rem .55rem",
-                          borderRadius: "12px",
-                          fontSize: ".72rem",
-                          fontWeight: 600,
-                          background: "rgba(0,0,0,.07)",
-                          color: "inherit",
-                        }}
-                      >
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                <div
-                  style={{
-                    marginTop: ".5rem",
-                    display: "flex",
-                    gap: ".5rem",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  {status.reportUrl && (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => triggerDownload(status.reportUrl)}
-                    >
-                      ⬇ Download Report
-                    </button>
-                  )}
-
-                  {status.jsonUrl && (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => triggerDownload(status.jsonUrl)}
-                    >
-                      ⬇ Download JSON
-                    </button>
-                  )}
-
-                  {status.yamlUrl && (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => triggerDownload(status.yamlUrl)}
-                    >
-                      ⬇ Download YAML
-                    </button>
-                  )}
+          {result && (
+            <div className="modal-alert modal-alert-success">
+              <span className="modal-alert-icon">✓</span>
+              <div>
+                <div className="modal-alert-title">SLO Studio report ready</div>
+                <div className="modal-alert-msg">
+                  Services: {result.summary?.service_count ?? 0} · Existing SLOs: {result.summary?.existing_slo_count ?? 0} · Recommendations: {result.summary?.recommended_slo_count ?? 0} · Evidence: {result.summary?.evidence_count ?? 0}
                 </div>
               </div>
             </div>
           )}
 
-          {reportPreviewUrl && (
-            <div className="report-preview-card animate-in">
+          {reportUrl && (
+            <div className="report-preview-card">
               <div className="report-preview-header">
                 <div>
-                  <div className="report-preview-title">
-                    SLO Studio Report Preview
-                  </div>
-                  <div className="report-preview-subtitle">
-                    The generated HTML report is rendered inline. Downloads remain available separately.
-                  </div>
+                  <div className="report-preview-title">SLO Studio Report Preview</div>
+                  <div className="report-preview-subtitle">Evidence-backed recommendations and generated Sloth YAML.</div>
                 </div>
               </div>
-
-              <iframe
-                className="report-preview-frame"
-                title="SLO Studio report"
-                src={reportPreviewUrl}
-              />
+              <iframe className="report-preview-frame" title="SLO Studio report" src={reportUrl} />
             </div>
           )}
         </div>
 
         <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>
-            Cancel
-          </button>
-
-          <button
-            className="btn btn-emerald"
-            onClick={handleRunSLOStudio}
-            disabled={busy || tools.length === 0}
-          >
-            {running ? (
-              <>
-                <span className="spinner" /> Analysing SLOs…
-              </>
-            ) : (
-              `📏 Run SLO Studio (${tools.length} tool${tools.length !== 1 ? "s" : ""})`
-            )}
+          <button className="btn btn-secondary" onClick={onClose} disabled={running}>Cancel</button>
+          <button className="btn btn-teal" onClick={run} disabled={running || tools.length === 0}>
+            {running ? (<><span className="spinner" /> Building SLO intelligence…</>) : "📏 Run SLO Studio"}
           </button>
         </div>
       </div>

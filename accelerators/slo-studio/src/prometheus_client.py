@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-import requests
+import time
 from typing import Any
+
+import requests
 
 
 class PrometheusClient:
-    def __init__(self, url: str, timeout: int = 10):
+    def __init__(self, url: str, timeout: int = 12):
         self.url = url.rstrip("/")
         self.timeout = timeout
 
-    def query(self, promql: str) -> Any:
+    def query(self, promql: str) -> dict[str, Any]:
         resp = requests.get(
             f"{self.url}/api/v1/query",
             params={"query": promql},
@@ -18,11 +20,17 @@ class PrometheusClient:
         resp.raise_for_status()
         return resp.json()
 
-    def rules(self) -> list[dict[str, Any]]:
+    def query_range(self, promql: str, start: int, end: int, step: str = "5m") -> dict[str, Any]:
         resp = requests.get(
-            f"{self.url}/api/v1/rules",
+            f"{self.url}/api/v1/query_range",
+            params={"query": promql, "start": start, "end": end, "step": step},
             timeout=self.timeout,
         )
+        resp.raise_for_status()
+        return resp.json()
+
+    def rules(self) -> list[dict[str, Any]]:
+        resp = requests.get(f"{self.url}/api/v1/rules", timeout=self.timeout)
         resp.raise_for_status()
         data = resp.json()
         groups = data.get("data", {}).get("groups", [])
@@ -33,10 +41,7 @@ class PrometheusClient:
         return rules
 
     def alerts(self) -> list[dict[str, Any]]:
-        resp = requests.get(
-            f"{self.url}/api/v1/alerts",
-            timeout=self.timeout,
-        )
+        resp = requests.get(f"{self.url}/api/v1/alerts", timeout=self.timeout)
         resp.raise_for_status()
         data = resp.json()
         return data.get("data", {}).get("alerts", [])
@@ -49,3 +54,8 @@ class PrometheusClient:
         resp.raise_for_status()
         data = resp.json()
         return data.get("data", [])
+
+    def range_window(self, lookback_days: int) -> tuple[int, int]:
+        end = int(time.time())
+        start = end - int(lookback_days * 24 * 60 * 60)
+        return start, end

@@ -5,15 +5,57 @@ from typing import Any
 
 
 @dataclass
-class ServiceSLO:
+class SignalEvidence:
+    source: str
+    signal_type: str
     service: str
+    title: str
+    value: str
+    query: str = ""
+    interpretation: str = ""
+    confidence: float = 0.5
+    raw: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ServiceProfile:
+    name: str
+    criticality: str = "unknown"
+    owners: list[str] = field(default_factory=list)
+    entrypoints: list[str] = field(default_factory=list)
+    operations: list[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
+    user_journeys: list[str] = field(default_factory=list)
+    evidence: list[SignalEvidence] = field(default_factory=list)
+
+
+@dataclass
+class SLICandidate:
+    service: str
+    name: str
+    sli_type: str
+    description: str
+    good_query: str
+    total_query: str
+    threshold: str = ""
+    evidence: list[SignalEvidence] = field(default_factory=list)
+
+
+@dataclass
+class SLORecommendation:
+    service: str
+    name: str
     sli_type: str
     objective: float
     window: str
     description: str
-    query_good: str
-    query_total: str
-    alerting: list[dict[str, Any]] = field(default_factory=list)
+    good_query: str
+    total_query: str
+    rationale: str
+    confidence: float
+    page_alert: bool = True
+    evidence: list[SignalEvidence] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -23,3 +65,4 @@ class SLOFinding:
     title: str
     description: str
     recommendation: str
+    evidence: list[SignalEvidence] = field(default_factory=list)

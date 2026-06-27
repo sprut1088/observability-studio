@@ -4,67 +4,81 @@
   <meta charset="utf-8" />
   <title>SLO Studio Report</title>
   <style>
-    body {
-      font-family: Inter, system-ui, sans-serif;
-      background: #f6f7fb;
-      color: #172033;
-      padding: 32px;
-    }
-    .page { max-width: 1100px; margin: 0 auto; }
-    .hero {
-      background: linear-gradient(135deg, #182033, #4338ca);
-      color: white;
-      padding: 28px;
-      border-radius: 18px;
-      margin-bottom: 24px;
-    }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
-    .card {
-      background: white;
-      border: 1px solid #e5e7eb;
-      border-radius: 14px;
-      padding: 18px;
-      margin-bottom: 18px;
-      box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
-    }
-    .kpi { text-align: center; }
-    .kpi strong { display: block; font-size: 32px; color: #4f46e5; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { text-align: left; border-bottom: 1px solid #e5e7eb; padding: 10px; vertical-align: top; }
-    th { color: #64748b; font-size: 12px; text-transform: uppercase; }
-    .sev-critical, .sev-high { color: #dc2626; font-weight: 700; }
-    .sev-medium { color: #d97706; font-weight: 700; }
-    .sev-low { color: #059669; font-weight: 700; }
-    pre {
-      white-space: pre-wrap;
-      background: #0f172a;
-      color: #e2e8f0;
-      padding: 16px;
-      border-radius: 12px;
-      overflow-x: auto;
-    }
+    body { font-family: Inter, system-ui, sans-serif; background:#f5f7fb; color:#172033; padding:32px; }
+    .page { max-width:1200px; margin:0 auto; }
+    .hero { background:linear-gradient(135deg,#0f172a,#059669); color:white; padding:30px; border-radius:20px; margin-bottom:22px; }
+    .hero h1 { margin:0 0 8px; font-size:30px; }
+    .hero p { margin:0; opacity:.85; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; margin-bottom:20px; }
+    .card { background:white; border:1px solid #e5e7eb; border-radius:14px; padding:18px; margin-bottom:18px; box-shadow:0 8px 22px rgba(15,23,42,.06); }
+    .kpi { text-align:center; }
+    .kpi strong { display:block; font-size:30px; color:#059669; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th,td { padding:10px; border-bottom:1px solid #e5e7eb; text-align:left; vertical-align:top; }
+    th { color:#64748b; text-transform:uppercase; font-size:11px; letter-spacing:.06em; }
+    .sev-critical { color:#dc2626; font-weight:700; }
+    .sev-high { color:#ea580c; font-weight:700; }
+    .sev-medium { color:#d97706; font-weight:700; }
+    .sev-low { color:#059669; font-weight:700; }
+    .pill { display:inline-block; padding:3px 8px; border-radius:999px; background:#ecfdf5; color:#059669; font-size:11px; font-weight:700; margin:2px; }
+    .evidence { margin-top:8px; padding:10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; font-size:12px; }
+    .muted { color:#64748b; }
+    pre { white-space:pre-wrap; word-break:break-word; background:#0f172a; color:#e2e8f0; padding:16px; border-radius:12px; font-size:12px; }
   </style>
 </head>
 <body>
 <div class="page">
   <div class="hero">
-    <h1>SLO Studio Report</h1>
-    <p>Service Level Objective discovery, coverage analysis, and generated Sloth configuration.</p>
+    <h1>📏 SLO Studio Report</h1>
+    <p>Evidence-backed SLO discovery, trend analysis, and Sloth rule generation.</p>
   </div>
 
   <div class="grid">
-    <div class="card kpi"><strong>{{ summary.service_count }}</strong><span>Services Discovered</span></div>
+    <div class="card kpi"><strong>{{ summary.service_count }}</strong><span>Services Profiled</span></div>
     <div class="card kpi"><strong>{{ summary.existing_slo_count }}</strong><span>Existing SLOs</span></div>
     <div class="card kpi"><strong>{{ summary.recommended_slo_count }}</strong><span>Recommended SLOs</span></div>
-    <div class="card kpi"><strong>{{ summary.finding_count }}</strong><span>Findings</span></div>
+    <div class="card kpi"><strong>{{ summary.evidence_count }}</strong><span>Evidence Items</span></div>
+    <div class="card kpi"><strong>{{ summary.lookback_days }}</strong><span>Lookback Days</span></div>
+  </div>
+
+  {% if collection_errors %}
+  <div class="card">
+    <h2>Collection Warnings</h2>
+    <table>
+      <thead><tr><th>Source</th><th>Operation</th><th>Error</th></tr></thead>
+      <tbody>
+      {% for err in collection_errors %}
+        <tr><td>{{ err.source }}</td><td>{{ err.operation }}</td><td>{{ err.error }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2>Service Understanding</h2>
+    <table>
+      <thead><tr><th>Service</th><th>Criticality</th><th>Journeys</th><th>Operations</th><th>Entrypoints</th><th>Evidence</th></tr></thead>
+      <tbody>
+      {% for profile in profiles %}
+        <tr>
+          <td><strong>{{ profile.name }}</strong></td>
+          <td class="sev-{{ profile.criticality }}">{{ profile.criticality }}</td>
+          <td>{% for j in profile.user_journeys %}<span class="pill">{{ j }}</span>{% endfor %}</td>
+          <td>{{ profile.operations[:6] | join(", ") }}</td>
+          <td>{{ profile.entrypoints[:6] | join(", ") }}</td>
+          <td>{{ profile.evidence | length }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
   </div>
 
   <div class="card">
-    <h2>Existing SLOs Detected</h2>
+    <h2>Existing SLO Coverage</h2>
+    {% if existing_slos %}
     <table>
-      <thead>
-        <tr><th>Name</th><th>Service</th><th>SLO</th><th>Severity</th><th>Source</th></tr>
-      </thead>
+      <thead><tr><th>Name</th><th>Service</th><th>SLO</th><th>Severity</th><th>Source</th></tr></thead>
       <tbody>
       {% for slo in existing_slos %}
         <tr>
@@ -77,21 +91,39 @@
       {% endfor %}
       </tbody>
     </table>
+    {% else %}
+    <p class="muted">No existing SLOs detected from Prometheus rules or alerts.</p>
+    {% endif %}
   </div>
 
   <div class="card">
-    <h2>Findings</h2>
+    <h2>Recommended SLOs</h2>
     <table>
       <thead>
-        <tr><th>Service</th><th>Severity</th><th>Finding</th><th>Recommendation</th></tr>
+        <tr><th>Service</th><th>SLO</th><th>Type</th><th>Objective</th><th>Confidence</th><th>Rationale & Evidence</th></tr>
       </thead>
       <tbody>
-      {% for finding in findings %}
+      {% for rec in recommendations %}
         <tr>
-          <td>{{ finding.service }}</td>
-          <td class="sev-{{ finding.severity }}">{{ finding.severity }}</td>
-          <td><strong>{{ finding.title }}</strong><br>{{ finding.description }}</td>
-          <td>{{ finding.recommendation }}</td>
+          <td><strong>{{ rec.service }}</strong></td>
+          <td>{{ rec.name }}</td>
+          <td>{{ rec.sli_type }}</td>
+          <td>{{ rec.objective }}% / {{ rec.window }}</td>
+          <td>{{ (rec.confidence * 100) | round(0) }}%</td>
+          <td>
+            {{ rec.rationale }}
+            {% for ev in rec.evidence %}
+              <div class="evidence">
+                <strong>{{ ev.source }} · {{ ev.signal_type }}</strong><br/>
+                {{ ev.title }}: {{ ev.value }}<br/>
+                <span class="muted">{{ ev.interpretation }}</span><br/>
+                {% if ev.query %}<code>{{ ev.query }}</code>{% endif %}
+              </div>
+            {% endfor %}
+            {% if rec.assumptions %}
+              <div class="evidence"><strong>Assumptions:</strong> {{ rec.assumptions | join("; ") }}</div>
+            {% endif %}
+          </td>
         </tr>
       {% endfor %}
       </tbody>
@@ -99,18 +131,16 @@
   </div>
 
   <div class="card">
-    <h2>Recommended SLOs</h2>
+    <h2>Findings</h2>
     <table>
-      <thead>
-        <tr><th>Service</th><th>Type</th><th>Objective</th><th>Description</th></tr>
-      </thead>
+      <thead><tr><th>Service</th><th>Severity</th><th>Finding</th><th>Recommendation</th></tr></thead>
       <tbody>
-      {% for slo in recommendations %}
+      {% for finding in findings %}
         <tr>
-          <td>{{ slo.service }}</td>
-          <td>{{ slo.sli_type }}</td>
-          <td>{{ slo.objective }}%</td>
-          <td>{{ slo.description }}</td>
+          <td>{{ finding.service }}</td>
+          <td class="sev-{{ finding.severity }}">{{ finding.severity }}</td>
+          <td><strong>{{ finding.title }}</strong><br/>{{ finding.description }}</td>
+          <td>{{ finding.recommendation }}</td>
         </tr>
       {% endfor %}
       </tbody>
