@@ -284,12 +284,14 @@ export default function CrawlModal({ onClose, validatedTools = [] }) {
             ✕
           </button>
         </div>
+
         <ExecutionLoader
           running={crawling}
           accelerator="obscrawl"
           mode="deterministic"
           toolCount={crawlTools.length}
-          title="Generating ObsCrawl Report"
+          title="Generating ObsCrawl estate workbook"
+          subtitle={`${crawlTools.length} crawl-compatible tool${crawlTools.length === 1 ? "" : "s"} selected`}
         />
 
         <div className="modal-body">

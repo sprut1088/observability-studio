@@ -291,12 +291,14 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
             </button>
           </div>
         </div>
+
         <ExecutionLoader
           running={running}
           accelerator="ayosa"
           mode={useAi ? "ai" : "deterministic"}
           toolCount={tools.length}
-          title={useAi ? "Running AYOSA Investigation with AI" : "Running AYOSA Investigation"}
+          title={useAi ? "Investigating with AYOSA AI" : "Investigating with AYOSA"}
+          subtitle={`${tools.length} validated tool${tools.length === 1 ? "" : "s"} · ${timeRange} lookback`}
         />
 
         {/* ── AI Chat Workspace ── */}

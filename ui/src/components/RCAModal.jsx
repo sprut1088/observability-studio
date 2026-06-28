@@ -205,12 +205,14 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
             ✕
           </button>
         </div>
+
         <ExecutionLoader
           running={running}
           accelerator="rca"
           mode={useAI ? "ai" : "deterministic"}
           toolCount={tools.length}
-          title={useAI ? "Running RCA Agent with AI" : "Running RCA Agent"}
+          title="Running RCA Agent"
+          subtitle={`Investigating ${service || "all services"} over the last ${timeWindow} minutes`}
         />
 
         <div className="modal-body">

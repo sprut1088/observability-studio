@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import ExecutionLoader from "./ExecutionLoader";
 import { API_HOST, runRedIntelligence } from "../api";
 import {
   TOOL_ICONS,
@@ -6,7 +7,6 @@ import {
   formatApiError,
   normalizeLegacyTools,
 } from "../lib/toolPayloads";
-import ExecutionLoader from "./ExecutionLoader";
 
 function resolveApiUrl(path) {
   if (!path) return null;
@@ -134,6 +134,7 @@ export default function RedIntelligenceModal({ onClose, validatedTools = [] }) {
           mode="deterministic"
           toolCount={tools.length}
           title="Running RED Intelligence"
+          subtitle={`${tools.length} validated tool${tools.length === 1 ? "" : "s"} selected`}
         />
 
         <div className="modal-body">

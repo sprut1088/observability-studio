@@ -156,12 +156,14 @@ export default function GapMapModal({ onClose, validatedTools = [] }) {
             X
           </button>
         </div>
+
         <ExecutionLoader
           running={running}
           accelerator="gapmap"
           mode="deterministic"
           toolCount={tools.length}
           title="Building Observability Gap Map"
+          subtitle={`${tools.length} validated tool${tools.length === 1 ? "" : "s"} selected`}
         />
 
         <div className="modal-body">

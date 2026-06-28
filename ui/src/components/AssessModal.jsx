@@ -144,12 +144,14 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
             ✕
           </button>
         </div>
+
         <ExecutionLoader
           running={assessing}
           accelerator="observascore"
           mode={useAi ? "ai" : "deterministic"}
           toolCount={tools.length}
-          title={useAi ? "Running ObservaScore with AI" : "Running ObservaScore Assessment"}
+          title={useAi ? "Running ObservaScore with AI" : "Running ObservaScore"}
+          subtitle={`${tools.length} validated tool${tools.length === 1 ? "" : "s"} selected`}
         />
 
         <div className="modal-body">

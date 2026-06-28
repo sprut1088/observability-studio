@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { API_HOST, v1SloStudio } from "../api";
 import ExecutionLoader from "./ExecutionLoader";
+import { API_HOST, v1SloStudio } from "../api";
 
 const SUPPORTED = ["prometheus", "jaeger", "tempo", "grafana", "alertmanager", "loki", "splunk", "opensearch", "elasticsearch", "dynatrace", "datadog", "appdynamics"];
 
@@ -109,9 +109,10 @@ export default function SLOStudioModal({ onClose, validatedTools = [] }) {
         <ExecutionLoader
           running={running}
           accelerator="slo"
-          mode="ai"
+          mode="deterministic"
           toolCount={tools.length}
-          title="Running SLO Studio"
+          title="Building SLO intelligence"
+          subtitle={`${lookbackDays}-day lookback · ${tools.length} compatible tool${tools.length === 1 ? "" : "s"}`}
         />
 
         <div className="modal-body">
