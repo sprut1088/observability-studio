@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { v1Rca, API_HOST } from "../api";
+import ExecutionLoader from "./ExecutionLoader";
 
 const RCA_SUPPORTED_TOOLS = [
   "prometheus",
@@ -204,6 +205,13 @@ export default function RCAModal({ onClose, validatedTools = [] }) {
             ✕
           </button>
         </div>
+        <ExecutionLoader
+          running={running}
+          accelerator="rca"
+          mode={useAI ? "ai" : "deterministic"}
+          toolCount={tools.length}
+          title={useAI ? "Running RCA Agent with AI" : "Running RCA Agent"}
+        />
 
         <div className="modal-body">
           <div className="rca-step-label">

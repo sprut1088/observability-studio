@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { exportExcel, API_HOST } from "../api";
+import ExecutionLoader from "./ExecutionLoader";
 
 const DEFAULT_USAGES = {
   prometheus: ["metrics", "alerts"],
@@ -283,6 +284,13 @@ export default function CrawlModal({ onClose, validatedTools = [] }) {
             ✕
           </button>
         </div>
+        <ExecutionLoader
+          running={crawling}
+          accelerator="obscrawl"
+          mode="deterministic"
+          toolCount={crawlTools.length}
+          title="Generating ObsCrawl Report"
+        />
 
         <div className="modal-body">
           {tools.length > 0 ? (

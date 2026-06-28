@@ -3,6 +3,7 @@ import { runAyosaInvestigation, generateAyosaRunbook } from "../api";
 import AyosaChatMessage from "./AyosaChatMessage";
 import AyosaIncidentSnapshot from "./AyosaIncidentSnapshot";
 import AyosaChatShell from "./AyosaChatShell";
+import ExecutionLoader from "./ExecutionLoader";
 
 const AI_PROVIDERS = [
   { value: "anthropic", label: "✨ Anthropic (Claude)" },
@@ -290,6 +291,13 @@ export default function AYOSAModal({ onClose, validatedTools = [] }) {
             </button>
           </div>
         </div>
+        <ExecutionLoader
+          running={running}
+          accelerator="ayosa"
+          mode={useAi ? "ai" : "deterministic"}
+          toolCount={tools.length}
+          title={useAi ? "Running AYOSA Investigation with AI" : "Running AYOSA Investigation"}
+        />
 
         {/* ── AI Chat Workspace ── */}
         {aiModeActive ? (

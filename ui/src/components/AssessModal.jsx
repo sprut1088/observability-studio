@@ -6,6 +6,7 @@ import {
   formatApiError,
   normalizeLegacyTools,
 } from "../lib/toolPayloads";
+import ExecutionLoader from "./ExecutionLoader";
 
 const AI_PROVIDERS = [
   { value: "anthropic", label: "✨ Anthropic (Claude)" },
@@ -143,6 +144,13 @@ export default function AssessModal({ onClose, validatedTools = [] }) {
             ✕
           </button>
         </div>
+        <ExecutionLoader
+          running={assessing}
+          accelerator="observascore"
+          mode={useAi ? "ai" : "deterministic"}
+          toolCount={tools.length}
+          title={useAi ? "Running ObservaScore with AI" : "Running ObservaScore Assessment"}
+        />
 
         <div className="modal-body">
           {tools.length > 0 ? (

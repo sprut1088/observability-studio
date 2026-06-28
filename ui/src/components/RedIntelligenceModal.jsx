@@ -6,6 +6,7 @@ import {
   formatApiError,
   normalizeLegacyTools,
 } from "../lib/toolPayloads";
+import ExecutionLoader from "./ExecutionLoader";
 
 function resolveApiUrl(path) {
   if (!path) return null;
@@ -126,6 +127,14 @@ export default function RedIntelligenceModal({ onClose, validatedTools = [] }) {
             ✕
           </button>
         </div>
+
+        <ExecutionLoader
+          running={running}
+          accelerator="red"
+          mode="deterministic"
+          toolCount={tools.length}
+          title="Running RED Intelligence"
+        />
 
         <div className="modal-body">
           <div className="mtool-add-bar" style={{ marginBottom: 12 }}>

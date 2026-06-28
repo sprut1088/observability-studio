@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { API_HOST, v1SloStudio } from "../api";
+import ExecutionLoader from "./ExecutionLoader";
 
 const SUPPORTED = ["prometheus", "jaeger", "tempo", "grafana", "alertmanager", "loki", "splunk", "opensearch", "elasticsearch", "dynatrace", "datadog", "appdynamics"];
 
@@ -104,6 +105,14 @@ export default function SLOStudioModal({ onClose, validatedTools = [] }) {
           </div>
           <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
         </div>
+
+        <ExecutionLoader
+          running={running}
+          accelerator="slo"
+          mode="ai"
+          toolCount={tools.length}
+          title="Running SLO Studio"
+        />
 
         <div className="modal-body">
           <div className="modal-alert modal-alert-success">

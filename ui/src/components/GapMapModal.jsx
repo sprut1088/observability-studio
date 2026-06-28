@@ -6,6 +6,7 @@ import {
   formatApiError,
   normalizeLegacyTools,
 } from "../lib/toolPayloads";
+import ExecutionLoader from "./ExecutionLoader";
 
 function resolveApiUrl(path) {
   if (!path) return null;
@@ -155,6 +156,13 @@ export default function GapMapModal({ onClose, validatedTools = [] }) {
             X
           </button>
         </div>
+        <ExecutionLoader
+          running={running}
+          accelerator="gapmap"
+          mode="deterministic"
+          toolCount={tools.length}
+          title="Building Observability Gap Map"
+        />
 
         <div className="modal-body">
           <div className="mtool-add-bar" style={{ gridTemplateColumns: "1fr 1fr" }}>
