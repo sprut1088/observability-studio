@@ -2,11 +2,23 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from pathlib import Path
 from typing import Any
 
 import requests
+
+
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+ANTHROPIC_MODEL_ALIASES = {
+    "claude-3-5-sonnet-latest": DEFAULT_ANTHROPIC_MODEL,
+    "claude-3-5-sonnet": DEFAULT_ANTHROPIC_MODEL,
+    "claude-3.5-sonnet": DEFAULT_ANTHROPIC_MODEL,
+    "claude-3-5-sonnet-20240620": DEFAULT_ANTHROPIC_MODEL,
+    "claude-3-5-sonnet-20241022": DEFAULT_ANTHROPIC_MODEL,
+    "claude-3-7-sonnet-20250219": DEFAULT_ANTHROPIC_MODEL,
+    "claude-sonnet-4": DEFAULT_ANTHROPIC_MODEL,
+    "claude-sonnet-4-20250514": DEFAULT_ANTHROPIC_MODEL,
+}
 
 
 def _get(obj: Any, key: str, default: Any = None) -> Any:
@@ -18,7 +30,7 @@ def _get(obj: Any, key: str, default: Any = None) -> Any:
 def _load_methodology() -> dict[str, Any]:
     path = Path(__file__).resolve().parents[1] / "knowledge" / "google_sre_slo_methodology.json"
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {
             "name": "Fallback SRE methodology",
@@ -38,7 +50,6 @@ def _load_methodology() -> dict[str, Any]:
 
 def _compact_evidence(evidence: list[Any], limit: int = 4) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-
     for ev in (evidence or [])[:limit]:
         rows.append(
             {
@@ -50,7 +61,6 @@ def _compact_evidence(evidence: list[Any], limit: int = 4) -> list[dict[str, Any
                 "query": _get(ev, "query"),
             }
         )
-
     return rows
 
 
@@ -64,7 +74,6 @@ def _recommendation_row(rec: Any) -> dict[str, Any]:
             _get(rec, "objective_display")
             or _get(rec, "slo_display")
             or _get(rec, "display_objective")
-            or _get(rec, "description")
         ),
         "threshold": _get(rec, "threshold"),
         "window": _get(rec, "window"),
@@ -83,61 +92,51 @@ def _coverage_row(row: Any) -> dict[str, Any]:
         "recommended_objective": _get(row, "recommended_objective"),
         "recommended_objective_display": (
             _get(row, "recommended_objective_display")
-            or _get(row, "recommended_objective_text")
             or _get(row, "objective_display")
         ),
         "action": _get(row, "action"),
-        "evidence_summary": _get(row, "evidence_summary"),
     }
 
 
-def _extract_json(text: str) -> dict[str, Any]:
-    try:
-        return json.loads(text)
-    except Exception:
-        pass
-
-    match = re.search(r"\{.*\}", text or "", re.S)
-    if match:
-        return json.loads(match.group(0))
-
-    raise ValueError("AI response did not contain valid JSON.")
-
-
-def _safe_str(value: Any, max_len: int = 500) -> str:
-    text = str(value or "")
-    if len(text) <= max_len:
-        return text
-    return text[: max_len - 3] + "..."
+def _objective_text(rec: dict[str, Any]) -> str:
+    return (
+        rec.get("objective_display")
+        or rec.get("recommended_objective_display")
+        or rec.get("recommended_objective")
+        or (
+            f"{rec.get('objective')} over {rec.get('window')}"
+            if rec.get("objective") and rec.get("window")
+            else str(rec.get("objective") or "Review deterministic SLO recommendation")
+        )
+    )
 
 
-def _fallback_advisor(payload: dict[str, Any], status: str = "deterministic_fallback") -> dict[str, Any]:
-    recommendations = payload.get("production_ready_recommendations", [])
-    coverage = payload.get("slo_coverage_matrix", [])
-    summary = payload.get("summary", {})
+def _fallback_advisor(payload: dict[str, Any], status: str = "fallback") -> dict[str, Any]:
+    recommendations = payload.get("production_ready_recommendations", []) or []
+    coverage = payload.get("slo_coverage_matrix", []) or []
+    summary = payload.get("summary", {}) or {}
 
-    top_actions = []
+    top_actions: list[dict[str, Any]] = []
     for index, rec in enumerate(recommendations[:5], start=1):
-        display = rec.get("objective_display") or f"{rec.get('objective')} over {rec.get('window')}"
+        display = _objective_text(rec)
         top_actions.append(
             {
                 "priority": index,
                 "service": rec.get("service"),
                 "action": f"Create {rec.get('sli_type')} SLO",
                 "recommended_slo": display,
-                "why": _safe_str(rec.get("rationale") or "Evidence-backed deterministic recommendation.", 900),
+                "why": rec.get("rationale") or "Evidence-backed deterministic recommendation.",
                 "owner": "Service owner and SRE team",
                 "risk": "medium",
             }
         )
 
-    questions = []
-    for row in coverage[:15]:
+    questions: list[dict[str, str]] = []
+    for row in coverage[:20]:
         service = row.get("service")
         sli = row.get("sli_type")
-        row_status = row.get("status")
-
-        if row_status == "recommended":
+        status_value = row.get("status")
+        if status_value == "recommended":
             questions.append(
                 {
                     "service": service,
@@ -147,21 +146,23 @@ def _fallback_advisor(payload: dict[str, Any], status: str = "deterministic_fall
                     ),
                 }
             )
-        elif row_status == "missing_telemetry":
+        elif status_value == "missing_telemetry":
             questions.append(
                 {
                     "service": service,
-                    "question": f"What instrumentation is needed before a production-grade {sli} SLO can be adopted?",
+                    "question": (
+                        f"What instrumentation is needed before a production-grade {sli} SLO can be adopted?"
+                    ),
                 }
             )
 
     return {
         "status": status,
         "executive_interpretation": (
-            f"SLO Studio analyzed {summary.get('service_count')} services over "
-            f"{summary.get('lookback_days')} days and produced "
-            f"{summary.get('production_ready_slo_count')} evidence-backed recommendations. "
-            "The deterministic engine calculated the SLO objectives; the AI Advisor organizes evidence into rollout actions."
+            f"SLO Studio analyzed {summary.get('service_count', 0)} services over "
+            f"{summary.get('lookback_days', 'the selected lookback')} days and produced "
+            f"{summary.get('production_ready_slo_count', len(recommendations))} evidence-backed recommendations. "
+            "The deterministic engine calculated the SLO objectives; the advisor organizes evidence into rollout actions."
         ),
         "top_actions": top_actions,
         "governance_notes": [
@@ -178,27 +179,44 @@ def _fallback_advisor(payload: dict[str, Any], status: str = "deterministic_fall
             "Week 4: Enable production governance and review error-budget consumption with service owners.",
         ],
         "leadership_summary": (
-            "AI translated deterministic SLO findings into a leadership-ready rollout plan for service owners, SREs, and governance teams."
+            "AI translated deterministic SLO findings into a leadership-ready rollout plan for service owners, "
+            "SREs, and governance teams."
         ),
     }
 
 
-def _call_anthropic(prompt: str) -> str:
+def _sanitize_plain_text(text: str, max_chars: int = 2200) -> str:
+    cleaned = (text or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`").strip()
+    cleaned = cleaned.replace("```", "").strip()
+    cleaned = "\n".join(line.rstrip() for line in cleaned.splitlines()).strip()
+    if len(cleaned) > max_chars:
+        cleaned = cleaned[:max_chars].rsplit(" ", 1)[0].rstrip() + "..."
+    return cleaned
+
+
+def _normalize_anthropic_model(model: str | None) -> str:
+    raw = (model or "").strip() or DEFAULT_ANTHROPIC_MODEL
+    return ANTHROPIC_MODEL_ALIASES.get(raw, raw)
+
+
+def _call_anthropic(prompt: str) -> tuple[str, str]:
     api_key = (
         os.getenv("SLO_AI_API_KEY")
         or os.getenv("ANTHROPIC_API_KEY")
         or os.getenv("CLAUDE_API_KEY")
         or os.getenv("AI_API_KEY")
     )
-    model = (
+    model = _normalize_anthropic_model(
         os.getenv("SLO_AI_MODEL")
         or os.getenv("ANTHROPIC_MODEL")
         or os.getenv("AI_MODEL")
-        or "claude-sonnet-4-6"
+        or DEFAULT_ANTHROPIC_MODEL
     )
 
     if not api_key:
-        raise RuntimeError("No Anthropic API key found. Set ANTHROPIC_API_KEY or SLO_AI_API_KEY.")
+        raise RuntimeError("No Anthropic API key found.")
 
     response = requests.post(
         "https://api.anthropic.com/v1/messages",
@@ -209,23 +227,24 @@ def _call_anthropic(prompt: str) -> str:
         },
         json={
             "model": model,
-            "max_tokens": 1800,
+            "max_tokens": 900,
             "temperature": 0.2,
             "messages": [{"role": "user", "content": prompt}],
         },
-        timeout=45,
+        timeout=60,
     )
     response.raise_for_status()
 
     data = response.json()
-    return "\n".join(
+    text = "\n".join(
         block.get("text", "")
         for block in data.get("content", [])
         if block.get("type") == "text"
     ).strip()
+    return text, model
 
 
-def _call_openai(prompt: str) -> str:
+def _call_openai(prompt: str) -> tuple[str, str]:
     api_key = (
         os.getenv("SLO_AI_API_KEY")
         or os.getenv("OPENAI_API_KEY")
@@ -239,7 +258,7 @@ def _call_openai(prompt: str) -> str:
     )
 
     if not api_key:
-        raise RuntimeError("No OpenAI API key found. Set OPENAI_API_KEY or SLO_AI_API_KEY.")
+        raise RuntimeError("No OpenAI API key found.")
 
     response = requests.post(
         "https://api.openai.com/v1/chat/completions",
@@ -250,7 +269,7 @@ def _call_openai(prompt: str) -> str:
         json={
             "model": model,
             "temperature": 0.2,
-            "max_tokens": 1800,
+            "max_tokens": 900,
             "messages": [
                 {
                     "role": "system",
@@ -262,58 +281,43 @@ def _call_openai(prompt: str) -> str:
                 {"role": "user", "content": prompt},
             ],
         },
-        timeout=45,
+        timeout=60,
     )
     response.raise_for_status()
 
     data = response.json()
-    return data["choices"][0]["message"]["content"].strip()
+    return (data["choices"][0]["message"]["content"] or "").strip(), model
 
 
-def _build_prompt(payload: dict[str, Any]) -> str:
+def _build_narrative_prompt(payload: dict[str, Any]) -> str:
+    compact_payload = {
+        "methodology_principles": (payload.get("methodology") or {}).get("principles", [])[:6],
+        "summary": payload.get("summary", {}),
+        "tools": payload.get("tool_inventory", []),
+        "production_ready_recommendations": payload.get("production_ready_recommendations", [])[:7],
+        "candidate_recommendations": payload.get("candidate_recommendations", [])[:4],
+        "coverage_samples": payload.get("slo_coverage_matrix", [])[:12],
+        "existing_slos": payload.get("existing_slos", [])[:6],
+        "collection_errors": payload.get("collection_errors", [])[:5],
+    }
+
     return f"""
-You are creating an AI Advisor section for SLO Studio.
+You are writing the AI Advisor narrative for SLO Studio in a regulated banking environment.
 
-SLO Studio already calculated deterministic SLO recommendations. Your job is to explain and prioritize them for leadership and service owners.
+SLO Studio has already calculated every SLO objective, latency threshold, confidence score, and PromQL expression deterministically. Your task is only to explain the deterministic evidence for leadership and service owners.
 
-Hard rules:
-- Do not change any SLO objective.
-- Do not change any latency threshold.
-- Do not change confidence values.
-- Do not invent telemetry.
-- Do not claim AI calculated the SLOs.
-- Use Google SRE methodology only as advisory guidance.
-- Use only the evidence in the JSON.
-- Output valid JSON only.
+Rules:
+- Return plain text only. Do not return JSON.
+- Do not use markdown tables.
+- Do not change any objective, threshold, confidence, or PromQL.
+- Do not invent telemetry or service ownership.
+- Use only the evidence below.
+- Keep the answer to 2 concise paragraphs, maximum 220 words total.
+- First paragraph: executive interpretation and business/operational risk.
+- Second paragraph: rollout guidance for service owners and governance.
 
-Return this JSON shape:
-{{
-  "status": "generated",
-  "executive_interpretation": "string",
-  "top_actions": [
-    {{
-      "priority": 1,
-      "service": "string",
-      "action": "string",
-      "recommended_slo": "string",
-      "why": "string",
-      "owner": "string",
-      "risk": "low|medium|high"
-    }}
-  ],
-  "governance_notes": ["string"],
-  "service_owner_questions": [
-    {{
-      "service": "string",
-      "question": "string"
-    }}
-  ],
-  "rollout_plan": ["string"],
-  "leadership_summary": "string"
-}}
-
-Evidence JSON:
-{json.dumps(payload, indent=2)}
+Evidence:
+{json.dumps(compact_payload, indent=2)}
 """.strip()
 
 
@@ -328,10 +332,10 @@ def generate_ai_advisor(
 ) -> dict[str, Any]:
     enabled = str(os.getenv("SLO_AI_ENABLED", "true")).lower() in {"1", "true", "yes", "y"}
     provider = (os.getenv("SLO_AI_PROVIDER") or os.getenv("AI_PROVIDER") or "anthropic").lower()
-    methodology = _load_methodology()
+    strict_json = str(os.getenv("SLO_AI_STRICT_JSON", "false")).lower() in {"1", "true", "yes", "y"}
 
     payload = {
-        "methodology": methodology,
+        "methodology": _load_methodology(),
         "summary": summary,
         "tool_inventory": tool_inventory,
         "production_ready_recommendations": [
@@ -347,35 +351,53 @@ def generate_ai_advisor(
         "collection_errors": collection_errors[:8],
     }
 
+    advisor = _fallback_advisor(payload, status="deterministic")
+    advisor["enabled"] = enabled
+    advisor["provider"] = provider
+    advisor["error"] = None
+    advisor["mode"] = "deterministic_advisor"
+
     if not enabled:
-        advisor = _fallback_advisor(payload, status="disabled")
-        advisor["enabled"] = False
-        advisor["provider"] = provider
-        advisor["error"] = None
+        advisor["status"] = "disabled"
         return advisor
 
-    prompt = _build_prompt(payload)
+    # The old strict JSON mode is intentionally disabled by default because
+    # LLM JSON formatting failures caused SLO Studio to display fallback notes
+    # even when the API call succeeded. Keep it only as an explicit escape hatch.
+    if strict_json:
+        advisor["status"] = "deterministic"
+        advisor["error"] = "SLO_AI_STRICT_JSON is enabled, but strict JSON mode has been retired for demo safety."
+        return advisor
+
+    prompt = _build_narrative_prompt(payload)
 
     try:
         if provider == "openai":
-            raw = _call_openai(prompt)
+            raw, model = _call_openai(prompt)
         else:
             provider = "anthropic"
-            raw = _call_anthropic(prompt)
+            raw, model = _call_anthropic(prompt)
 
-        advisor = _extract_json(raw)
-        advisor["enabled"] = True
+        narrative = _sanitize_plain_text(raw)
+        if not narrative:
+            raise RuntimeError("AI provider returned an empty narrative.")
+
+        advisor["status"] = "generated"
         advisor["provider"] = provider
+        advisor["model"] = model
+        advisor["mode"] = "narrative_no_json"
+        advisor["executive_interpretation"] = narrative
+        advisor["leadership_summary"] = (
+            "AI advisor narrative generated successfully. Deterministic SLO math remains the source of truth for "
+            "objectives, thresholds, confidence, and PromQL."
+        )
         advisor["error"] = None
-
-        if not advisor.get("status"):
-            advisor["status"] = "generated"
-
         return advisor
 
     except Exception as exc:
         advisor = _fallback_advisor(payload, status="fallback")
         advisor["enabled"] = True
         advisor["provider"] = provider
-        advisor["error"] = _safe_str(exc, 220)
+        advisor["error"] = str(exc)
+        advisor["mode"] = "deterministic_fallback"
         return advisor
